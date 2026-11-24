@@ -1,0 +1,22 @@
+# Local deployments, keys and databases
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.db
+instance/
+secrets/
+target/
+node_modules/
+__pycache__/
+*.log
+.vscode/
+.DS_Store
+Thumbs.db
+
+# The downloadable kit is packaged separately from its source assets.
+/Singularr Event Horizon Kit.zip
