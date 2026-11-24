@@ -21,6 +21,8 @@ See both workflows in the [illustrated product and identity guide](./Singularr%2
 
 ## Identity kit
 
+The public release contains the brand assets and interface studies. [Download the complete identity kit](https://github.com/silenthooligan/singularr/releases/download/identity-v1.0/Singularr.Event.Horizon.Kit.zip).
+
 | Asset | Use |
 | --- | --- |
 | [Identity board](./Singularr%20Event%20Horizon%20Board.png) | Compare the owner and requester lockups in one view. |
