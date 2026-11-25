@@ -3,6 +3,23 @@
 Singularr is one workspace over a Plex library and the services around it. A change should make the
 library easier to understand, or a service easier to manage, without making any of them less safe.
 
+Singularr is a work in progress, built in the open: the [roadmap](docs/roadmap.md) is the plan, and
+every part of it is open to help. Before a large change, open an issue or a
+[discussion](https://github.com/silenthooligan/singularr/discussions) so we can agree on its shape first.
+
+## Where help is wanted
+
+- **Adapters.** Every kind of service plugs in through one layer with an adapter per service. Media
+  servers and players (Jellyfin, Emby, Kodi), download clients (Transmission, Deluge, SABnzbd, NZBGet),
+  indexers (Prowlarr, Jackett, Torznab and Newznab directly) and transcoders are each a self-contained
+  piece of work once their layer is in place; the roadmap says which layers are.
+- **Native jobs.** Search and grab through your indexers and download client, import and renaming,
+  subtitles, retention rules, download cleanup, built-in sign-in and a first-run setup.
+- **Your setup.** Run the beta beside your current stack and report what it gets wrong: a release it
+  scores oddly, a file it misreads, a page that is slow or unclear.
+- **Docs and words.** Guides for other servers and proxies, and interface text that follows
+  [docs/copy.md](docs/copy.md).
+
 ## Report a problem
 
 Open an [issue](https://github.com/silenthooligan/singularr/issues/new/choose). Include the version

@@ -17,6 +17,8 @@
 <a href="https://github.com/silenthooligan/singularr/releases"><img src="https://img.shields.io/github/v/release/silenthooligan/singularr?include_prereleases&label=beta" alt="Latest beta"></a>
 <a href="https://github.com/silenthooligan/singularr/actions/workflows/ci.yml"><img src="https://github.com/silenthooligan/singularr/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache_2.0-blue" alt="Apache 2.0 license"></a>
+<a href="docs/roadmap.md"><img src="https://img.shields.io/badge/status-work_in_progress-BBA4FD" alt="Work in progress"></a>
+<a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/contributions-welcome-5B3D92" alt="Contributions welcome"></a>
 </p>
 
 ![A luminous violet event horizon beside the words “Escape container sprawl.”](./brand/Campaign/Singularr%20launch%20card.png)
@@ -33,6 +35,18 @@ players, download clients, indexers and transcoders each plug in through one lay
 adapter per service, and Singularr drives them through their APIs. 0.1 speaks Plex, qBittorrent,
 Prowlarr and Tdarr; Jellyfin, Emby, Kodi, Transmission, Deluge, SABnzbd and NZBGet come next
 ([roadmap](docs/roadmap.md)).
+
+## A work in progress, built in the open
+
+Singularr is not finished, and it says so. The intent is above: one app in place of the stack, for
+whichever services you run. The [roadmap](docs/roadmap.md) shows what is live, what is next and what
+is planned, job by job and service by service.
+
+**Contributions are welcome.** Each kind of service plugs in through one layer, so support for another
+media server or download client is a self-contained adapter, and every job on the roadmap is open:
+native search and import, subtitles, retention, download cleanup, built-in sign-in. Testing on your
+own setup and telling us what broke helps as much as code. Start with [CONTRIBUTING.md](CONTRIBUTING.md),
+or bring an idea to [Discussions](https://github.com/silenthooligan/singularr/discussions).
 
 > **Beta (0.x).** Singularr manages a real library every day. In 0.1 it still hands some jobs to the
 > apps it replaces: Radarr and Sonarr search, grab and import (Singularr drives them and judges every
