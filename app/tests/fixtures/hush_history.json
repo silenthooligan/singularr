@@ -1,0 +1,940 @@
+{
+ "identity_mode": "enforce",
+ "ledger": "/media/hush/_ledger",
+ "counts": {
+  "promoted": 6,
+  "staged": 2,
+  "superseded": 1,
+  "failed": 1,
+  "pruned": 1,
+  "refused": 1
+ },
+ "jobs": [
+  {
+   "created": "2026-11-23T14:55:00Z",
+   "events": [
+    {
+     "actor": "hushq",
+     "event": "staged",
+     "mode": "hevc",
+     "path": "/media/shows/Avatar - The Last Airbender (2024) {tvdb-385925}/Season 01/Avatar - The Last Airbender (2024) - S01E01 - Aang [WEBDL-1080p][EAC3 Atmos 5.1][x264]-Kitsune.mkv",
+     "size": 2562033987,
+     "trigger": "hush_rules",
+     "ts": "2026-11-23T14:55:00Z"
+    },
+    {
+     "actor": "sonarr-finalizer",
+     "event": "output_staged",
+     "output": {
+      "ino": 131734,
+      "links": 2,
+      "mtime_ns": 1795446373505936652,
+      "path": "/media/hush/staging/shows/hevc_1080p/Avatar - The Last Airbender (2024) -/Season 01/Avatar - The Last Airbender (2024) - - S01E01 [NF WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[Kitsune].mkv",
+      "sample": "4217c633206d9bff328017a1e79c5935b5ca78d67ae69213ccd5ada7291c3dd9",
+      "size": 2021176200
+     },
+     "staged_output": "/media/hush/staging/shows/hevc_1080p/Avatar - The Last Airbender (2024) -/Season 01/Avatar - The Last Airbender (2024) - - S01E01 [NF WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[Kitsune].mkv",
+     "state": "output_staged",
+     "ts": "2026-11-23T15:06:13Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "identity_ok",
+     "identity": "match",
+     "note": "content identity, 1 file(s)",
+     "ts": "2026-11-23T15:06:13Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "promoted",
+     "identity": "match",
+     "promoted": {
+      "arr_file_id": 34462,
+      "link": "hardlink",
+      "path": "/media/shows/Avatar - The Last Airbender (2024) {tvdb-385925}/Season 01/Avatar - The Last Airbender (2024) - S01E01 - Aang [WEBDL-1080p][Opus 5.1][HEVC]-Kitsune.mkv",
+      "replaced": [
+       {
+        "path": "/media/shows/Avatar - The Last Airbender (2024) {tvdb-385925}/Season 01/Avatar - The Last Airbender (2024) - S01E01 - Aang [WEBDL-1080p][EAC3 Atmos 5.1][x264]-Kitsune.mkv",
+        "size": 2562033987,
+        "still_there": false
+       }
+      ],
+      "replaced_by": "sonarr (its recycle bin, when one is set)",
+      "size": 2021176200
+     },
+     "state": "promoted",
+     "ts": "2026-11-23T15:06:15Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "removed",
+     "kind": "file",
+     "path": "/media/hush/staging/shows/hevc_1080p/Avatar - The Last Airbender (2024) -/Season 01/Avatar - The Last Airbender (2024) - - S01E01 [NF WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[Kitsune].mkv",
+     "reason": "import confirmed",
+     "ts": "2026-11-23T15:06:15Z"
+    }
+   ],
+   "id": "20261123T145500Z-57ec91da",
+   "identity": "match",
+   "mode": "hevc",
+   "output": {
+    "ino": 131734,
+    "links": 2,
+    "mtime_ns": 1795446373505936652,
+    "path": "/media/hush/staging/shows/hevc_1080p/Avatar - The Last Airbender (2024) -/Season 01/Avatar - The Last Airbender (2024) - - S01E01 [NF WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[Kitsune].mkv",
+    "sample": "4217c633206d9bff328017a1e79c5935b5ca78d67ae69213ccd5ada7291c3dd9",
+    "size": 2021176200
+   },
+   "promoted": {
+    "arr_file_id": 34462,
+    "link": "hardlink",
+    "path": "/media/shows/Avatar - The Last Airbender (2024) {tvdb-385925}/Season 01/Avatar - The Last Airbender (2024) - S01E01 - Aang [WEBDL-1080p][Opus 5.1][HEVC]-Kitsune.mkv",
+    "replaced": [
+     {
+      "path": "/media/shows/Avatar - The Last Airbender (2024) {tvdb-385925}/Season 01/Avatar - The Last Airbender (2024) - S01E01 - Aang [WEBDL-1080p][EAC3 Atmos 5.1][x264]-Kitsune.mkv",
+      "size": 2562033987,
+      "still_there": false
+     }
+    ],
+    "replaced_by": "sonarr (its recycle bin, when one is set)",
+    "size": 2021176200
+   },
+   "queue_path": "/media/hush/queue/shows/hevc_1080p/Avatar - The Last Airbender (2024) {tvdb-385925}/Season 01/Avatar - The Last Airbender (2024) - S01E01 - Aang [WEBDL-1080p][EAC3 Atmos 5.1][x264]-Kitsune.mkv",
+   "source": {
+    "ino": 131236,
+    "links": 2,
+    "mtime_ns": 1795445680134128230,
+    "path": "/media/shows/Avatar - The Last Airbender (2024) {tvdb-385925}/Season 01/Avatar - The Last Airbender (2024) - S01E01 - Aang [WEBDL-1080p][EAC3 Atmos 5.1][x264]-Kitsune.mkv",
+    "sample": "2e056ba5e307b522e660170861e4f78e83d02de69ae95fd8aa3f8e2ad8a4f372",
+    "size": 2562033987
+   },
+   "staged_output": "/media/hush/staging/shows/hevc_1080p/Avatar - The Last Airbender (2024) -/Season 01/Avatar - The Last Airbender (2024) - - S01E01 [NF WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[Kitsune].mkv",
+   "state": "promoted",
+   "trigger": "hush_rules",
+   "updated": "2026-11-23T15:06:15Z"
+  },
+  {
+   "created": "2026-11-23T13:47:00Z",
+   "events": [
+    {
+     "actor": "hushq",
+     "event": "staged",
+     "mode": "hevc",
+     "path": "/media/shows/The Expanse {tvdb-280619}/Season 01/The Expanse (2015) - S01E07 - Windmills [WEBDL-1080p][EAC3 5.1][h264]-playWEB.mkv",
+     "size": 2966666220,
+     "trigger": "hush_rules",
+     "ts": "2026-11-23T13:47:00Z"
+    },
+    {
+     "actor": "sonarr-finalizer",
+     "event": "output_staged",
+     "output": {
+      "ino": 131108,
+      "links": 2,
+      "mtime_ns": 1795442086744815711,
+      "path": "/media/hush/staging/shows/hevc_1080p/The Expanse (2015) -/Season 01/The Expanse (2015) - - S01E07 [AMZN WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+      "sample": "c89fd2fc627754cfaffe57714a3a014e766f0088ef3eac15a22181a4489716ea",
+      "size": 1904056631
+     },
+     "staged_output": "/media/hush/staging/shows/hevc_1080p/The Expanse (2015) -/Season 01/The Expanse (2015) - - S01E07 [AMZN WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+     "state": "output_staged",
+     "ts": "2026-11-23T13:54:46Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "identity_ok",
+     "identity": "match",
+     "note": "content identity, 1 file(s)",
+     "ts": "2026-11-23T13:54:46Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "promoted",
+     "identity": "match",
+     "promoted": {
+      "arr_file_id": 34460,
+      "link": "hardlink",
+      "path": "/media/shows/The Expanse {tvdb-280619}/Season 01/The Expanse (2015) - S01E07 - Windmills [WEBDL-1080p][Opus 5.1][HEVC]-SHH.mkv",
+      "replaced": [
+       {
+        "path": "/media/shows/The Expanse {tvdb-280619}/Season 01/The Expanse (2015) - S01E07 - Windmills [WEBDL-1080p][EAC3 5.1][h264]-playWEB.mkv",
+        "size": 2966666220,
+        "still_there": false
+       }
+      ],
+      "replaced_by": "sonarr (its recycle bin, when one is set)",
+      "size": 1904056631
+     },
+     "state": "promoted",
+     "ts": "2026-11-23T13:54:48Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "removed",
+     "kind": "file",
+     "path": "/media/hush/staging/shows/hevc_1080p/The Expanse (2015) -/Season 01/The Expanse (2015) - - S01E07 [AMZN WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+     "reason": "import confirmed",
+     "ts": "2026-11-23T13:54:48Z"
+    }
+   ],
+   "id": "20261123T134700Z-6b66bd7b",
+   "identity": "match",
+   "mode": "hevc",
+   "output": {
+    "ino": 131108,
+    "links": 2,
+    "mtime_ns": 1795442086744815711,
+    "path": "/media/hush/staging/shows/hevc_1080p/The Expanse (2015) -/Season 01/The Expanse (2015) - - S01E07 [AMZN WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+    "sample": "c89fd2fc627754cfaffe57714a3a014e766f0088ef3eac15a22181a4489716ea",
+    "size": 1904056631
+   },
+   "promoted": {
+    "arr_file_id": 34460,
+    "link": "hardlink",
+    "path": "/media/shows/The Expanse {tvdb-280619}/Season 01/The Expanse (2015) - S01E07 - Windmills [WEBDL-1080p][Opus 5.1][HEVC]-SHH.mkv",
+    "replaced": [
+     {
+      "path": "/media/shows/The Expanse {tvdb-280619}/Season 01/The Expanse (2015) - S01E07 - Windmills [WEBDL-1080p][EAC3 5.1][h264]-playWEB.mkv",
+      "size": 2966666220,
+      "still_there": false
+     }
+    ],
+    "replaced_by": "sonarr (its recycle bin, when one is set)",
+    "size": 1904056631
+   },
+   "queue_path": "/media/hush/queue/shows/hevc_1080p/The Expanse {tvdb-280619}/Season 01/The Expanse (2015) - S01E07 - Windmills [WEBDL-1080p][EAC3 5.1][h264]-playWEB.mkv",
+   "source": {
+    "ino": 131100,
+    "links": 2,
+    "mtime_ns": 1795441606424623169,
+    "path": "/media/shows/The Expanse {tvdb-280619}/Season 01/The Expanse (2015) - S01E07 - Windmills [WEBDL-1080p][EAC3 5.1][h264]-playWEB.mkv",
+    "sample": "7a48425d573ecdd99abb31e63546bbb6f9a6c36f8643a50c3ff3e6f64a4c08e4",
+    "size": 2966666220
+   },
+   "staged_output": "/media/hush/staging/shows/hevc_1080p/The Expanse (2015) -/Season 01/The Expanse (2015) - - S01E07 [AMZN WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+   "state": "promoted",
+   "trigger": "hush_rules",
+   "updated": "2026-11-23T13:54:48Z"
+  },
+  {
+   "created": "2026-11-22T12:15:01Z",
+   "events": [
+    {
+     "actor": "hushq",
+     "event": "staged",
+     "mode": "hevc",
+     "path": "/media/movies/Damsel (2024) {tmdb-763215}/Damsel (2024) {imdb-tt13452446} [WEBDL-1080p][EAC3 Atmos 5.1][x264]-FLUX.mkv",
+     "size": 6101211908,
+     "trigger": "hush_rules",
+     "ts": "2026-11-22T12:15:01Z"
+    },
+    {
+     "actor": "radarr-finalizer",
+     "event": "output_staged",
+     "output": {
+      "ino": 132846,
+      "links": 2,
+      "mtime_ns": 1795350890829917462,
+      "path": "/media/hush/staging/movies/hevc_1080p/Damsel (2024) {tmdb-763215} [NF WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[FLUX].mkv",
+      "sample": "c0ad78e8ec8a4ba46cee5d034291ba21dc32d9831f6a091b1e2e5537e271af0b",
+      "size": 4618100950
+     },
+     "staged_output": "/media/hush/staging/movies/hevc_1080p/Damsel (2024) {tmdb-763215} [NF WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[FLUX].mkv",
+     "state": "output_staged",
+     "ts": "2026-11-22T12:34:50Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "identity_ok",
+     "identity": "match",
+     "note": "content identity, 1 file(s)",
+     "ts": "2026-11-22T12:34:52Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "promoted",
+     "identity": "match",
+     "promoted": {
+      "arr_file_id": 18475,
+      "link": "hardlink",
+      "path": "/media/movies/Damsel (2024) {tmdb-763215}/Damsel (2024) {imdb-tt13452446} [WEBDL-1080p][Opus 5.1][HEVC]-FLUX.mkv",
+      "replaced": [
+       {
+        "path": "/media/movies/Damsel (2024) {tmdb-763215}/Damsel (2024) {imdb-tt13452446} [WEBDL-1080p][EAC3 Atmos 5.1][x264]-FLUX.mkv",
+        "size": 6101211908,
+        "still_there": false
+       }
+      ],
+      "replaced_by": "radarr (its recycle bin, when one is set)",
+      "size": 4618100950
+     },
+     "state": "promoted",
+     "ts": "2026-11-22T12:34:54Z"
+    }
+   ],
+   "id": "20261122T121501Z-52c0381d",
+   "identity": "match",
+   "mode": "hevc",
+   "output": {
+    "ino": 132846,
+    "links": 2,
+    "mtime_ns": 1795350890829917462,
+    "path": "/media/hush/staging/movies/hevc_1080p/Damsel (2024) {tmdb-763215} [NF WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[FLUX].mkv",
+    "sample": "c0ad78e8ec8a4ba46cee5d034291ba21dc32d9831f6a091b1e2e5537e271af0b",
+    "size": 4618100950
+   },
+   "promoted": {
+    "arr_file_id": 18475,
+    "link": "hardlink",
+    "path": "/media/movies/Damsel (2024) {tmdb-763215}/Damsel (2024) {imdb-tt13452446} [WEBDL-1080p][Opus 5.1][HEVC]-FLUX.mkv",
+    "replaced": [
+     {
+      "path": "/media/movies/Damsel (2024) {tmdb-763215}/Damsel (2024) {imdb-tt13452446} [WEBDL-1080p][EAC3 Atmos 5.1][x264]-FLUX.mkv",
+      "size": 6101211908,
+      "still_there": false
+     }
+    ],
+    "replaced_by": "radarr (its recycle bin, when one is set)",
+    "size": 4618100950
+   },
+   "queue_path": "/media/hush/queue/movies/hevc_1080p/Damsel (2024) {tmdb-763215}/Damsel (2024) {imdb-tt13452446} [WEBDL-1080p][EAC3 Atmos 5.1][x264]-FLUX.mkv",
+   "source": {
+    "ino": 132716,
+    "links": 2,
+    "mtime_ns": 1795349657908921571,
+    "path": "/media/movies/Damsel (2024) {tmdb-763215}/Damsel (2024) {imdb-tt13452446} [WEBDL-1080p][EAC3 Atmos 5.1][x264]-FLUX.mkv",
+    "sample": "331f24f07f487753d2c69b0889bb1829eb7609d7e3fb2e083f1e1cbbd6289649",
+    "size": 6101211908
+   },
+   "staged_output": "/media/hush/staging/movies/hevc_1080p/Damsel (2024) {tmdb-763215} [NF WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[FLUX].mkv",
+   "state": "promoted",
+   "trigger": "hush_rules",
+   "updated": "2026-11-22T12:34:54Z"
+  },
+  {
+   "created": "2026-11-22T06:27:00Z",
+   "events": [
+    {
+     "actor": "hushq",
+     "event": "staged",
+     "mode": "encode",
+     "path": "/media/movies/Ghosts of Girlfriends Past (2009) {tmdb-12556}/Ghosts of Girlfriends Past (2009) {imdb-tt0821640} [Remux-1080p][TrueHD 5.1][VC1]-FraMeSToR.mkv",
+     "size": 16345229977,
+     "trigger": "hush_rules",
+     "ts": "2026-11-22T06:27:01Z"
+    },
+    {
+     "actor": "radarr-finalizer",
+     "event": "output_staged",
+     "output": {
+      "ino": 133176,
+      "links": 2,
+      "mtime_ns": 1795330091904089061,
+      "path": "/media/hush/staging/movies/encode_1080p/Ghosts of Girlfriends Past (2009) {tmdb-12556} [BluRay-1080p][Opus 5.1][HEVC 10bit HUSH]-[SHR].mkv",
+      "sample": "b23f008931b0739df4958ebe349df053dbad69978b700ea0d38875450e746028",
+      "size": 8504734727
+     },
+     "staged_output": "/media/hush/staging/movies/encode_1080p/Ghosts of Girlfriends Past (2009) {tmdb-12556} [BluRay-1080p][Opus 5.1][HEVC 10bit HUSH]-[SHR].mkv",
+     "state": "output_staged",
+     "ts": "2026-11-22T06:48:11Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "identity_ok",
+     "identity": "match",
+     "note": "content identity, 1 file(s)",
+     "ts": "2026-11-22T06:48:13Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "promoted",
+     "identity": "match",
+     "promoted": {
+      "arr_file_id": 18473,
+      "link": "hardlink",
+      "path": "/media/movies/Ghosts of Girlfriends Past (2009) {tmdb-12556}/Ghosts of Girlfriends Past (2009) {imdb-tt0821640} [Bluray-1080p][Opus 5.1][HEVC]-SHR.mkv",
+      "replaced": [
+       {
+        "path": "/media/movies/Ghosts of Girlfriends Past (2009) {tmdb-12556}/Ghosts of Girlfriends Past (2009) {imdb-tt0821640} [Remux-1080p][TrueHD 5.1][VC1]-FraMeSToR.mkv",
+        "size": 16345229977,
+        "still_there": false
+       }
+      ],
+      "replaced_by": "radarr (its recycle bin, when one is set)",
+      "size": 8504734727
+     },
+     "state": "promoted",
+     "ts": "2026-11-22T06:48:15Z"
+    }
+   ],
+   "id": "20261122T062700Z-76afdb9e",
+   "identity": "match",
+   "mode": "encode",
+   "output": {
+    "ino": 133176,
+    "links": 2,
+    "mtime_ns": 1795330091904089061,
+    "path": "/media/hush/staging/movies/encode_1080p/Ghosts of Girlfriends Past (2009) {tmdb-12556} [BluRay-1080p][Opus 5.1][HEVC 10bit HUSH]-[SHR].mkv",
+    "sample": "b23f008931b0739df4958ebe349df053dbad69978b700ea0d38875450e746028",
+    "size": 8504734727
+   },
+   "promoted": {
+    "arr_file_id": 18473,
+    "link": "hardlink",
+    "path": "/media/movies/Ghosts of Girlfriends Past (2009) {tmdb-12556}/Ghosts of Girlfriends Past (2009) {imdb-tt0821640} [Bluray-1080p][Opus 5.1][HEVC]-SHR.mkv",
+    "replaced": [
+     {
+      "path": "/media/movies/Ghosts of Girlfriends Past (2009) {tmdb-12556}/Ghosts of Girlfriends Past (2009) {imdb-tt0821640} [Remux-1080p][TrueHD 5.1][VC1]-FraMeSToR.mkv",
+      "size": 16345229977,
+      "still_there": false
+     }
+    ],
+    "replaced_by": "radarr (its recycle bin, when one is set)",
+    "size": 8504734727
+   },
+   "queue_path": "/media/hush/queue/movies/encode_1080p/Ghosts of Girlfriends Past (2009) {tmdb-12556}/Ghosts of Girlfriends Past (2009) {imdb-tt0821640} [Remux-1080p][TrueHD 5.1][VC1]-FraMeSToR.mkv",
+   "source": {
+    "ino": 132917,
+    "links": 2,
+    "mtime_ns": 1795328772285648616,
+    "path": "/media/movies/Ghosts of Girlfriends Past (2009) {tmdb-12556}/Ghosts of Girlfriends Past (2009) {imdb-tt0821640} [Remux-1080p][TrueHD 5.1][VC1]-FraMeSToR.mkv",
+    "sample": "f55a821c7ef1356511d32496005fa649d0ddc8a4017a67ea9327dfc856b9b952",
+    "size": 16345229977
+   },
+   "staged_output": "/media/hush/staging/movies/encode_1080p/Ghosts of Girlfriends Past (2009) {tmdb-12556} [BluRay-1080p][Opus 5.1][HEVC 10bit HUSH]-[SHR].mkv",
+   "state": "promoted",
+   "trigger": "hush_rules",
+   "updated": "2026-11-22T06:48:15Z"
+  },
+  {
+   "created": "2026-11-20T18:46:00Z",
+   "events": [
+    {
+     "actor": "hushq",
+     "event": "staged",
+     "mode": "uhd-audio",
+     "path": "/media/4kmovies/The Matrix Reloaded (2003) {tmdb-604}/The Matrix Reloaded (2003) {imdb-tt0234215} {edition-Open Matte} [WEBDL-2160p][DTS 5.1][AV1].mkv",
+     "size": 42390678232,
+     "trigger": "hush_rules",
+     "ts": "2026-11-20T18:46:01Z"
+    },
+    {
+     "actor": "radarr-finalizer",
+     "event": "output_staged",
+     "output": {
+      "ino": 131957,
+      "links": 2,
+      "mtime_ns": 1795201186905829508,
+      "path": "/media/hush/staging/movies/encode_4k/The Matrix Reloaded (2003) {tmdb-604} [Open Matte][WEB-DL-2160p][UHD][Opus 5.1][AV1 10bit HUSH]-[SHT].mkv",
+      "sample": "94ce73d830a426523696880de643ef8ced250c1290ba6d0dc47596a637fb34b7",
+      "size": 41880809756
+     },
+     "staged_output": "/media/hush/staging/movies/encode_4k/The Matrix Reloaded (2003) {tmdb-604} [Open Matte][WEB-DL-2160p][UHD][Opus 5.1][AV1 10bit HUSH]-[SHT].mkv",
+     "state": "output_staged",
+     "ts": "2026-11-20T18:59:47Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "identity_ok",
+     "identity": "match",
+     "note": "content identity, 1 file(s)",
+     "ts": "2026-11-20T18:59:49Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "promoted",
+     "identity": "match",
+     "promoted": {
+      "arr_file_id": 18460,
+      "link": "hardlink",
+      "path": "/media/4kmovies/The Matrix Reloaded (2003) {tmdb-604}/The Matrix Reloaded (2003) {imdb-tt0234215} {edition-Open Matte} [WEBDL-2160p][Opus 5.1][AV1]-SHT.mkv",
+      "replaced": [
+       {
+        "path": "/media/4kmovies/The Matrix Reloaded (2003) {tmdb-604}/The Matrix Reloaded (2003) {imdb-tt0234215} {edition-Open Matte} [WEBDL-2160p][DTS 5.1][AV1].mkv",
+        "size": 42390678232,
+        "still_there": false
+       }
+      ],
+      "replaced_by": "radarr (its recycle bin, when one is set)",
+      "size": 41880809756
+     },
+     "state": "promoted",
+     "ts": "2026-11-20T18:59:51Z"
+    },
+    {
+     "actor": "prune",
+     "event": "removed",
+     "kind": "file",
+     "path": "/media/hush/queue/movies/audio_4k/The Matrix Reloaded (2003) {tmdb-604}/The Matrix Reloaded (2003) {imdb-tt0234215} {edition-Open Matte} [WEBDL-2160p][DTS 5.1][AV1].mkv",
+     "reason": "older than 24 h",
+     "ts": "2026-11-23T04:00:28Z"
+    }
+   ],
+   "id": "20261120T184600Z-acecaf41",
+   "identity": "match",
+   "mode": "uhd-audio",
+   "output": {
+    "ino": 131957,
+    "links": 2,
+    "mtime_ns": 1795201186905829508,
+    "path": "/media/hush/staging/movies/encode_4k/The Matrix Reloaded (2003) {tmdb-604} [Open Matte][WEB-DL-2160p][UHD][Opus 5.1][AV1 10bit HUSH]-[SHT].mkv",
+    "sample": "94ce73d830a426523696880de643ef8ced250c1290ba6d0dc47596a637fb34b7",
+    "size": 41880809756
+   },
+   "promoted": {
+    "arr_file_id": 18460,
+    "link": "hardlink",
+    "path": "/media/4kmovies/The Matrix Reloaded (2003) {tmdb-604}/The Matrix Reloaded (2003) {imdb-tt0234215} {edition-Open Matte} [WEBDL-2160p][Opus 5.1][AV1]-SHT.mkv",
+    "replaced": [
+     {
+      "path": "/media/4kmovies/The Matrix Reloaded (2003) {tmdb-604}/The Matrix Reloaded (2003) {imdb-tt0234215} {edition-Open Matte} [WEBDL-2160p][DTS 5.1][AV1].mkv",
+      "size": 42390678232,
+      "still_there": false
+     }
+    ],
+    "replaced_by": "radarr (its recycle bin, when one is set)",
+    "size": 41880809756
+   },
+   "queue_path": "/media/hush/queue/movies/audio_4k/The Matrix Reloaded (2003) {tmdb-604}/The Matrix Reloaded (2003) {imdb-tt0234215} {edition-Open Matte} [WEBDL-2160p][DTS 5.1][AV1].mkv",
+   "source": {
+    "ino": 132202,
+    "links": 2,
+    "mtime_ns": 1795200327215126915,
+    "path": "/media/4kmovies/The Matrix Reloaded (2003) {tmdb-604}/The Matrix Reloaded (2003) {imdb-tt0234215} {edition-Open Matte} [WEBDL-2160p][DTS 5.1][AV1].mkv",
+    "sample": "279e51b910f8fc6a50a096fb3a44ff4550af5efa91ce4fa6f9eb8d3ff9485c69",
+    "size": 42390678232
+   },
+   "staged_output": "/media/hush/staging/movies/encode_4k/The Matrix Reloaded (2003) {tmdb-604} [Open Matte][WEB-DL-2160p][UHD][Opus 5.1][AV1 10bit HUSH]-[SHT].mkv",
+   "state": "promoted",
+   "trigger": "hush_rules",
+   "updated": "2026-11-23T04:00:28Z"
+  },
+  {
+   "created": "2026-11-19T13:47:57Z",
+   "events": [
+    {
+     "actor": "hushq",
+     "event": "staged",
+     "mode": "downscale",
+     "path": "/media/4kmovies/War for the Planet of the Apes (2017) {tmdb-281338}/War for the Planet of the Apes (2017) {imdb-tt3450958} [Remux-2160p][HDR10][Opus 7.1][HEVC]-SHR.mkv",
+     "size": 38806020795,
+     "trigger": "tag:hush-downscale",
+     "ts": "2026-11-19T13:47:58Z"
+    },
+    {
+     "actor": "radarr-finalizer",
+     "event": "output_staged",
+     "output": {
+      "ino": 131708,
+      "links": 2,
+      "mtime_ns": 1795097961171110453,
+      "path": "/media/hush/staging/movies/encode_1080p/War for the Planet of the Apes (2017) {tmdb-281338} [BluRay-1080p][HDR10][Opus 7.1][HEVC 10bit HUSH]-[SHR].mkv",
+      "sample": "2f6d1ad02513af353a1f76343be6397eb06026c4b6cdc8821707867fc0b1afb3",
+      "size": 11834011307
+     },
+     "staged_output": "/media/hush/staging/movies/encode_1080p/War for the Planet of the Apes (2017) {tmdb-281338} [BluRay-1080p][HDR10][Opus 7.1][HEVC 10bit HUSH]-[SHR].mkv",
+     "state": "output_staged",
+     "ts": "2026-11-19T14:19:21Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "identity_ok",
+     "identity": "match",
+     "note": "content identity, 1 file(s)",
+     "ts": "2026-11-19T14:19:23Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "promoted",
+     "identity": "match",
+     "promoted": {
+      "arr_file_id": 18446,
+      "link": "hardlink",
+      "path": "/media/4kmovies/War for the Planet of the Apes (2017) {tmdb-281338}/War for the Planet of the Apes (2017) {imdb-tt3450958} [Bluray-1080p][HDR10][Opus 7.1][HEVC]-SHR.mkv",
+      "replaced": [
+       {
+        "path": "/media/4kmovies/War for the Planet of the Apes (2017) {tmdb-281338}/War for the Planet of the Apes (2017) {imdb-tt3450958} [Remux-2160p][HDR10][Opus 7.1][HEVC]-SHR.mkv",
+        "size": 38806020795,
+        "still_there": false
+       }
+      ],
+      "replaced_by": "radarr (its recycle bin, when one is set)",
+      "size": 11834011307
+     },
+     "state": "promoted",
+     "ts": "2026-11-19T14:19:25Z"
+    },
+    {
+     "actor": "prune",
+     "event": "removed",
+     "kind": "file",
+     "path": "/media/hush/queue/movies/downscale/War for the Planet of the Apes (2017) {tmdb-281338}/War for the Planet of the Apes (2017) {imdb-tt3450958} [Remux-2160p][HDR10][Opus 7.1][HEVC]-SHR.mkv",
+     "reason": "older than 24 h",
+     "ts": "2026-11-21T04:00:45Z"
+    },
+    {
+     "actor": "prune",
+     "event": "removed",
+     "kind": "file",
+     "path": "/media/hush/staging/movies/encode_1080p/War for the Planet of the Apes (2017) {tmdb-281338} [BluRay-1080p][HDR10][Opus 7.1][HEVC 10bit HUSH]-[SHR].mkv",
+     "reason": "older than 24 h",
+     "ts": "2026-11-23T04:00:28Z"
+    }
+   ],
+   "id": "20261119T134757Z-768246a6",
+   "identity": "match",
+   "mode": "downscale",
+   "output": {
+    "ino": 131708,
+    "links": 2,
+    "mtime_ns": 1795097961171110453,
+    "path": "/media/hush/staging/movies/encode_1080p/War for the Planet of the Apes (2017) {tmdb-281338} [BluRay-1080p][HDR10][Opus 7.1][HEVC 10bit HUSH]-[SHR].mkv",
+    "sample": "2f6d1ad02513af353a1f76343be6397eb06026c4b6cdc8821707867fc0b1afb3",
+    "size": 11834011307
+   },
+   "promoted": {
+    "arr_file_id": 18446,
+    "link": "hardlink",
+    "path": "/media/4kmovies/War for the Planet of the Apes (2017) {tmdb-281338}/War for the Planet of the Apes (2017) {imdb-tt3450958} [Bluray-1080p][HDR10][Opus 7.1][HEVC]-SHR.mkv",
+    "replaced": [
+     {
+      "path": "/media/4kmovies/War for the Planet of the Apes (2017) {tmdb-281338}/War for the Planet of the Apes (2017) {imdb-tt3450958} [Remux-2160p][HDR10][Opus 7.1][HEVC]-SHR.mkv",
+      "size": 38806020795,
+      "still_there": false
+     }
+    ],
+    "replaced_by": "radarr (its recycle bin, when one is set)",
+    "size": 11834011307
+   },
+   "queue_path": "/media/hush/queue/movies/downscale/War for the Planet of the Apes (2017) {tmdb-281338}/War for the Planet of the Apes (2017) {imdb-tt3450958} [Remux-2160p][HDR10][Opus 7.1][HEVC]-SHR.mkv",
+   "source": {
+    "ino": 131794,
+    "links": 3,
+    "mtime_ns": 1795002857111097134,
+    "path": "/media/4kmovies/War for the Planet of the Apes (2017) {tmdb-281338}/War for the Planet of the Apes (2017) {imdb-tt3450958} [Remux-2160p][HDR10][Opus 7.1][HEVC]-SHR.mkv",
+    "sample": "ea05bbfae51a2f8e5121bed118daa203602f3fd52465c7eddb4db548d7831653",
+    "size": 38806020795
+   },
+   "staged_output": "/media/hush/staging/movies/encode_1080p/War for the Planet of the Apes (2017) {tmdb-281338} [BluRay-1080p][HDR10][Opus 7.1][HEVC 10bit HUSH]-[SHR].mkv",
+   "state": "promoted",
+   "trigger": "tag:hush-downscale",
+   "updated": "2026-11-23T04:00:28Z"
+  },
+  {
+   "created": "2026-11-15T00:10:15Z",
+   "events": [
+    {
+     "actor": "hushq",
+     "event": "staged",
+     "mode": "audio",
+     "path": "/media/movies/Kingdom of Heaven (2005) {tmdb-1495}/Kingdom of Heaven (2005) {imdb-tt0320661} {edition-Director's Cut} [Bluray-1080p][DV HDR10][EAC3 Atmos 5.1][x265]-SM737.mkv",
+     "size": 9295592609,
+     "trigger": "tag:hush-audio",
+     "ts": "2026-11-15T00:10:24Z"
+    }
+   ],
+   "id": "20261115T001015Z-cb34e7ec",
+   "mode": "audio",
+   "queue_path": "/media/hush/queue/movies/audio_1080p/Kingdom of Heaven (2005) {tmdb-1495}/Kingdom of Heaven (2005) {imdb-tt0320661} {edition-Director's Cut} [Bluray-1080p][DV HDR10][EAC3 Atmos 5.1][x265]-SM737.mkv",
+   "source": {
+    "ino": 76587,
+    "links": 1,
+    "mtime_ns": 1750562805758489628,
+    "path": "/media/movies/Kingdom of Heaven (2005) {tmdb-1495}/Kingdom of Heaven (2005) {imdb-tt0320661} {edition-Director's Cut} [Bluray-1080p][DV HDR10][EAC3 Atmos 5.1][x265]-SM737.mkv",
+    "sample": "a7ea90bb38a5db1de2e813d819af62781bd0990c763a0feac37ab6245a1c0201",
+    "size": 9295592609
+   },
+   "state": "staged",
+   "trigger": "tag:hush-audio",
+   "updated": "2026-11-15T00:10:24Z"
+  },
+  {
+   "created": "2026-11-11T21:47:40Z",
+   "events": [
+    {
+     "actor": "hushq",
+     "event": "staged",
+     "mode": "hevc",
+     "path": "/media/shows/Shoresy {tvdb-409902}/Season 01/Shoresy (2022) - S01E03 - Know Your Role [HDTV-1080p][EAC3 5.1][h264].mkv",
+     "size": 682752328,
+     "trigger": "backlog drain",
+     "ts": "2026-11-11T21:47:41Z"
+    }
+   ],
+   "id": "20261111T214740Z-e90af04d",
+   "mode": "hevc",
+   "queue_path": "/media/hush/queue/shows/hevc_1080p/Shoresy {tvdb-409902}/Season 01/Shoresy (2022) - S01E03 - Know Your Role [HDTV-1080p][EAC3 5.1][h264].mkv",
+   "source": {
+    "ino": 13501,
+    "links": 1,
+    "mtime_ns": 1697249797783000000,
+    "path": "/media/shows/Shoresy {tvdb-409902}/Season 01/Shoresy (2022) - S01E03 - Know Your Role [HDTV-1080p][EAC3 5.1][h264].mkv",
+    "sample": "67527c3d94bf7130097778c4a38504a55830db8d4bcd8f3ee9963601e63233ea",
+    "size": 682752328
+   },
+   "state": "staged",
+   "trigger": "backlog drain",
+   "updated": "2026-11-11T21:47:41Z"
+  },
+  {
+   "created": "2026-11-11T16:27:54Z",
+   "events": [
+    {
+     "actor": "hushq",
+     "event": "staged",
+     "mode": "hevc",
+     "path": "/media/shows/Shoresy {tvdb-409902}/Season 01/Shoresy (2022) - S01E03 - Know Your Role [HDTV-1080p][EAC3 5.1][h264].mkv",
+     "size": 682752328,
+     "trigger": "backlog drain",
+     "ts": "2026-11-11T16:27:55Z"
+    },
+    {
+     "actor": "hushq",
+     "event": "superseded",
+     "note": "staged again",
+     "state": "superseded",
+     "ts": "2026-11-11T21:47:40Z"
+    }
+   ],
+   "id": "20261111T162754Z-5d83728f",
+   "mode": "hevc",
+   "queue_path": "/media/hush/queue/shows/hevc_1080p/Shoresy {tvdb-409902}/Season 01/Shoresy (2022) - S01E03 - Know Your Role [HDTV-1080p][EAC3 5.1][h264].mkv",
+   "source": {
+    "ino": 13501,
+    "links": 1,
+    "mtime_ns": 1697249797783000000,
+    "path": "/media/shows/Shoresy {tvdb-409902}/Season 01/Shoresy (2022) - S01E03 - Know Your Role [HDTV-1080p][EAC3 5.1][h264].mkv",
+    "sample": "67527c3d94bf7130097778c4a38504a55830db8d4bcd8f3ee9963601e63233ea",
+    "size": 682752328
+   },
+   "state": "superseded",
+   "trigger": "backlog drain",
+   "updated": "2026-11-11T21:47:40Z"
+  },
+  {
+   "created": "2026-11-11T15:08:53Z",
+   "events": [
+    {
+     "actor": "hushq",
+     "event": "staged",
+     "mode": "hevc",
+     "path": "/media/shows/Darkness - Those Who Kill {tvdb-360369}/Season 04/Darkness - Those Who Kill (2019) - S04E04 - Episode 4 [WEBDL-1080p][EAC3 5.1][h264]-Kitsune.mkv",
+     "size": 2881736922,
+     "trigger": "backlog drain",
+     "ts": "2026-11-11T15:08:54Z"
+    },
+    {
+     "actor": "sonarr-finalizer",
+     "event": "output_staged",
+     "output": {
+      "ino": 115350,
+      "links": 2,
+      "mtime_ns": 1794410554128621093,
+      "path": "/media/hush/staging/shows/hevc_1080p/Darkness - Those Who Kill (2019) -/Season 04/Darkness - Those Who Kill (2019) - - S04E04 [WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+      "sample": "08cab2242519a6f7081d78d5931ea70a0c1d988a20bf369058316c17b69b0d3f",
+      "size": 1928452244
+     },
+     "staged_output": "/media/hush/staging/shows/hevc_1080p/Darkness - Those Who Kill (2019) -/Season 04/Darkness - Those Who Kill (2019) - - S04E04 [WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+     "state": "output_staged",
+     "ts": "2026-11-11T15:22:34Z"
+    },
+    {
+     "actor": "sonarr-finalizer",
+     "event": "failed",
+     "note": "import not confirmed; the output stays in staging",
+     "state": "failed",
+     "ts": "2026-11-11T15:22:34Z"
+    },
+    {
+     "actor": "prune",
+     "event": "removed",
+     "kind": "file",
+     "path": "/media/hush/staging/shows/hevc_1080p/Darkness - Those Who Kill (2019) -/Season 04/Darkness - Those Who Kill (2019) - - S04E04 [WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+     "reason": "older than 24 h",
+     "ts": "2026-11-13T04:01:39Z"
+    }
+   ],
+   "id": "20261111T150853Z-4cec4841",
+   "mode": "hevc",
+   "output": {
+    "ino": 115350,
+    "links": 2,
+    "mtime_ns": 1794410554128621093,
+    "path": "/media/hush/staging/shows/hevc_1080p/Darkness - Those Who Kill (2019) -/Season 04/Darkness - Those Who Kill (2019) - - S04E04 [WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+    "sample": "08cab2242519a6f7081d78d5931ea70a0c1d988a20bf369058316c17b69b0d3f",
+    "size": 1928452244
+   },
+   "queue_path": "/media/hush/queue/shows/hevc_1080p/Darkness - Those Who Kill {tvdb-360369}/Season 04/Darkness - Those Who Kill (2019) - S04E04 - Episode 4 [WEBDL-1080p][EAC3 5.1][h264]-Kitsune.mkv",
+   "source": {
+    "ino": 6712,
+    "links": 1,
+    "mtime_ns": 1727740242092872631,
+    "path": "/media/shows/Darkness - Those Who Kill {tvdb-360369}/Season 04/Darkness - Those Who Kill (2019) - S04E04 - Episode 4 [WEBDL-1080p][EAC3 5.1][h264]-Kitsune.mkv",
+    "sample": "9d5237cbb983ff794a827cdb20a3224e6da758d3ae04a90bba3766e5be559601",
+    "size": 2881736922
+   },
+   "staged_output": "/media/hush/staging/shows/hevc_1080p/Darkness - Those Who Kill (2019) -/Season 04/Darkness - Those Who Kill (2019) - - S04E04 [WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+   "state": "failed",
+   "trigger": "backlog drain",
+   "updated": "2026-11-13T04:01:39Z"
+  },
+  {
+   "created": "2026-11-11T14:36:51Z",
+   "events": [
+    {
+     "actor": "hushq",
+     "event": "staged",
+     "mode": "hevc",
+     "path": "/media/shows/The Lord of the Rings - The Rings of Power {tvdb-367506}/Season 03/The Lord of the Rings - The Rings of Power (2022) - S03E03 - The Secret Fire [WEBDL-1080p][EAC3 Atmos 5.1][h264]-playWEB.mkv",
+     "size": 3513543336,
+     "trigger": "hush_rules",
+     "ts": "2026-11-11T14:36:51Z"
+    },
+    {
+     "actor": "prune",
+     "event": "removed",
+     "kind": "link",
+     "path": "/media/hush/queue/shows/hevc_1080p/The Lord of the Rings - The Rings of Power {tvdb-367506}/Season 03/The Lord of the Rings - The Rings of Power (2022) - S03E03 - The Secret Fire [WEBDL-1080p][EAC3 Atmos 5.1][h264]-playWEB.mkv",
+     "reason": "older than 24 h",
+     "ts": "2026-11-13T04:01:27Z"
+    },
+    {
+     "actor": "prune",
+     "event": "pruned",
+     "note": "never finished",
+     "state": "pruned",
+     "ts": "2026-11-13T04:01:27Z"
+    }
+   ],
+   "id": "20261111T143651Z-b679a315",
+   "mode": "hevc",
+   "queue_path": "/media/hush/queue/shows/hevc_1080p/The Lord of the Rings - The Rings of Power {tvdb-367506}/Season 03/The Lord of the Rings - The Rings of Power (2022) - S03E03 - The Secret Fire [WEBDL-1080p][EAC3 Atmos 5.1][h264]-playWEB.mkv",
+   "source": {
+    "ino": 114303,
+    "links": 1,
+    "mtime_ns": 1794387119424776838,
+    "path": "/media/shows/The Lord of the Rings - The Rings of Power {tvdb-367506}/Season 03/The Lord of the Rings - The Rings of Power (2022) - S03E03 - The Secret Fire [WEBDL-1080p][EAC3 Atmos 5.1][h264]-playWEB.mkv",
+    "sample": "46e1132577d7be6695ed5ef1549d39d9d3c5a29de32ccc6941e503ee6f8d7d95",
+    "size": 3513543336
+   },
+   "state": "pruned",
+   "trigger": "hush_rules",
+   "updated": "2026-11-13T04:01:27Z"
+  },
+  {
+   "created": "2026-11-11T14:35:41Z",
+   "events": [
+    {
+     "actor": "hushq",
+     "event": "staged",
+     "mode": "hevc",
+     "path": "/media/shows/The Lord of the Rings - The Rings of Power {tvdb-367506}/Season 03/The Lord of the Rings - The Rings of Power (2022) - S03E02 - The Gift of Men [WEBDL-1080p][EAC3 Atmos 5.1][h264]-playWEB.mkv",
+     "size": 4244141013,
+     "trigger": "hush_rules",
+     "ts": "2026-11-11T14:35:41Z"
+    },
+    {
+     "actor": "sonarr-finalizer",
+     "event": "output_staged",
+     "output": {
+      "ino": 115089,
+      "links": 2,
+      "mtime_ns": 1794408575070491243,
+      "path": "/media/hush/staging/shows/hevc_1080p/The Lord of the Rings - The Rings of Power (2022) -/Season 03/The Lord of the Rings - The Rings of Power (2022) - - S03E02 [WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+      "sample": "c8afb6563d74b7f5880fdef209bd1384ed6f9432189fc7c9332a641976ff63ee",
+      "size": 2572209768
+     },
+     "staged_output": "/media/hush/staging/shows/hevc_1080p/The Lord of the Rings - The Rings of Power (2022) -/Season 03/The Lord of the Rings - The Rings of Power (2022) - - S03E02 [WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+     "state": "output_staged",
+     "ts": "2026-11-11T14:49:35Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "discarded",
+     "path": "/media/hush/staging/shows/hevc_1080p/The Lord of the Rings - The Rings of Power (2022) -/Season 03/The Lord of the Rings - The Rings of Power (2022) - - S03E02 [WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+     "reason": "source_changed: the arr now holds /media/shows/The Lord of the Rings - The Rings of Power {tvdb-367506}/Season 03/The Lord of the Rings - The Rings of Power (2022) - S03E02 - The Gift of Men [WEBDL-1080p][EAC3 Atmos 5.1][h264]-NTb.mkv, not the file this job was staged from (/media/shows/The Lord of the Rings - The Rings of Power {tvdb-367506}/Season 03/The Lord of the Rings - The Rings of Power (2022) - S03E02 - The Gift of Men [WEBDL-1080p][EAC3 Atmos 5.1][h264]-playWEB.mkv)",
+     "to": "/media/hush/_discard/20261111/The Lord of the Rings - The Rings of Power (2022) - - S03E02 [WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+     "ts": "2026-11-11T14:49:35Z"
+    },
+    {
+     "actor": "hush-api",
+     "event": "refused",
+     "identity": "source_changed",
+     "refusal": {
+      "detail": "the arr now holds /media/shows/The Lord of the Rings - The Rings of Power {tvdb-367506}/Season 03/The Lord of the Rings - The Rings of Power (2022) - S03E02 - The Gift of Men [WEBDL-1080p][EAC3 Atmos 5.1][h264]-NTb.mkv, not the file this job was staged from (/media/shows/The Lord of the Rings - The Rings of Power {tvdb-367506}/Season 03/The Lord of the Rings - The Rings of Power (2022) - S03E02 - The Gift of Men [WEBDL-1080p][EAC3 Atmos 5.1][h264]-playWEB.mkv)",
+      "kept": "/media/hush/_discard/20261111/The Lord of the Rings - The Rings of Power (2022) - - S03E02 [WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+      "reason": "source_changed"
+     },
+     "state": "refused",
+     "ts": "2026-11-11T14:49:35Z"
+    },
+    {
+     "actor": "prune",
+     "event": "removed",
+     "kind": "link",
+     "path": "/media/hush/queue/shows/hevc_1080p/The Lord of the Rings - The Rings of Power {tvdb-367506}/Season 03/The Lord of the Rings - The Rings of Power (2022) - S03E02 - The Gift of Men [WEBDL-1080p][EAC3 Atmos 5.1][h264]-playWEB.mkv",
+     "reason": "older than 24 h",
+     "ts": "2026-11-13T04:01:27Z"
+    }
+   ],
+   "id": "20261111T143541Z-3a4c6489",
+   "identity": "source_changed",
+   "mode": "hevc",
+   "output": {
+    "ino": 115089,
+    "links": 2,
+    "mtime_ns": 1794408575070491243,
+    "path": "/media/hush/staging/shows/hevc_1080p/The Lord of the Rings - The Rings of Power (2022) -/Season 03/The Lord of the Rings - The Rings of Power (2022) - - S03E02 [WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+    "sample": "c8afb6563d74b7f5880fdef209bd1384ed6f9432189fc7c9332a641976ff63ee",
+    "size": 2572209768
+   },
+   "queue_path": "/media/hush/queue/shows/hevc_1080p/The Lord of the Rings - The Rings of Power {tvdb-367506}/Season 03/The Lord of the Rings - The Rings of Power (2022) - S03E02 - The Gift of Men [WEBDL-1080p][EAC3 Atmos 5.1][h264]-playWEB.mkv",
+   "refusal": {
+    "detail": "the arr now holds /media/shows/The Lord of the Rings - The Rings of Power {tvdb-367506}/Season 03/The Lord of the Rings - The Rings of Power (2022) - S03E02 - The Gift of Men [WEBDL-1080p][EAC3 Atmos 5.1][h264]-NTb.mkv, not the file this job was staged from (/media/shows/The Lord of the Rings - The Rings of Power {tvdb-367506}/Season 03/The Lord of the Rings - The Rings of Power (2022) - S03E02 - The Gift of Men [WEBDL-1080p][EAC3 Atmos 5.1][h264]-playWEB.mkv)",
+    "kept": "/media/hush/_discard/20261111/The Lord of the Rings - The Rings of Power (2022) - - S03E02 [WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+    "reason": "source_changed"
+   },
+   "source": {
+    "ino": 114756,
+    "links": 1,
+    "mtime_ns": 1794386439987973732,
+    "path": "/media/shows/The Lord of the Rings - The Rings of Power {tvdb-367506}/Season 03/The Lord of the Rings - The Rings of Power (2022) - S03E02 - The Gift of Men [WEBDL-1080p][EAC3 Atmos 5.1][h264]-playWEB.mkv",
+    "sample": "3a5e7df78e653e75e31ab30dd3c441af955d492143495c8dc044c53658c0c59d",
+    "size": 4244141013
+   },
+   "staged_output": "/media/hush/staging/shows/hevc_1080p/The Lord of the Rings - The Rings of Power (2022) -/Season 03/The Lord of the Rings - The Rings of Power (2022) - - S03E02 [WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+   "state": "refused",
+   "trigger": "hush_rules",
+   "updated": "2026-11-13T04:01:27Z"
+  }
+ ],
+ "removals": [
+  {
+   "actor": "hush-api",
+   "event": "removed",
+   "job": "20261123T145500Z-57ec91da",
+   "kind": "file",
+   "path": "/media/hush/staging/shows/hevc_1080p/Avatar - The Last Airbender (2024) -/Season 01/Avatar - The Last Airbender (2024) - - S01E01 [NF WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[Kitsune].mkv",
+   "reason": "import confirmed",
+   "ts": "2026-11-23T15:06:15Z"
+  },
+  {
+   "actor": "hush-api",
+   "event": "removed",
+   "job": "20261123T134700Z-6b66bd7b",
+   "kind": "file",
+   "path": "/media/hush/staging/shows/hevc_1080p/The Expanse (2015) -/Season 01/The Expanse (2015) - - S01E07 [AMZN WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+   "reason": "import confirmed",
+   "ts": "2026-11-23T13:54:48Z"
+  },
+  {
+   "actor": "hush-api",
+   "event": "removed",
+   "job": "20261123T061300Z-f107757c",
+   "kind": "file",
+   "path": "/media/hush/staging/shows/hevc_1080p/Marshals (2026) -/Season 02/Marshals (2026) - - S02E07 [AMZN WEB-DL-1080p][Audio][HEVC HUSH]-[SHT].mkv",
+   "reason": "import confirmed",
+   "ts": "2026-11-23T06:19:38Z"
+  }
+ ]
+}

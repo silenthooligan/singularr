@@ -1,0 +1,59 @@
+{
+ "title": "10 Cloverfield Lane 2016 1080p BluRay x265-SM737 & more",
+ "parsedMovieInfo": {
+  "movieTitles": [
+   "10 Cloverfield Lane"
+  ],
+  "originalTitle": "",
+  "releaseTitle": "10 Cloverfield Lane 2016 1080p BluRay x265-SM737",
+  "simpleReleaseTitle": "A Movie",
+  "quality": {
+   "quality": {
+    "id": 7,
+    "name": "Bluray-1080p",
+    "source": "bluray",
+    "resolution": 1080,
+    "modifier": "none"
+   },
+   "revision": {
+    "version": 1,
+    "real": 0,
+    "isRepack": false
+   }
+  },
+  "languages": [
+   {
+    "id": 1,
+    "name": "English"
+   }
+  ],
+  "releaseGroup": "SM737",
+  "releaseHash": "",
+  "edition": "",
+  "year": 2016,
+  "imdbId": "",
+  "tmdbId": 0
+ },
+ "movie": {
+  "id": 2877,
+  "title": "10 Cloverfield Lane",
+  "year": 2016
+ },
+ "languages": [
+  {
+   "id": 1,
+   "name": "English"
+  }
+ ],
+ "customFormats": [
+  {
+   "id": 10,
+   "name": "DD+ ATMOS"
+  },
+  {
+   "id": 21,
+   "name": "x265"
+  }
+ ],
+ "customFormatScore": 1250
+}

@@ -1,0 +1,107 @@
+{
+ "types": [
+  {
+   "type": "slack",
+   "label": "Slack",
+   "fields": [
+    {"key": "url", "label": "Webhook URL", "type": "secret", "required": true, "secret": true, "placeholder": "https://hooks.slack.com/services/..."}
+   ]
+  },
+  {
+   "type": "discord",
+   "label": "Discord",
+   "fields": [
+    {"key": "url", "label": "Webhook URL", "type": "secret", "required": true, "secret": true, "placeholder": "https://discord.com/api/webhooks/..."}
+   ]
+  },
+  {
+   "type": "email",
+   "label": "Email",
+   "fields": [
+    {"key": "host", "label": "SMTP host", "type": "text", "required": true, "secret": false, "placeholder": "smtp.example.com"},
+    {"key": "port", "label": "Port", "type": "number", "required": true, "secret": false, "default": 587},
+    {"key": "security", "label": "Security", "type": "select", "required": true, "secret": false, "options": [{"value": "none", "label": "None"}, {"value": "starttls", "label": "STARTTLS"}, {"value": "tls", "label": "TLS"}], "default": "starttls"},
+    {"key": "user", "label": "User", "type": "text", "required": false, "secret": false},
+    {"key": "password", "label": "Password", "type": "secret", "required": false, "secret": true},
+    {"key": "from", "label": "From", "type": "text", "required": true, "secret": false, "placeholder": "Singularr <singularr@example.com>"},
+    {"key": "to", "label": "Recipients", "type": "list", "required": true, "secret": false, "placeholder": "name@example.com"}
+   ]
+  },
+  {
+   "type": "webhook",
+   "label": "Webhook",
+   "fields": [
+    {"key": "url", "label": "URL", "type": "secret", "required": true, "secret": true, "placeholder": "https://example.com/hooks/singularr"},
+    {"key": "secret", "label": "Secret", "type": "secret", "required": false, "secret": true, "help": "Sent as a bearer token in the Authorization header"}
+   ]
+  },
+  {
+   "type": "ntfy",
+   "label": "ntfy",
+   "fields": [
+    {"key": "server", "label": "Server", "type": "url", "required": true, "secret": false, "default": "https://ntfy.sh"},
+    {"key": "topic", "label": "Topic", "type": "text", "required": true, "secret": false},
+    {"key": "token", "label": "Access token", "type": "secret", "required": false, "secret": true}
+   ]
+  },
+  {
+   "type": "telegram",
+   "label": "Telegram",
+   "fields": [
+    {"key": "token", "label": "Bot token", "type": "secret", "required": true, "secret": true},
+    {"key": "chat", "label": "Chat ID", "type": "text", "required": true, "secret": false, "placeholder": "-1001234567890"}
+   ]
+  },
+  {
+   "type": "pushover",
+   "label": "Pushover",
+   "fields": [
+    {"key": "token", "label": "Application token", "type": "secret", "required": true, "secret": true},
+    {"key": "user", "label": "User key", "type": "secret", "required": true, "secret": true}
+   ]
+  },
+  {
+   "type": "gotify",
+   "label": "Gotify",
+   "fields": [
+    {"key": "server", "label": "Server", "type": "url", "required": true, "secret": false, "placeholder": "https://gotify.example.com"},
+    {"key": "token", "label": "Application token", "type": "secret", "required": true, "secret": true}
+   ]
+  }
+ ],
+ "groups": [
+  {"id": "requests", "label": "Requests"},
+  {"id": "downloads", "label": "Downloads"},
+  {"id": "library", "label": "Library"},
+  {"id": "processing", "label": "Processing"},
+  {"id": "system", "label": "System"}
+ ],
+ "events": [
+  {"id": "request.created", "group": "requests", "label": "Request created"},
+  {"id": "request.approved", "group": "requests", "label": "Request approved"},
+  {"id": "request.declined", "group": "requests", "label": "Request declined"},
+  {"id": "request.available", "group": "requests", "label": "Request available"},
+  {"id": "request.failed", "group": "requests", "label": "Request failed"},
+  {"id": "download.added", "group": "downloads", "label": "Download added"},
+  {"id": "download.completed", "group": "downloads", "label": "Download completed"},
+  {"id": "download.attention", "group": "downloads", "label": "Download needs attention"},
+  {"id": "download.orphaned", "group": "downloads", "label": "Download orphaned"},
+  {"id": "title.added", "group": "library", "label": "Title added"},
+  {"id": "file.added", "group": "library", "label": "File imported"},
+  {"id": "file.upgraded", "group": "library", "label": "File upgraded"},
+  {"id": "file.removed", "group": "library", "label": "File removed"},
+  {"id": "processing.sent", "group": "processing", "label": "Run sent"},
+  {"id": "processing.finished", "group": "processing", "label": "Run finished"},
+  {"id": "processing.failed", "group": "processing", "label": "Run failed or refused"},
+  {"id": "processing.stuck", "group": "processing", "label": "Run stuck"},
+  {"id": "integration.down", "group": "system", "label": "Integration offline"},
+  {"id": "integration.up", "group": "system", "label": "Integration back online"},
+  {"id": "integration.access", "group": "system", "label": "Access changed"}
+ ],
+ "kinds": [
+  {"id": "movie", "label": "Movies"},
+  {"id": "show", "label": "Shows"}
+ ],
+ "channels": [],
+ "deliveries": []
+}

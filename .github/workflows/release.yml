@@ -1,0 +1,72 @@
+name: release
+
+# A tag vX.Y.Z publishes Singularr X.Y.Z: the full CI, both native images verified and pushed, then the
+# GitHub release with the changelog's section for that version. Until 1.0 every release is a beta and
+# is published as a pre-release.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-publish
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The tag, the crate version and the changelog agree
+        id: version
+        run: |
+          set -eu
+          tag="${GITHUB_REF_NAME#v}"
+          crate="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [ "$tag" != "$crate" ]; then echo "tag v$tag but Cargo.toml says ${crate:-nothing}"; exit 1; fi
+          grep -q "^## $tag" CHANGELOG.md || { echo "CHANGELOG.md has no section ## $tag"; exit 1; }
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+  checks:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
+  images:
+    needs: [validate, checks]
+    uses: ./.github/workflows/docker.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      publish: true
+      version: ${{ needs.validate.outputs.version }}
+
+  publish:
+    needs: [validate, checks, images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -eu
+          awk -v v="## $VERSION" 'index($0, v) == 1 {on = 1; next} /^## / && on {exit} on' CHANGELOG.md > notes.md
+          printf '\nImage: `ghcr.io/%s:%s`\n' "$GITHUB_REPOSITORY" "$VERSION" >> notes.md
+          prerelease=""
+          case "$VERSION" in 0.*|*-*) prerelease="--prerelease" ;; esac
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "v$VERSION is already published"
+          else
+            gh release create "v$VERSION" --title "Singularr $VERSION" --notes-file notes.md $prerelease --verify-tag
+          fi

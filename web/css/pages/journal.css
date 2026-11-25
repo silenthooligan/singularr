@@ -1,0 +1,45 @@
+/* Journal: when, kind, subject, actor and summary in one table; the event drawer. */
+@layer pages {
+  .jr .mq-head-sub { max-inline-size: none; }
+  .mq-subtext { display: block; max-inline-size: 84ch; }
+
+  .jr-when { display: grid; line-height: 1.25; }
+  .jr-when b { font-weight: 550; font-variant-numeric: tabular-nums; }
+  .jr-when small { color: var(--text-2); font-size: var(--fs-sm); }
+  .jr-subject, .jr-actor { display: inline-flex; align-items: center; gap: 8px; min-inline-size: 0; max-inline-size: 100%; }
+  .jr-subject > span, .jr-actor > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .jr-subject { max-inline-size: 320px; }
+  .jr-actor { max-inline-size: 180px; }
+  .jr-subject .mq-icon { color: var(--text-3); flex: none; }
+  a.jr-subject:hover, a.jr-actor:hover { color: var(--accent-2); }
+  a.jr-subject:hover .mq-icon { color: currentColor; }
+  .jr-glyph { display: inline-grid; place-items: center; inline-size: 22px; block-size: 22px; border-radius: 50%; background: var(--raised); color: var(--text-2); flex: none; }
+  .jr-glyph .mq-icon { inline-size: 13px; block-size: 13px; }
+  .jr-glyph[data-kind="rule"] { color: var(--proc); }
+  .jr-glyph[data-kind="key"] { color: var(--warn); }
+  .jr-glyph[data-kind="integration"] { color: var(--info); }
+  .jr-summary { display: inline-block; max-inline-size: min(460px, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; color: var(--text); }
+  .jr-chain { display: inline-flex; vertical-align: -2px; margin-inline-start: 8px; color: var(--text-3); }
+  .jr-phone { display: none; }
+
+
+  .jr-list { overflow: hidden; }
+  .jr-evrow { inline-size: 100%; text-align: start; grid-template-columns: auto minmax(0, 1fr) auto; min-block-size: 48px; cursor: pointer; }
+  .jr-evrow:hover { background: var(--head); }
+  .jr-evrow .mq-state { font-size: 0; gap: 0; }
+  .jr-evrow time { font-variant-numeric: tabular-nums; }
+  .jr-json { max-block-size: 420px; overflow: auto; }
+
+
+  @media (max-width: 720px) {
+    .jr-phone { display: block; color: var(--text-2); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .jr-summary { display: block; max-inline-size: none; white-space: normal; }
+    .jr .mq-table td.m-main { order: 1; }
+    .jr .mq-table td.m-side { order: 2; }
+    .jr .mq-table td.m-sub { order: 3; }
+    .jr-chain { display: none; }
+    .jr-when { display: inline-flex; gap: 6px; font-size: var(--fs-sm); color: var(--text-2); }
+    .jr-when b { font-weight: 500; color: var(--text-2); }
+    .jr-evrow .mq-list-end time { display: none; }
+  }
+}

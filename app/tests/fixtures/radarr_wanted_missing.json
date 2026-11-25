@@ -1,0 +1,15 @@
+{
+ "page": 1,
+ "pageSize": 1000,
+ "totalRecords": 1,
+ "records": [
+  {
+   "id": 3050,
+   "title": "A Movie Not Yet Held",
+   "monitored": true,
+   "hasFile": false,
+   "digitalRelease": "2027-02-01T00:00:00Z",
+   "lastSearchTime": "2026-11-22T12:00:00Z"
+  }
+ ]
+}

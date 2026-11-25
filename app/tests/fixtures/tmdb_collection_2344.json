@@ -1,0 +1,33 @@
+{
+ "id": 2344,
+ "name": "The Matrix Collection",
+ "overview": "The Matrix films.",
+ "poster_path": "/coll.jpg",
+ "backdrop_path": "/coll-bd.jpg",
+ "parts": [
+  {
+   "id": 624860,
+   "media_type": "movie",
+   "title": "The Matrix Resurrections",
+   "release_date": "2021-12-16",
+   "poster_path": "/resurrections.jpg",
+   "vote_average": 6.5
+  },
+  {
+   "id": 603,
+   "media_type": "movie",
+   "title": "The Matrix",
+   "release_date": "1999-03-30",
+   "poster_path": "/matrix.jpg",
+   "vote_average": 8.2
+  },
+  {
+   "id": 604,
+   "media_type": "movie",
+   "title": "The Matrix Reloaded",
+   "release_date": "2003-05-15",
+   "poster_path": "/reloaded.jpg",
+   "vote_average": 7.0
+  }
+ ]
+}

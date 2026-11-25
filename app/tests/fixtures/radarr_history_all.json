@@ -1,0 +1,99 @@
+{
+ "page": 1,
+ "pageSize": 500,
+ "sortKey": "date",
+ "sortDirection": "descending",
+ "totalRecords": 5,
+ "records": [
+  {
+   "id": 8004,
+   "movieId": 3001,
+   "sourceTitle": "Harry.Potter.and.the.Prisoner.of.Azkaban.2004.Open.Matte.2160p.WEB-DL-GRP",
+   "quality": {
+    "quality": {
+     "id": 18,
+     "name": "WEBDL-2160p",
+     "source": "webdl",
+     "resolution": 2160
+    }
+   },
+   "date": "2026-11-21T10:05:00Z",
+   "eventType": "downloadFolderImported",
+   "data": {
+    "droppedPath": "/downloads/radarr/Harry.Potter.2004.2160p.WEB-DL-GRP.mkv",
+    "importedPath": "/media/movies/Harry Potter and the Prisoner of Azkaban (2004) {tmdb-673}/Harry Potter and the Prisoner of Azkaban (2004) [WEBDL-2160p]-GRP.mkv",
+    "size": "21000000000",
+    "downloadClient": "qBittorrent"
+   },
+   "downloadId": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB2"
+  },
+  {
+   "id": 8003,
+   "movieId": 3001,
+   "sourceTitle": "Harry Potter and the Prisoner of Azkaban (2004) [Bluray-1080p]-OLD.mkv",
+   "quality": {
+    "quality": {
+     "id": 7,
+     "name": "Bluray-1080p",
+     "source": "bluray",
+     "resolution": 1080
+    }
+   },
+   "date": "2026-11-21T10:04:58Z",
+   "eventType": "movieFileDeleted",
+   "data": {
+    "reason": "Upgrade",
+    "size": "9000000000"
+   }
+  },
+  {
+   "id": 8002,
+   "movieId": 3001,
+   "sourceTitle": "Harry.Potter.and.the.Prisoner.of.Azkaban.2004.Open.Matte.2160p.WEB-DL-GRP",
+   "quality": {
+    "quality": {
+     "id": 18,
+     "name": "WEBDL-2160p"
+    }
+   },
+   "date": "2026-11-21T09:00:00Z",
+   "eventType": "grabbed",
+   "data": {
+    "indexer": "Indexer One",
+    "releaseGroup": "GRP",
+    "size": "21000000000"
+   },
+   "downloadId": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB2"
+  },
+  {
+   "id": 8001,
+   "movieId": 2877,
+   "sourceTitle": "10.Cloverfield.Lane.2016.720p.HDTV-NOPE",
+   "quality": {
+    "quality": {
+     "id": 4,
+     "name": "HDTV-720p"
+    }
+   },
+   "date": "2026-11-20T09:00:00Z",
+   "eventType": "downloadFailed",
+   "data": {
+    "message": "the download stalled with no seeds"
+   }
+  },
+  {
+   "id": 8000,
+   "movieId": 2877,
+   "sourceTitle": "10 Cloverfield Lane (2016).mkv",
+   "quality": {
+    "quality": {
+     "id": 7,
+     "name": "Bluray-1080p"
+    }
+   },
+   "date": "2026-11-19T09:00:00Z",
+   "eventType": "movieFileRenamed",
+   "data": {}
+  }
+ ]
+}

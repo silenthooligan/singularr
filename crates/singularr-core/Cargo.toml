@@ -1,0 +1,17 @@
+[package]
+name = "singularr-core"
+description = "Singularr's pure logic: release-name parser, policy model, scoring and decisions. No IO, no async."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+regex.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+fancy-regex = "0.20"

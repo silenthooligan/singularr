@@ -1,0 +1,63 @@
+{
+ "MediaContainer": {
+  "size": 4,
+  "Directory": [
+   {
+    "key": "1",
+    "type": "movie",
+    "title": "Movies",
+    "agent": "tv.plex.agents.movie",
+    "Location": [
+     {
+      "id": 1,
+      "path": "/4kmovies"
+     },
+     {
+      "id": 2,
+      "path": "/movies"
+     }
+    ]
+   },
+   {
+    "key": "2",
+    "type": "show",
+    "title": "Shows",
+    "agent": "tv.plex.agents.show",
+    "Location": [
+     {
+      "id": 1,
+      "path": "/4kshows"
+     },
+     {
+      "id": 2,
+      "path": "/tv"
+     }
+    ]
+   },
+   {
+    "key": "6",
+    "type": "artist",
+    "title": "Music",
+    "agent": "tv.plex.agents.music",
+    "Location": [
+     {
+      "id": 1,
+      "path": "/music"
+     }
+    ]
+   },
+   {
+    "key": "5",
+    "type": "movie",
+    "title": "Home Movies",
+    "agent": "tv.plex.agents.none",
+    "Location": [
+     {
+      "id": 1,
+      "path": "/homemovies"
+     }
+    ]
+   }
+  ]
+ }
+}

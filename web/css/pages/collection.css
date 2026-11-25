@@ -1,0 +1,19 @@
+/* Collection: the overview in the header and the small notes under it. */
+@layer pages {
+  .col-overview { max-inline-size: 72ch; color: var(--text); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  .col-note { color: var(--text-2); font-size: var(--fs-md); }
+  .col-star { fill: var(--warn); stroke: none; }
+  .col-first { margin-block-start: var(--s6); }
+  .col-sub { font-size: var(--fs-md); }
+  .mq-hero .mq-metaline b { font-weight: 600; }
+  /* On a phone the poster sits beside the name only; the rest of the header takes the full width. */
+  @media (max-width: 720px) {
+    .mq-hero-body { grid-template-columns: 104px minmax(0, 1fr); row-gap: 10px; align-items: start; }
+    .mq-hero-poster { grid-row: 1 / span 3; }
+    .mq-hero-info { display: contents; }
+    .mq-hero-info > * { grid-column: 2; }
+    .mq-hero-info > .mq-metaline, .mq-hero-info > .col-overview, .mq-hero-info > .mq-hero-actions, .mq-hero-info > .col-note { grid-column: 1 / -1; }
+    .mq-hero h1 small { display: block; margin: 4px 0 0; }
+    .col-overview { -webkit-line-clamp: 6; }
+  }
+}

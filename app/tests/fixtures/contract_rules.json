@@ -1,0 +1,98 @@
+{
+ "_note": "A reduced copy of web/data/rules.json: the field names GET /api/v1/rules answers, one entry per list.",
+ "editions": [
+  {
+   "aliases": [
+    "DC",
+    "Directors Cut",
+    "Directors.Cut",
+    "Director's Edition",
+    "Directors Edition",
+    "Director's Version"
+   ],
+   "default": false,
+   "key": "directors-cut",
+   "label": "Director's Cut"
+  }
+ ],
+ "name": "example",
+ "naming": [],
+ "processing": [],
+ "profiles": [
+  {
+   "cutoff": 3000,
+   "id": "movies-hd",
+   "kind": "movie",
+   "label": "Movies, 1080p",
+   "ladder": [
+    [
+     "1080p Remux",
+     "1080p BluRay",
+     "1080p WEB-DL",
+     "1080p WEBRip",
+     "1080p HDTV"
+    ]
+   ],
+   "minScore": 100,
+   "name": "HD-1080p",
+   "titles": 4378,
+   "upgradeStep": 75
+  }
+ ],
+ "protections": [
+  {
+   "allow": {
+    "edition": [
+     "Open Matte"
+    ]
+   },
+   "current": {
+    "edition": [
+     "Open Matte"
+    ]
+   },
+   "id": "open-matte",
+   "label": "an open matte file is replaced only by another open matte file",
+   "reason": "The taller frame is kept.",
+   "tags": [
+    "open-matte"
+   ],
+   "titles": 3
+  }
+ ],
+ "requestRules": [
+  {
+   "description": "How many movies a member may ask for in a period",
+   "enabled": true,
+   "id": "movie-limit",
+   "label": "Movie limit",
+   "period": 7,
+   "unit": "movies",
+   "value": 10
+  }
+ ],
+ "retention": [
+  {
+   "action": "Remove files",
+   "id": "watched-requests",
+   "label": "Remove watched requests",
+   "matches": 3,
+   "rule": "A member's requested season leaves 3 days after it is watched to the end"
+  }
+ ],
+ "traits": [
+  {
+   "category": "edition",
+   "formats": [
+    "IMAX Enhanced"
+   ],
+   "id": "edition.imax-enhanced",
+   "label": "IMAX Enhanced",
+   "points": {
+    "movies-hd": 100
+   },
+   "reason": "The taller IMAX picture for the whole film."
+  }
+ ],
+ "version": "2026-11-23"
+}

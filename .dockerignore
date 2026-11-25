@@ -1,0 +1,30 @@
+# The build context is the repository root (docker build .).
+
+# Build output
+target/
+**/target/
+node_modules/
+
+# Version control and editor files
+.git/
+.github/
+.idea/
+.vscode/
+*.swp
+
+# Not part of the image: the sample data set of the web client (web/data, web/art and the
+# portal's copies), its data tools, and the reports. The client itself (web/) is in the image.
+# The tests read app/tests/fixtures and fixtures/arr_config.json (the core's policy test),
+# so those two stay: the image build and the check stage run the tests.
+web/data/
+web/art/
+web/tools/
+web/portal/data/
+fixtures/
+!fixtures/arr_config.json
+docs/
+
+# Configuration comes from the environment at run time, never from the image
+.env
+.env.*
+*.log

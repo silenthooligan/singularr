@@ -1,0 +1,97 @@
+/* Home: tables that sit inside panels, sub-headings per kind, the playing list, the week, and the
+   small notes in panel heads. */
+@layer pages {
+  .home-stats { margin-block-end: var(--s5); }
+  .home-stats .mq-stat { align-content: start; }
+  .home-stats .mq-stat-sub { white-space: normal; text-overflow: clip; line-height: 1.35; }
+  .home-cols { margin-block-end: var(--s2); }
+  .home-col { gap: var(--s5); min-inline-size: 0; }
+  .mq-panel-head h3 { display: flex; align-items: baseline; gap: 8px; }
+  .home-count { color: var(--text-2); font-weight: 500; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+  .home-headlink { font-size: var(--fs-sm); white-space: nowrap; }
+  .home-meta { color: var(--text-2); font-size: var(--fs-sm); margin-inline-end: 8px; font-variant-numeric: tabular-nums; }
+  .home-sample { color: var(--text-3); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; cursor: help; }
+  /* a quiet panel: nothing to show, said once with an icon */
+  .home-quiet { display: flex; align-items: center; gap: 10px; color: var(--text-2); }
+  .home-quiet .mq-icon { color: var(--ok); }
+
+  /* A group of the two kinds: a heading, then a framed block per kind (the shared kind pieces). */
+  .home-group > .mq-section-head { margin-block-end: var(--s3); }
+  .home-group > .mq-section-head h2 { font-size: var(--fs-lg); }
+  .home-group .mq-kind + .mq-kind { margin-block-start: var(--s3); }
+  .home-group .mq-kind > .mq-section-head { min-block-size: 46px; }
+  .home-group .mq-kind > .mq-section-head h2 { font-size: var(--fs-base); }
+  .home-group .mq-kind-icon { inline-size: 26px; block-size: 26px; }
+  /* The block shows its first rows; its summary carries the count. */
+  .home-group .mq-kind > .mq-section-head .mq-count { display: none; }
+  .home-group .mq-empty { padding: var(--s4) var(--s5); }
+  .home-group .mq-empty .mq-icon { color: var(--ok); }
+
+  /* A table inside a panel: the panel draws the frame. */
+  .home-tablepanel .mq-tablewrap { border: 0; border-radius: 0 0 var(--r-lg) var(--r-lg); background: transparent; }
+  .home-tablepanel .mq-table thead th { background: transparent; block-size: 32px; border-radius: 0; }
+  .home-tablepanel .mq-table tbody tr:last-child td:first-child { border-end-start-radius: var(--r-lg); }
+  .home-tablepanel .mq-empty { padding: var(--s4) var(--s5) var(--s5); }
+  .home-tablepanel .mq-empty .mq-icon { color: var(--ok); }
+  /* a kind inside a panel: Movies, Shows, Episodes */
+  .home-sub { display: flex; align-items: center; gap: 10px; padding: 12px 14px 4px; }
+  .mq-panel-head + .home-sub { padding-block-start: 10px; }
+  :is([data-q], [data-w], .home-week, .home-week-none) + .home-sub { border-block-start: 1px solid var(--line); margin-block-start: 4px; }
+  .home-sub h4 { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-md); font-weight: 600; }
+  .home-sub .home-headlink { margin-inline-start: auto; }
+  .home-why { white-space: normal; }
+  .home-why .mq-state { white-space: normal; align-items: flex-start; }
+  .home-why .mq-state .mq-dot { margin-block-start: 5px; }
+  .home-why small { white-space: nowrap; }
+  .home-ask small { max-inline-size: 300px; }
+  .home-int { color: var(--text-2); }
+  .home-int .mq-icon { inline-size: 16px; block-size: 16px; }
+  .home-decide { display: inline-flex; gap: 6px; }
+
+  /* Playing now */
+  .home-play-row { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; padding: 12px 14px; border-block-start: 1px solid var(--line); }
+  .home-play-row:first-child { border-block-start: 0; }
+  .home-play-art img, .home-play-art .mq-noart { inline-size: 44px; block-size: 66px; border-radius: 3px; object-fit: cover; }
+  .home-play-art .mq-noart .mq-icon { color: var(--text-3); }
+  .home-play-art:hover img { box-shadow: 0 0 0 2px var(--accent); }
+  .home-play-body { display: grid; gap: 3px; min-inline-size: 0; align-content: start; }
+  .home-play-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-play-title b { font-weight: 550; }
+  a.home-play-title:hover b { color: var(--accent-2); }
+  .home-play-ep { color: var(--text-2); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-play-body .mq-progress { margin-block: 3px 1px; }
+  .home-play-meta { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-2); min-inline-size: 0; white-space: nowrap; overflow: hidden; }
+  .home-play-meta .faint { margin-inline: -2px; }
+  .home-play-meta .mq-cell-user { color: var(--text); }
+  .home-play-stream { font-size: var(--fs-sm); color: var(--text-2); }
+  .home-who:hover .mq-cell-user { color: var(--accent-2); }
+
+  /* This week: episodes and movies apart, each line with its day */
+  .home-week { padding-block-end: 6px; }
+  .home-week-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 10px; align-items: center; min-block-size: 44px; padding: 4px 14px; }
+  .home-week-art { inline-size: 24px; block-size: 36px; border-radius: 2px; object-fit: cover; }
+  .home-week-end { display: inline-flex; align-items: center; gap: 10px; color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
+  .home-week-row:hover { background: var(--head); color: inherit; }
+  .home-week-row:hover b { color: var(--accent-2); }
+  .home-week-what { display: grid; min-inline-size: 0; }
+  .home-week-what b { font-weight: 550; font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-week-what small { color: var(--text-2); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-week-none { padding: 4px 14px 12px; color: var(--text-2); font-size: var(--fs-sm); }
+
+  .home-storage { gap: var(--s4); }
+  .home-path { font-size: var(--fs-xs); margin-inline-start: 4px; }
+  .home-int-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: 10px; align-items: center; min-block-size: 38px; padding: 4px 14px; border-block-start: 1px solid var(--line); font-size: var(--fs-md); }
+  .home-int-row:first-child { border-block-start: 0; }
+  .home-int-row:hover { background: var(--head); color: inherit; }
+  .home-int-row b { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-int-role { color: var(--text-2); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .home-int-row--warn .home-int-role { color: var(--warn); }
+
+  @media (max-width: 720px) {
+    .home-tablepanel .mq-table tbody tr { padding-inline: 14px; }
+    .home-tablepanel .mq-table td.home-act { inline-size: auto; text-align: start; }
+    .home-ask small { max-inline-size: none; white-space: normal; }
+    .home-decide { margin-block-start: 2px; }
+    .home-why { max-inline-size: none; }
+  }
+}

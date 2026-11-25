@@ -1,0 +1,46 @@
+{
+  "series": [
+    { "id": 1, "title": "1883", "year": 2021, "tvdbId": 400311, "imdbId": "tt13991232", "path": "/tv/1883 (2021) {tvdb-400311}" },
+    { "id": 2, "title": "Dark", "year": 2017, "tvdbId": 334824, "imdbId": "tt5753856", "path": "/tv/Dark (2017) {tvdb-334824}" }
+  ],
+  "episode": [
+    { "id": 11, "seriesId": 1, "episodeFileId": 201, "seasonNumber": 1, "episodeNumber": 1, "title": "1883", "hasFile": true },
+    { "id": 12, "seriesId": 1, "episodeFileId": 202, "seasonNumber": 1, "episodeNumber": 2, "title": "Behind Us, a Cliff", "hasFile": true },
+    { "id": 21, "seriesId": 2, "episodeFileId": 203, "seasonNumber": 1, "episodeNumber": 1, "title": "Secrets", "hasFile": true }
+  ],
+  "episodefile": [
+    {
+      "id": 201,
+      "seriesId": 1,
+      "seasonNumber": 1,
+      "relativePath": "Season 01/1883 (2021) - S01E01 - 1883 [Bluray-1080p][EAC3 5.1][x265]-Ghost.mkv",
+      "path": "/tv/1883 (2021) {tvdb-400311}/Season 01/1883 (2021) - S01E01 - 1883 [Bluray-1080p][EAC3 5.1][x265]-Ghost.mkv",
+      "releaseGroup": "Ghost",
+      "quality": { "quality": { "id": 7, "name": "Bluray-1080p", "source": "bluray", "resolution": 1080 }, "revision": { "version": 1, "real": 0, "isRepack": false } },
+      "customFormats": [],
+      "mediaInfo": { "videoCodec": "x265", "videoBitDepth": 10, "audioCodec": "EAC3", "audioChannels": 5.1, "audioLanguages": "eng" }
+    },
+    {
+      "id": 202,
+      "seriesId": 1,
+      "seasonNumber": 1,
+      "relativePath": "Season 01/1883 (2021) - S01E02 - Behind Us a Cliff [Bluray-1080p][EAC3 5.1][x265]-Ghost.mkv",
+      "path": "/tv/1883 (2021) {tvdb-400311}/Season 01/1883 (2021) - S01E02 - Behind Us a Cliff [Bluray-1080p][EAC3 5.1][x265]-Ghost.mkv",
+      "releaseGroup": "Ghost",
+      "quality": { "quality": { "id": 7, "name": "Bluray-1080p", "source": "bluray", "resolution": 1080 }, "revision": { "version": 1, "real": 0, "isRepack": false } },
+      "customFormats": [],
+      "mediaInfo": { "videoCodec": "x265", "videoBitDepth": 10, "audioCodec": "EAC3", "audioChannels": 5.1, "audioLanguages": "eng" }
+    },
+    {
+      "id": 203,
+      "seriesId": 2,
+      "seasonNumber": 1,
+      "relativePath": "Season 01/Dark (2017) - S01E01 - Secrets [NF WEBDL-1080p Proper][EAC3 Atmos 5.1][DE+EN][h264]-NTb.mkv",
+      "path": "/tv/Dark (2017) {tvdb-334824}/Season 01/Dark (2017) - S01E01 - Secrets [NF WEBDL-1080p Proper][EAC3 Atmos 5.1][DE+EN][h264]-NTb.mkv",
+      "releaseGroup": "NTb",
+      "quality": { "quality": { "id": 3, "name": "WEBDL-1080p", "source": "web", "resolution": 1080 }, "revision": { "version": 2, "real": 0, "isRepack": false } },
+      "customFormats": [ { "id": 1, "name": "NF" }, { "id": 2, "name": "WEB Tier 01" } ],
+      "mediaInfo": { "videoCodec": "h264", "audioCodec": "EAC3 Atmos", "audioChannels": 5.1, "audioLanguages": "ger/eng" }
+    }
+  ]
+}

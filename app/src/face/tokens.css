@@ -1,0 +1,70 @@
+/* The identity's faces, served by the portal itself (/assets/fonts/): DM Sans for the interface,
+   IBM Plex Mono for identifiers. Their OFL notices are beside them in web/css/fonts/. */
+@font-face {
+  font-family: "DM Sans";
+  src: url("/assets/fonts/DMSans.ttf") format("truetype");
+  font-weight: 100 1000;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/assets/fonts/IBMPlexMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+    color-scheme: dark;
+
+    /* Event Horizon, as in the workspace: Space the page, Surface what sits on it, Orbit the
+       actions (text on Orbit is Space), Starlight the text. */
+    --mq-bg: #0e0d15;            /* Space: the page */
+    --mq-surface: #201d2b;       /* Surface: the top bar, panels, inputs, notes */
+    --mq-raised: #312c44;        /* hover, selected rows, default buttons */
+    --mq-raised-2: #3b3550;      /* hover on a raised thing */
+    --mq-line: #342e48;          /* hairlines on the page and on surfaces */
+    --mq-line-strong: #4a4361;   /* control borders, table head rule */
+
+    --mq-text: #f3f0f7;          /* Starlight: 17.1:1 on bg, 14.6:1 on surface, 11.8:1 on raised */
+    --mq-text-2: #b9b2cb;        /* 9.5:1 on bg, 8.1:1 on surface, 6.5:1 on raised */
+
+    --mq-accent: #bba4fd;        /* Orbit, the one accent: primary buttons, links, focus */
+    --mq-accent-strong: #d2c4fe;
+    --mq-on-accent: #0e0d15;     /* Space on Orbit: 9.1:1 */
+    --mq-select: #5b4a99;
+
+    /* Status only. */
+    --mq-ok: #86d49b;
+    --mq-warn: #edc26e;
+    --mq-bad: #f4878f;
+    --mq-bad-text: #f4878f;      /* the red as text: 8.0:1 on bg, 5.5:1 on raised */
+    --mq-on-status: #0e0d15;
+
+    --mq-font: "DM Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+    --mq-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", "JetBrains Mono", "SF Mono", Consolas, Menlo, monospace;
+
+    --mq-fs-xs: 0.75rem;     /* 12 */
+    --mq-fs-sm: 0.8125rem;   /* 13 */
+    --mq-fs-md: 0.875rem;    /* 14 */
+    --mq-fs-lg: 1rem;        /* 16 */
+    --mq-fs-xl: 1.25rem;     /* 20 */
+    --mq-fs-2xl: 1.5rem;     /* 24 */
+    --mq-fs-3xl: 2.25rem;    /* 36 */
+
+    /* 8 px grid, with a 4 px half step. */
+    --mq-1: 4px; --mq-2: 8px; --mq-3: 12px; --mq-4: 16px; --mq-5: 24px; --mq-6: 32px; --mq-7: 48px; --mq-8: 64px;
+
+    --mq-r: 5px;
+    --mq-r-sm: 3px;
+
+    --mq-sidebar: 232px;
+    --mq-topbar: 56px;
+    --mq-gutter: 32px;
+    --mq-card: 144px;            /* poster width: 7 across at 1440 px, 3 on a phone */
+    --mq-card-gap: 16px;
+
+    --mq-shadow: 0 12px 32px rgb(0 0 0 / 0.55);
+    --mq-fast: 120ms;
+  }

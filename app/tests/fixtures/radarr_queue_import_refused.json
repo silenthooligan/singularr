@@ -1,0 +1,72 @@
+[
+ {
+  "movieId": 4806,
+  "languages": [
+   {
+    "id": 1,
+    "name": "English"
+   }
+  ],
+  "quality": {
+   "quality": {
+    "id": 7,
+    "name": "Bluray-1080p",
+    "source": "bluray",
+    "resolution": 1080,
+    "modifier": "none"
+   },
+   "revision": {
+    "version": 1,
+    "real": 0,
+    "isRepack": false
+   }
+  },
+  "customFormats": [
+   {
+    "id": 13,
+    "name": "5.1 Surround"
+   },
+   {
+    "id": 38,
+    "name": "Bluray"
+   },
+   {
+    "id": 9,
+    "name": "DD"
+   },
+   {
+    "id": 28,
+    "name": "Open Matte"
+   },
+   {
+    "id": 25,
+    "name": "x264"
+   }
+  ],
+  "customFormatScore": 300,
+  "size": 7911404354,
+  "title": "The.Devil.Wears.Prada.2006.Open.Matte.BRRip.1080p.x264.DD5.1.gerald99",
+  "estimatedCompletionTime": "2026-11-24T13:25:00Z",
+  "added": "2026-11-14T11:50:14Z",
+  "status": "completed",
+  "trackedDownloadStatus": "warning",
+  "trackedDownloadState": "importPending",
+  "statusMessages": [
+   {
+    "title": "The.Devil.Wears.Prada.2006.Open.Matte.BRRip.1080p.x264.DD5.1.gerald99",
+    "messages": [
+     "Not a Custom Format upgrade for existing movie file(s). New: [5.1 Surround, Bluray, DD+, Open Matte, x264] (300) do not improve on Existing: [5.1 Surround, HUSH SHH, Opus, x265 (HD)] (600)"
+    ]
+   }
+  ],
+  "downloadId": "147E6690379BCAC2718AAA6A0D4089BFED6737B2",
+  "protocol": "torrent",
+  "downloadClient": "qBittorrent",
+  "downloadClientHasPostImportCategory": false,
+  "indexer": "TorrentDownload (Prowlarr)",
+  "outputPath": "/downloads/The.Devil.Wears.Prada.2006.Open.Matte.BRRip.1080p.x264.DD5.1.gerald99",
+  "sizeleft": 0,
+  "timeleft": "00:00:00",
+  "id": 1374604330
+ }
+]

@@ -1,0 +1,17 @@
+[
+ {
+  "id": 4,
+  "name": "HD-1080p",
+  "upgradeAllowed": true
+ },
+ {
+  "id": 5,
+  "name": "UHD-4K",
+  "upgradeAllowed": true
+ },
+ {
+  "id": 9,
+  "name": "Any",
+  "upgradeAllowed": false
+ }
+]

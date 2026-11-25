@@ -1,0 +1,65 @@
+{
+ "TNUn37R": {
+  "_id": "TNUn37R",
+  "nodeName": "Tdarr-Node-5090",
+  "remoteAddress": "172.17.0.1",
+  "config": {
+   "nodeID": "TNUn37R",
+   "nodeName": "Tdarr-Node-5090",
+   "nodeType": "mapped",
+   "priority": -1.0
+  },
+  "workers": {},
+  "resStats": {
+   "process": {
+    "uptime": 33089,
+    "heapUsedMB": "37.6",
+    "heapTotalMB": "61.2"
+   },
+   "os": {
+    "cpuPerc": "3.26",
+    "memUsedGB": "61.7",
+    "memTotalGB": "125.5"
+   }
+  },
+  "workerLimits": {
+   "healthcheckcpu": 2,
+   "healthcheckgpu": 0,
+   "transcodecpu": 0,
+   "transcodegpu": 4
+  },
+  "gpuSelect": "-",
+  "nodeTags": "mapped",
+  "allowGpuDoCpu": false,
+  "maxGpuWorkers": 100,
+  "nodePaused": false,
+  "deleteCacheAnyStageError": true,
+  "scheduleEnabled": false,
+  "processPriority": "normal",
+  "thoroughHealthCheckCpuExtraInputArgs": "",
+  "thoroughHealthCheckGpuExtraInputArgs": "",
+  "thoroughHealthCheckCpuExtraArgs": "",
+  "thoroughHealthCheckGpuExtraArgs": "",
+  "priority": 0.0,
+  "queueLengths": {
+   "healthcheckcpu": 0,
+   "healthcheckgpu": 0,
+   "transcodecpu": 0,
+   "transcodegpu": 0
+  },
+  "librariesToNotProcess": {},
+  "preventSleep": {
+   "enabled": false,
+   "graceMinutes": 1,
+   "wakeHoldMinutes": 5
+  },
+  "preventSleepStatus": {
+   "holding": false,
+   "error": ""
+  },
+  "nodeEngine": "rust",
+  "protocolVersion": "rust-bootstrap-1",
+  "initPluginDownload": false,
+  "lastSeenTime": 1795455560664
+ }
+}

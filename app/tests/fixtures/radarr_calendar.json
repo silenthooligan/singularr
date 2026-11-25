@@ -1,0 +1,23 @@
+[
+ {
+  "id": 3050,
+  "title": "A Movie Not Yet Held",
+  "year": 2027,
+  "tmdbId": 999001,
+  "monitored": true,
+  "hasFile": false,
+  "inCinemas": "2026-11-20T00:00:00Z",
+  "digitalRelease": "2026-12-04T00:00:00Z",
+  "physicalRelease": "2027-01-15T00:00:00Z"
+ },
+ {
+  "id": 2877,
+  "title": "10 Cloverfield Lane",
+  "year": 2016,
+  "tmdbId": 333371,
+  "monitored": true,
+  "hasFile": true,
+  "inCinemas": "2016-03-10T00:00:00Z",
+  "physicalRelease": "2026-11-25T00:00:00Z"
+ }
+]

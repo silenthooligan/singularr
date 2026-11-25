@@ -1,0 +1,6150 @@
+{
+ "radarr": {
+  "tags": [
+   "dirtyhippie",
+   "hush-audio",
+   "hush-av1",
+   "hush-downscale",
+   "hush-dual-audio",
+   "hush-dual-encode",
+   "hush-encode",
+   "hush-hevc",
+   "hush-keep",
+   "odyssey-mockbusters",
+   "open-matte"
+  ],
+  "customFormats": [
+   {
+    "id": 5,
+    "name": "Language: Not Original",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Not Original Language",
+      "type": "LanguageSpecification",
+      "negate": true,
+      "required": false,
+      "value": -2
+     }
+    ]
+   },
+   {
+    "id": 8,
+    "name": "DD+",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\bDD[P+](?!A)|\\b(e[-_. ]?ac3)\\b"
+     },
+     {
+      "name": "Not TrueHD/ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(True[ .-]?HD|ATMOS|DDPA)(\\b|\\d)"
+     },
+     {
+      "name": "Not DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDTS(\\b|\\d)"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not AAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bAAC(\\b|\\d)"
+     },
+     {
+      "name": "Not PCM",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(l?)PCM(\\b|\\d)"
+     }
+    ]
+   },
+   {
+    "id": 9,
+    "name": "DD",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Basic Dolby Digital",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e)ac3"
+     },
+     {
+      "name": "Not Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac3)\\b"
+     },
+     {
+      "name": "Not TrueHD/ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "True[ .-]?HD|\\bATMOS(\\b|\\d)"
+     },
+     {
+      "name": "Not DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDTS(\\b|\\d)"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not AAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bAAC(\\b|\\d)"
+     },
+     {
+      "name": "Not PCM",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(l?)PCM(\\b|\\d)"
+     }
+    ]
+   },
+   {
+    "id": 10,
+    "name": "DD+ ATMOS",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac3)\\b"
+     },
+     {
+      "name": "ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\b(ATMOS|DDPA)(\\b|\\d)"
+     },
+     {
+      "name": "Not TrueHD",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "True[ .-]?HD"
+     },
+     {
+      "name": "Not DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDTS(\\b|\\d)"
+     },
+     {
+      "name": "Not Basic Dolby Digital ",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e)ac3"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not AAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bAAC(\\b|\\d)"
+     },
+     {
+      "name": "Not PCM",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(l?)PCM(\\b|\\d)"
+     }
+    ]
+   },
+   {
+    "id": 12,
+    "name": "Opus",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Opus",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\bOPUS(\\b|\\d)(?!.*[ ._-](\\d{3,4}p))"
+     },
+     {
+      "name": "Not OPUS Release Group",
+      "type": "ReleaseGroupSpecification",
+      "negate": true,
+      "required": true,
+      "value": "OPUS"
+     }
+    ]
+   },
+   {
+    "id": 13,
+    "name": "5.1 Surround",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "5.1 Surround",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "[^0-9]5[ .][0-1]"
+     },
+     {
+      "name": "Not 7.1 Surround",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "[^0-9][7-8][ .][0-1]"
+     },
+     {
+      "name": "Not 9.1 Surround",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "[^0-9]9[ .][0-1]"
+     },
+     {
+      "name": "Not Low Channel Count",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "(?<!repac)[^0-9][1-4][ .][0-1]|\\b(Stereo|Mono)\\b"
+     }
+    ]
+   },
+   {
+    "id": 14,
+    "name": "7.1 Surround",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "7.1 Surround",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "[^0-9][7-8][ .][0-1]"
+     },
+     {
+      "name": "Not 9.1  Surround",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "[^0-9]9[ .][0-1]"
+     },
+     {
+      "name": "Not Low Channel Count",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "(?<!repac)[^0-9][1-4][ .][0-1]|\\b(Stereo|Mono)\\b"
+     }
+    ]
+   },
+   {
+    "id": 16,
+    "name": "Remaster",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Remaster",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "Remaster"
+     },
+     {
+      "name": "Not 4K Remaster",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "4K"
+     }
+    ]
+   },
+   {
+    "id": 17,
+    "name": "Special Edition",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Special Edition",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!^|{)\\b(extended|uncut|directors|special|unrated|uncensored|cut|version|edition)(\\b|\\d)"
+     },
+     {
+      "name": "Not IMAX Edition",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(IMAX[ ._-]Edition)\\b"
+     },
+     {
+      "name": "Not Open Matte",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(Open[ ._-]?Matte)\\b"
+     },
+     {
+      "name": "Not Theatrical",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "Theatrical"
+     },
+     {
+      "name": "Not Extended Clip",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(Extended[ ._-]Clip)\\b"
+     }
+    ]
+   },
+   {
+    "id": 18,
+    "name": "EDGE2020",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "EDGE2020",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "EDGE2020"
+     },
+     {
+      "name": "EDGE2020",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "EDGE2020"
+     }
+    ]
+   },
+   {
+    "id": 20,
+    "name": "Dont Want Release Group",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "V3SP4EV3R",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^V3SP4EV3R$"
+     },
+     {
+      "name": "Asiimov",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^Asiimov$"
+     },
+     {
+      "name": "AOC",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^AOC$"
+     },
+     {
+      "name": "Neonoir",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^Neonoir$"
+     },
+     {
+      "name": "MrTentsaw",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^MrTentsaw$"
+     },
+     {
+      "name": "Enjoy",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^Enjoy$"
+     },
+     {
+      "name": "DE3PM",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^DE3PM$"
+     },
+     {
+      "name": "HiDt",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^HiDt$"
+     },
+     {
+      "name": "themoviesboss",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^themoviesboss$"
+     },
+     {
+      "name": "uHDT",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^uHDT$"
+     },
+     {
+      "name": "Pahe",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^Pahe$"
+     },
+     {
+      "name": "YTS / YIFY",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(YTS(\\.(MX|AM|LT|AG))?|YIFY)$"
+     }
+    ]
+   },
+   {
+    "id": 24,
+    "name": "x265 (HD)",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "x265/HEVC",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "[xh][ ._-]?265|\\bHEVC(\\b|\\d)"
+     },
+     {
+      "name": "Not 2160p",
+      "type": "ResolutionSpecification",
+      "negate": true,
+      "required": true,
+      "value": 2160
+     }
+    ]
+   },
+   {
+    "id": 25,
+    "name": "x264",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "x|h264",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "[xh][ ._-]?264|\\bAVC(\\b|\\d)"
+     },
+     {
+      "name": "Remux",
+      "type": "QualityModifierSpecification",
+      "negate": true,
+      "required": true,
+      "value": 5
+     }
+    ]
+   },
+   {
+    "id": 26,
+    "name": "PSA",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "PSA",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": true,
+      "value": "PSA"
+     }
+    ]
+   },
+   {
+    "id": 28,
+    "name": "Open Matte",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Open Matte",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\b(Open[ ._-]?Matte)\\b"
+     }
+    ]
+   },
+   {
+    "id": 29,
+    "name": "IMAX Enhanced",
+    "includeWhenRenaming": true,
+    "specs": [
+     {
+      "name": "IMAX Enhanced",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "^(?=.*\\b((DSNP|Disney\\+|BC|B?CORE)(?=[ ._-]web[ ._-]?(dl|rip)\\b)))(?=.*\\b((?<!NON[ ._-])IMAX)\\b)|^(?=.*\\b(IMAX[ ._-]Enhanced)\\b)"
+     }
+    ]
+   },
+   {
+    "id": 30,
+    "name": "4K Remaster",
+    "includeWhenRenaming": true,
+    "specs": [
+     {
+      "name": "4K Remaster or RM4K",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "^(?=.*Remaster)(?=.*4k)|RM4K"
+     },
+     {
+      "name": "Not 4K Resolution",
+      "type": "ResolutionSpecification",
+      "negate": true,
+      "required": true,
+      "value": 2160
+     }
+    ]
+   },
+   {
+    "id": 32,
+    "name": "QxR",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Tigole",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Tigole"
+     },
+     {
+      "name": "Ghost",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Ghost"
+     },
+     {
+      "name": "SAMPA",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "SAMPA"
+     },
+     {
+      "name": "Silence",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Silence"
+     },
+     {
+      "name": "Silence",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Silence"
+     },
+     {
+      "name": "Ghost",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Ghost"
+     },
+     {
+      "name": "Tigole",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Tigole"
+     },
+     {
+      "name": "QxR",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "QxR"
+     },
+     {
+      "name": "QxR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "QxR"
+     },
+     {
+      "name": "Garshasp",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Garshasp"
+     },
+     {
+      "name": "Garshasp",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Garshasp"
+     },
+     {
+      "name": "MONOLITH",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "MONOLITH"
+     },
+     {
+      "name": "MONOLITH",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "MONOLITH"
+     },
+     {
+      "name": "SAMPA",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "SAMPA"
+     },
+     {
+      "name": "FreetheFish",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "FreetheFish"
+     },
+     {
+      "name": "FreetheFish",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "FreetheFish"
+     },
+     {
+      "name": "r00t",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "r00t"
+     },
+     {
+      "name": "r00t",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "r00t"
+     },
+     {
+      "name": "Bandi",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Bandi"
+     },
+     {
+      "name": "Bandi",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Bandi"
+     },
+     {
+      "name": "Natty",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Natty"
+     },
+     {
+      "name": "Natty",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Natty"
+     },
+     {
+      "name": "YOGI",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "YOGI"
+     },
+     {
+      "name": "YOGI",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "YOGI"
+     },
+     {
+      "name": "Celdra",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Celdra"
+     },
+     {
+      "name": "Celdra",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Celdra"
+     },
+     {
+      "name": "afm72",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "afm72"
+     },
+     {
+      "name": "afm72",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "afm72"
+     },
+     {
+      "name": "t3nzin",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "t3nzin"
+     },
+     {
+      "name": "t3nzin",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "t3nzin"
+     },
+     {
+      "name": "ImE",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "ImE"
+     },
+     {
+      "name": "ImE",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "ImE"
+     }
+    ]
+   },
+   {
+    "id": 33,
+    "name": "dAV1nci",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "dAV1nci",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": true,
+      "value": "dAV1nci"
+     }
+    ]
+   },
+   {
+    "id": 34,
+    "name": "UTR",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Joy",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Joy"
+     },
+     {
+      "name": "UTR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "UTR"
+     },
+     {
+      "name": "Joy",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Joy"
+     },
+     {
+      "name": "UTR",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "UTR"
+     },
+     {
+      "name": "Qman",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Qman"
+     },
+     {
+      "name": "Qman",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Qman"
+     }
+    ]
+   },
+   {
+    "id": 36,
+    "name": "DS4K",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "DS4K",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "DS4K"
+     },
+     {
+      "name": "UHD",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "UHD"
+     }
+    ]
+   },
+   {
+    "id": 38,
+    "name": "Bluray",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Bluray",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": true,
+      "value": 9
+     }
+    ]
+   },
+   {
+    "id": 40,
+    "name": "IMAX",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "IMAX",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "IMAX"
+     }
+    ]
+   },
+   {
+    "id": 41,
+    "name": "Hindi",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Hindi",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "Hindi"
+     }
+    ]
+   },
+   {
+    "id": 42,
+    "name": "TrueHD ATMOS",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "TrueHD",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "True[ .-]?HD|W4NK3R|HQMUX"
+     },
+     {
+      "name": "ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\b(ATMOS|CtrlHD|W4NK3R|DON)(\\b|\\d)"
+     },
+     {
+      "name": "Not Basic Dolby Digital",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e-)\\b(ac-?3)\\b"
+     },
+     {
+      "name": "Not Dolby Digital Plus ",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac-?3)\\b"
+     },
+     {
+      "name": "Not DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDTS(\\b|\\d)"
+     },
+     {
+      "name": "Not DTS X",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(dts[-_.: ]?x7?)\\b(?![-_. ]?(26[456]))"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     }
+    ]
+   },
+   {
+    "id": 43,
+    "name": "TrueHD",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "TrueHD",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "True[ .-]?HD"
+     },
+     {
+      "name": "ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bATMOS(\\b|\\d)"
+     },
+     {
+      "name": "Not Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac-?3)\\b"
+     },
+     {
+      "name": "Not DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDTS(\\b|\\d)"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not Basic Dolby Digital",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e-)\\b(ac-?3)\\b"
+     },
+     {
+      "name": "Not RlsGrp (TrueHD only)",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(CtrlHD|W4NK3R|DON)\\b"
+     }
+    ]
+   },
+   {
+    "id": 44,
+    "name": "DTS-HD MA",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "DTS-HD MA",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\b(dts[-_. ]?(ma|hd([-_. ]?ma)?|xll))(\\b|\\d)"
+     },
+     {
+      "name": "Not TrueHD/ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "True[ .-]?HD|\\bATMOS(\\b|\\d)"
+     },
+     {
+      "name": "Not Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac-?3)\\b"
+     },
+     {
+      "name": "Not Basic Dolby Digital ",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e-)\\b(ac-?3)\\b"
+     },
+     {
+      "name": "Not DTS X",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(dts[-_.: ]?x7?)\\b(?![-_. ]?(26[456]))"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not AAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bAAC(\\b|\\d)"
+     },
+     {
+      "name": "Not PCM",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(l?)PCM(\\b|\\d)"
+     },
+     {
+      "name": "Not DTS-HD HRA/ES",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "dts[-. ]?(es|(hd[. ]?)?(hr|hi))"
+     }
+    ]
+   },
+   {
+    "id": 45,
+    "name": "DTS",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Basic DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\bDTS(\\b|\\d)"
+     },
+     {
+      "name": "Not DTS-HD",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(dts[-_. ]?(ma|hd([-_. ]?ma)?|xll))(\\b|\\d)"
+     },
+     {
+      "name": "Not DTS-HD HRA/ES",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "dts[-. ]?(es|(hd[. ]?)?(hr|hi))"
+     },
+     {
+      "name": "Not Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac-?3)\\b"
+     },
+     {
+      "name": "Not TrueHD/ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "True[ .-]?HD|\\bATMOS(\\b|\\d)"
+     },
+     {
+      "name": "Not Basic Dolby Digital",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e-)\\b(ac-?3)\\b"
+     },
+     {
+      "name": "Not DTS X",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(dts[-_.: ]?x7?)\\b(?![-_. ]?(26[456]))"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not AAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bAAC(\\b|\\d)"
+     },
+     {
+      "name": "Not PCM",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(l?)PCM(\\b|\\d)"
+     }
+    ]
+   },
+   {
+    "id": 46,
+    "name": "DTS-HD HRA",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "DTS-HD HRA",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "dts[-. ]?(hd[. ]?)?(hra?|hi\\b)"
+     },
+     {
+      "name": "Not TrueHD/ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "True[ .-]?HD|\\bATMOS(\\b|\\d)"
+     },
+     {
+      "name": "Not Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac-?3)\\b"
+     },
+     {
+      "name": "Not Basic DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "DTS[ .]?[1-9]"
+     },
+     {
+      "name": "Not Basic Dolby Digital ",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e-)\\b(ac-?3)\\b"
+     },
+     {
+      "name": "Not DTS X",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(dts[-_.: ]?x7?)\\b(?![-_. ]?(26[456]))"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not AAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bAAC(\\b|\\d)"
+     },
+     {
+      "name": "Not PCM",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(l?)PCM(\\b|\\d)"
+     },
+     {
+      "name": "Not DTS-ES",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "dts.?es"
+     },
+     {
+      "name": "Not 6.1 Surround",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "[^0-9]6[ .][0-1]"
+     }
+    ]
+   },
+   {
+    "id": 47,
+    "name": "FraMeSToR",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "FraMeSToR",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "FraMeSToR"
+     }
+    ]
+   },
+   {
+    "id": 48,
+    "name": "DTS X",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "DTS X",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\b(dts[-_.: ]?x7?)\\b(?![-_. ]?(26[456]))"
+     },
+     {
+      "name": "Not Basic DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "DTS[ .]?[1-9]"
+     },
+     {
+      "name": "Not Basic Dolby Digital",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e-)\\b(ac-?3)\\b"
+     },
+     {
+      "name": "Not Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac-?3)\\b"
+     },
+     {
+      "name": "Not TrueHD/ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "True[ .-]?HD|\\bATMOS(\\b|\\d)"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not AAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bAAC(\\b|\\d)"
+     },
+     {
+      "name": "Not PCM",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(l?)PCM(\\b|\\d)"
+     }
+    ]
+   },
+   {
+    "id": 49,
+    "name": "PeruGuy",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "PeruGuy",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "PeruGuy"
+     },
+     {
+      "name": "PeruGuy",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "PeruGuy"
+     }
+    ]
+   },
+   {
+    "id": 50,
+    "name": "The.PunisheR",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "The.PunisheR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "The.PunisheR"
+     },
+     {
+      "name": "The.PunisheR",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "The.PunisheR"
+     }
+    ]
+   },
+   {
+    "id": 51,
+    "name": "NmCT",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "NmCT",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "NmCT"
+     },
+     {
+      "name": "NmCT",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "NmCT"
+     }
+    ]
+   },
+   {
+    "id": 53,
+    "name": "HeVK",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "HeVK",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "HeVK"
+     },
+     {
+      "name": "HeVK",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "HeVK"
+     }
+    ]
+   },
+   {
+    "id": 54,
+    "name": "SARTRE",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "SARTRE",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "SARTRE"
+     },
+     {
+      "name": "SARTRE",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "SARTRE"
+     }
+    ]
+   },
+   {
+    "id": 55,
+    "name": "MgB",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "MgB",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "MgB"
+     },
+     {
+      "name": "MgB",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "MgB"
+     }
+    ]
+   },
+   {
+    "id": 56,
+    "name": "PiRaTeS",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "PiRaTeS",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "PiRaTeS"
+     },
+     {
+      "name": "PiRaTeS",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "PiRaTeS"
+     }
+    ]
+   },
+   {
+    "id": 57,
+    "name": "KK650",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "KK650",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "KK650"
+     },
+     {
+      "name": "KK650",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "KK650"
+     }
+    ]
+   },
+   {
+    "id": 58,
+    "name": "DV HDR10",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "DV HDR10",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "^(?=.*\\b(DV|DoVi|Dolby[ .]?V(ision)?)\\b)(?=.*\\b((HDR10(?!(P(lus)?)\\b|\\+))|(HDR))\\b)"
+     },
+     {
+      "name": "Not DV HDR10Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "^(?=.*\\b(DV|DoVi|Dolby[ .]?V(ision)?)\\b)(?=.*\\b((HDR10(?=(P(lus)?)\\b|\\+))))"
+     },
+     {
+      "name": "Not DV HLG",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(DV[ .]HLG)\\b"
+     },
+     {
+      "name": "Not DV SDR",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(DV[ .]SDR)\\b"
+     }
+    ]
+   },
+   {
+    "id": 59,
+    "name": "DV HDR10+",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "DV HDR10+",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "^(?=.*\\b(DV|DoVi|Dolby[ .]?V(ision)?)\\b)(?=.*\\b((HDR10(?=(P(lus)?)\\b|\\+))))"
+     },
+     {
+      "name": "Not DV HLG",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(DV[ .]HLG)\\b"
+     },
+     {
+      "name": "Not DV SDR",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(DV[ .]SDR)\\b"
+     }
+    ]
+   },
+   {
+    "id": 60,
+    "name": "HDR10",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "HDR10",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\bHDR10(\\b[^+|Plus])"
+     },
+     {
+      "name": "Not DV HDR10",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "^(?=.*\\b(DV|DoVi|Dolby[ .]?V(ision)?)\\b)(?=.*\\b(HDR(10)?(P(lus)?)?)\\b)"
+     },
+     {
+      "name": "Not PQ",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(PQ)\\b"
+     },
+     {
+      "name": "Not HLG",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(HLG)\\b"
+     },
+     {
+      "name": "Not SDR",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bSDR(\\b|\\d)"
+     },
+     {
+      "name": "Not DV",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(dv|dovi|dolby[ .]?v(ision)?)\\b"
+     }
+    ]
+   },
+   {
+    "id": 61,
+    "name": "HDR",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "HDR",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\b(HDR)\\b"
+     },
+     {
+      "name": "Not DV",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(dv|dovi|dolby[ .]?v(ision)?)\\b"
+     },
+     {
+      "name": "Not HDR10",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bHDR10(\\b[^+|Plus])"
+     },
+     {
+      "name": "Not HDR10+",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bHDR10(\\+|P(lus)?\\b)"
+     },
+     {
+      "name": "Not HLG",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bHLG(\\b|\\d)"
+     },
+     {
+      "name": "Not PQ",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(PQ)\\b"
+     },
+     {
+      "name": "Not RlsGrp (Missing HDR)",
+      "type": "ReleaseGroupSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(FraMeSToR|HQMUX|SiCFoI)\\b"
+     },
+     {
+      "name": "Not SDR",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bSDR(\\b|\\d)"
+     }
+    ]
+   },
+   {
+    "id": 62,
+    "name": "Criterion Collection",
+    "includeWhenRenaming": true,
+    "specs": [
+     {
+      "name": "Bluray",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 9
+     },
+     {
+      "name": "DVD",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 5
+     },
+     {
+      "name": "Criterion",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\b(Criterion)\\b"
+     },
+     {
+      "name": "CC",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\b(CC)\\b"
+     },
+     {
+      "name": "Not Criterion RlsGrp",
+      "type": "ReleaseGroupSpecification",
+      "negate": true,
+      "required": true,
+      "value": "^(Criterion)$"
+     }
+    ]
+   },
+   {
+    "id": 63,
+    "name": "SM737",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "SM737",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "SM737"
+     },
+     {
+      "name": "SM737",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "SM737"
+     }
+    ]
+   },
+   {
+    "id": 64,
+    "name": "TAoE",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "TAoE",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "TAoE"
+     },
+     {
+      "name": "TAoE",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "TAoE"
+     }
+    ]
+   },
+   {
+    "id": 65,
+    "name": "BHDStudio",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "BHDStudio",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "BHDStudio"
+     },
+     {
+      "name": "BHDStudio",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "BHDStudio"
+     }
+    ]
+   },
+   {
+    "id": 68,
+    "name": "OEP",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "OEP",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "OEP"
+     },
+     {
+      "name": "OEP",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "OEP"
+     }
+    ]
+   },
+   {
+    "id": 69,
+    "name": "SQS",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "SQS",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "SQS"
+     },
+     {
+      "name": "SQS",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "SQS"
+     }
+    ]
+   },
+   {
+    "id": 74,
+    "name": "RAV1NE",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "RAV1NE",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "RAV1NE"
+     },
+     {
+      "name": "RAV1NE",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "RAV1NE"
+     }
+    ]
+   },
+   {
+    "id": 75,
+    "name": "Ralphy",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Ralphy",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Ralphy"
+     },
+     {
+      "name": "Ralphy",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Ralphy"
+     }
+    ]
+   },
+   {
+    "id": 76,
+    "name": "Repack/Proper",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Repack",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\b(Repack)\\b"
+     },
+     {
+      "name": "Proper",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\b(Proper)\\b"
+     },
+     {
+      "name": "Rerip",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\b(Rerip)\\b"
+     }
+    ]
+   },
+   {
+    "id": 77,
+    "name": "OK Releases",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "OFT",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "OFT"
+     },
+     {
+      "name": "OFT",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "OFT"
+     },
+     {
+      "name": "ETRG",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "ETRG"
+     },
+     {
+      "name": "ETRG",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "ETRG"
+     },
+     {
+      "name": "GPRS",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "GPRS"
+     },
+     {
+      "name": "GPRS",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "GPRS"
+     }
+    ]
+   },
+   {
+    "id": 78,
+    "name": "Better OK Releases",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "FLUX",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "FLUX"
+     },
+     {
+      "name": "BYNDR",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "BYNDR"
+     },
+     {
+      "name": "BYNDR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "BYNDR"
+     },
+     {
+      "name": "APEX",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "APEX"
+     },
+     {
+      "name": "APEX",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "APEX"
+     },
+     {
+      "name": "FLUX",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "FLUX"
+     }
+    ]
+   },
+   {
+    "id": 80,
+    "name": "REBORN",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "REBORN",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "REBORN"
+     },
+     {
+      "name": "REBORN",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "REBORN"
+     }
+    ]
+   },
+   {
+    "id": 81,
+    "name": "HUSH SHR",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "HUSH SHR",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "HUSH"
+     },
+     {
+      "name": "SHR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "SHR"
+     }
+    ]
+   },
+   {
+    "id": 82,
+    "name": "CiNEPHiLES",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "CiNEPHiLES",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "CiNEPHiLES"
+     },
+     {
+      "name": "CiNEPHiLES",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "CiNEPHiLES"
+     }
+    ]
+   },
+   {
+    "id": 83,
+    "name": "FGT",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "FGT",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "FGT"
+     }
+    ]
+   },
+   {
+    "id": 84,
+    "name": "Remux Tier 01",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Remux",
+      "type": "QualityModifierSpecification",
+      "negate": false,
+      "required": true,
+      "value": 5
+     },
+     {
+      "name": "3L",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(3L)$"
+     },
+     {
+      "name": "BiZKiT",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(BiZKiT)$"
+     },
+     {
+      "name": "BLURANiUM",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(BLURANiUM)$"
+     },
+     {
+      "name": "BMF",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(BMF)$"
+     },
+     {
+      "name": "CiNEPHiLES",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(CiNEPHiLES)$"
+     },
+     {
+      "name": "FraMeSToR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(FraMeSToR)$"
+     },
+     {
+      "name": "PiRAMiDHEAD",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(PiRAMiDHEAD)$"
+     },
+     {
+      "name": "PmP",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(PmP)$"
+     },
+     {
+      "name": "WiLDCAT",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(WiLDCAT)$"
+     },
+     {
+      "name": "ZQ",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(ZQ)$"
+     }
+    ]
+   },
+   {
+    "id": 85,
+    "name": "Remux Tier 02",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Remux",
+      "type": "QualityModifierSpecification",
+      "negate": false,
+      "required": true,
+      "value": 5
+     },
+     {
+      "name": "ATELiER",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(ATELiER)$"
+     },
+     {
+      "name": "NCmt",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(NCmt)$"
+     },
+     {
+      "name": "playBD",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(playBD)$"
+     },
+     {
+      "name": "SiCFoI",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SiCFoI)$"
+     },
+     {
+      "name": "SURFINBIRD",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SURFINBIRD)$"
+     },
+     {
+      "name": "TEPES",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(TEPES)$"
+     }
+    ]
+   },
+   {
+    "id": 86,
+    "name": "Remux Tier 03",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Remux",
+      "type": "QualityModifierSpecification",
+      "negate": false,
+      "required": true,
+      "value": 5
+     },
+     {
+      "name": "12GaugeShotgun",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(12GaugeShotgun)$"
+     },
+     {
+      "name": "decibeL",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(decibeL)$"
+     },
+     {
+      "name": "EPSiLON",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(EPSiLON)$"
+     },
+     {
+      "name": "HiFi",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(HiFi)$"
+     },
+     {
+      "name": "iFT",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(iFT)$"
+     },
+     {
+      "name": "KRaLiMaRKo",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(KRaLiMaRKo)$"
+     },
+     {
+      "name": "NTb",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(NTb)$"
+     },
+     {
+      "name": "PTP",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(PTP)$"
+     },
+     {
+      "name": "SumVision",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SumVision)$"
+     },
+     {
+      "name": "TOA",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(TOA)$"
+     },
+     {
+      "name": "TRiToN",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(TRiToN)$"
+     }
+    ]
+   },
+   {
+    "id": 87,
+    "name": "UHD Bluray Tier 01",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Not REMUX",
+      "type": "QualityModifierSpecification",
+      "negate": true,
+      "required": true,
+      "value": 5
+     },
+     {
+      "name": "Not WEBDL",
+      "type": "SourceSpecification",
+      "negate": true,
+      "required": true,
+      "value": 7
+     },
+     {
+      "name": "Not WEBRIP",
+      "type": "SourceSpecification",
+      "negate": true,
+      "required": true,
+      "value": 8
+     },
+     {
+      "name": "2160p",
+      "type": "ResolutionSpecification",
+      "negate": false,
+      "required": true,
+      "value": 2160
+     },
+     {
+      "name": "CtrlHD",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(CtrlHD)$"
+     },
+     {
+      "name": "MainFrame",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(MainFrame)$"
+     },
+     {
+      "name": "DON",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(DON)$"
+     },
+     {
+      "name": "W4NK3R",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(W4NK3R)$"
+     }
+    ]
+   },
+   {
+    "id": 88,
+    "name": "UHD Bluray Tier 02",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Not REMUX",
+      "type": "QualityModifierSpecification",
+      "negate": true,
+      "required": true,
+      "value": 5
+     },
+     {
+      "name": "Not WEBDL",
+      "type": "SourceSpecification",
+      "negate": true,
+      "required": true,
+      "value": 7
+     },
+     {
+      "name": "Not WEBRIP",
+      "type": "SourceSpecification",
+      "negate": true,
+      "required": true,
+      "value": 8
+     },
+     {
+      "name": "2160p",
+      "type": "ResolutionSpecification",
+      "negate": false,
+      "required": true,
+      "value": 2160
+     },
+     {
+      "name": "HQMUX",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(HQMUX)$"
+     }
+    ]
+   },
+   {
+    "id": 89,
+    "name": "UHD Bluray Tier 03",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Not REMUX",
+      "type": "QualityModifierSpecification",
+      "negate": true,
+      "required": true,
+      "value": 5
+     },
+     {
+      "name": "Not WEBDL",
+      "type": "SourceSpecification",
+      "negate": true,
+      "required": true,
+      "value": 7
+     },
+     {
+      "name": "Not WEBRIP",
+      "type": "SourceSpecification",
+      "negate": true,
+      "required": true,
+      "value": 8
+     },
+     {
+      "name": "2160p",
+      "type": "ResolutionSpecification",
+      "negate": false,
+      "required": true,
+      "value": 2160
+     },
+     {
+      "name": "BHDStudio",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(BHDStudio)$"
+     },
+     {
+      "name": "hallowed",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(hallowed)$"
+     },
+     {
+      "name": "HONE",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(HONE)$"
+     },
+     {
+      "name": "PTer",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(PTer)$"
+     },
+     {
+      "name": "SPHD",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SPHD)$"
+     },
+     {
+      "name": "WEBDV",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(WEBDV)$"
+     }
+    ]
+   },
+   {
+    "id": 90,
+    "name": "HDR10+ Boost",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "HDR10+",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\b(HDR10(?=[+]|P(lus)?))"
+     }
+    ]
+   },
+   {
+    "id": 91,
+    "name": "DirtyHippie",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "DirtyHippie",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "DirtyHippie"
+     },
+     {
+      "name": "DirtyHippie",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "DirtyHippie"
+     }
+    ]
+   },
+   {
+    "id": 92,
+    "name": "TRiToN",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "TRiToN",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "TRiToN"
+     },
+     {
+      "name": "TRiToN",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "TRiToN"
+     }
+    ]
+   },
+   {
+    "id": 93,
+    "name": "HUSH SHH",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "SHH",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": true,
+      "value": "^SHH$"
+     }
+    ]
+   },
+   {
+    "id": 94,
+    "name": "Executable Malware",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Executable extension in title",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "[. ](exe|msi|bat|cmd|scr|lnk|zipx|vbs|ps1|hta|pif)(\\s*\\[[^\\]]*\\])?\\s*$"
+     }
+    ]
+   },
+   {
+    "id": 95,
+    "name": "HUSH SHA",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "SHA",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": true,
+      "value": "^SHA$"
+     }
+    ]
+   },
+   {
+    "id": 96,
+    "name": "HUSH SHT",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "SHT",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": true,
+      "value": "^SHT$"
+     }
+    ]
+   },
+   {
+    "id": 97,
+    "name": "WEB Tier 01",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "ABBIE",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(ABBIE)$"
+     },
+     {
+      "name": "AJP69",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(AJP69)$"
+     },
+     {
+      "name": "APEX",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(APEX|PAXA|PEXA|XEPA)$"
+     },
+     {
+      "name": "BLUTONiUM",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(BLUTONiUM)$"
+     },
+     {
+      "name": "BYNDR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(BYNDR)$"
+     },
+     {
+      "name": "CMRG",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(CMRG)$"
+     },
+     {
+      "name": "CRFW",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(CRFW)$"
+     },
+     {
+      "name": "CRUD",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(CRUD)$"
+     },
+     {
+      "name": "FLUX",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(FLUX)$"
+     },
+     {
+      "name": "GNOME",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(GNOME)$"
+     },
+     {
+      "name": "HONE",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(HONE)$"
+     },
+     {
+      "name": "KiNGS",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(KiNGS)$"
+     },
+     {
+      "name": "Kitsune",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(Kitsune)$"
+     },
+     {
+      "name": "MADSKY",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(MADSKY)$"
+     },
+     {
+      "name": "NOSiViD",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(NOSiViD)$"
+     },
+     {
+      "name": "NTb",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(NTb)$"
+     },
+     {
+      "name": "NTG",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(NTG)$"
+     },
+     {
+      "name": "RAWR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(RAWR)$"
+     },
+     {
+      "name": "SiC",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SiC)$"
+     },
+     {
+      "name": "TEPES",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(TEPES)$"
+     },
+     {
+      "name": "TheFarm",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(TheFarm)$"
+     },
+     {
+      "name": "ZoroSenpai",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(ZoroSenpai)$"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 98,
+    "name": "WEB Tier 02",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "dB",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(dB)$"
+     },
+     {
+      "name": "Flights",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(Flights)$"
+     },
+     {
+      "name": "MiU",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(MiU)$"
+     },
+     {
+      "name": "monkee",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(monkee)$"
+     },
+     {
+      "name": "MZABI",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(MZABI)$"
+     },
+     {
+      "name": "PHOENiX",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(PHOENiX)$"
+     },
+     {
+      "name": "playWEB",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(playWEB)$"
+     },
+     {
+      "name": "SbR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SbR)$"
+     },
+     {
+      "name": "SMURF",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SMURF)$"
+     },
+     {
+      "name": "TOMMY",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(TOMMY)$"
+     },
+     {
+      "name": "XEBEC",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(XEBEC|4KBEC|CEBEX)$"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 99,
+    "name": "WEB Tier 03",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "BLOOM",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(BLOOM)$"
+     },
+     {
+      "name": "Dooky",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(Dooky)$"
+     },
+     {
+      "name": "GNOMiSSiON",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(GNOMiSSiON)$"
+     },
+     {
+      "name": "NINJACENTRAL",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(NINJACENTRAL)$"
+     },
+     {
+      "name": "NPMS",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(NPMS)$"
+     },
+     {
+      "name": "ROCCaT",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(ROCCaT)$"
+     },
+     {
+      "name": "SiGMA",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SiGMA)$"
+     },
+     {
+      "name": "SLiGNOME",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SLiGNOME)$"
+     },
+     {
+      "name": "SwAgLaNdEr",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SwAgLaNdEr)$"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 100,
+    "name": "AMZN",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Amazon",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\b(?:amzn|amazon(?:hd)?)(?![a-z0-9])[ ._-]+(?:[a-z0-9]{3,5}[ ._-]+)?(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 101,
+    "name": "ATVP",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Apple TV+",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\b(?:atvp|aptv|apple[ ._-]?tv\\+)(?![a-z0-9])[ ._-]+(?:[a-z0-9]{3,5}[ ._-]+)?(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 102,
+    "name": "iT",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "iTunes / Apple TV store",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:it|itunes|atv)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 103,
+    "name": "MA",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Movies Anywhere",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:ma)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 104,
+    "name": "VUDU",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Vudu / Fandango at Home",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:vudu|fdng|fandango)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 105,
+    "name": "AMCP",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "AMC+",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:amcp|amc\\+)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 106,
+    "name": "BCORE",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Bravia Core",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:bcore|core)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 107,
+    "name": "PCOK",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Peacock",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:pcok|peacock)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 108,
+    "name": "DSNP",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Disney+",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:dsnp|dsny|disney\\+?)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 109,
+    "name": "HMAX",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "HBO Max / Max / HBO",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:hmax|hbom|hbo[ ._-]?max|max|hbo)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 110,
+    "name": "STZ",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Starz",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:stz|starz)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 111,
+    "name": "MGMP",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "MGM+",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:mgmp|mgm\\+|epix)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 112,
+    "name": "SKST",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "SkyShowtime",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:skst|skyshowtime)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   },
+   {
+    "id": 113,
+    "name": "NOW",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "NOW",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:now)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 8
+     }
+    ]
+   }
+  ],
+  "qualityProfiles": [
+   {
+    "id": 1,
+    "name": "HD-1080p",
+    "upgradeAllowed": true,
+    "cutoffFormatScore": 3000,
+    "minFormatScore": 100,
+    "minUpgradeFormatScore": 75,
+    "cutoffQuality": 1007,
+    "language": "Original",
+    "qualities": [
+     "HQ-1080p"
+    ],
+    "scores": {
+     "NOW": 50,
+     "SKST": 50,
+     "MGMP": 50,
+     "STZ": 50,
+     "HMAX": 50,
+     "DSNP": 50,
+     "PCOK": 50,
+     "BCORE": 100,
+     "AMCP": 100,
+     "VUDU": 100,
+     "MA": 100,
+     "iT": 100,
+     "ATVP": 100,
+     "AMZN": 100,
+     "WEB Tier 03": 300,
+     "WEB Tier 02": 400,
+     "WEB Tier 01": 1000,
+     "HUSH SHT": 2000,
+     "HUSH SHA": 500,
+     "Executable Malware": -10000,
+     "HUSH SHH": 500,
+     "TRiToN": 1600,
+     "HDR10+ Boost": 100,
+     "FGT": 1300,
+     "CiNEPHiLES": 1650,
+     "HUSH SHR": 3000,
+     "REBORN": -700,
+     "OK Releases": 300,
+     "Repack/Proper": 200,
+     "Ralphy": -500,
+     "RAV1NE": -1000,
+     "SQS": 1400,
+     "OEP": 300,
+     "BHDStudio": 600,
+     "TAoE": 400,
+     "SM737": 1500,
+     "Criterion Collection": 300,
+     "HDR": 100,
+     "HDR10": 500,
+     "DV HDR10+": 100,
+     "DV HDR10": 100,
+     "KK650": 600,
+     "PiRaTeS": 250,
+     "MgB": 700,
+     "SARTRE": 1500,
+     "HeVK": 1750,
+     "NmCT": 800,
+     "The.PunisheR": 700,
+     "PeruGuy": 1200,
+     "FraMeSToR": 1600,
+     "Hindi": -10000,
+     "IMAX": 500,
+     "Bluray": 100,
+     "DS4K": 100,
+     "UTR": 400,
+     "dAV1nci": -1000,
+     "QxR": 1500,
+     "4K Remaster": 900,
+     "IMAX Enhanced": 1050,
+     "Open Matte": 100,
+     "PSA": 100,
+     "x264": 50,
+     "x265 (HD)": 50,
+     "Dont Want Release Group": -20000,
+     "EDGE2020": 600,
+     "Special Edition": 100,
+     "Remaster": 200,
+     "7.1 Surround": 50,
+     "5.1 Surround": 50
+    }
+   },
+   {
+    "id": 8,
+    "name": "UHD-4K",
+    "upgradeAllowed": true,
+    "cutoffFormatScore": 3000,
+    "minFormatScore": 300,
+    "minUpgradeFormatScore": 1,
+    "cutoffQuality": 1003,
+    "language": "Original",
+    "qualities": [
+     "2160p"
+    ],
+    "scores": {
+     "HUSH SHT": 2000,
+     "HUSH SHA": 600,
+     "Executable Malware": -10000,
+     "HUSH SHH": 600,
+     "TRiToN": 500,
+     "DirtyHippie": 1000,
+     "HDR10+ Boost": 50,
+     "UHD Bluray Tier 03": 25,
+     "UHD Bluray Tier 02": 50,
+     "UHD Bluray Tier 01": 75,
+     "Remux Tier 03": 50,
+     "Remux Tier 02": 75,
+     "Remux Tier 01": 100,
+     "Language: Not Original": -10000,
+     "5.1 Surround": 10,
+     "7.1 Surround": 100,
+     "Special Edition": 100,
+     "Open Matte": 50,
+     "IMAX Enhanced": 500,
+     "IMAX": 500,
+     "FraMeSToR": 250,
+     "PiRaTeS": -1000,
+     "DV HDR10": 100,
+     "DV HDR10+": 150,
+     "HDR10": 25,
+     "HDR": 10,
+     "Criterion Collection": 10,
+     "HUSH SHR": 3000,
+     "CiNEPHiLES": 255,
+     "FGT": 225
+    }
+   }
+  ],
+  "releaseProfiles": [
+   {
+    "id": 4,
+    "name": "The Odyssey 2026 mockbusters",
+    "enabled": true,
+    "required": [],
+    "ignored": [
+     "NOT The Chris Nolan",
+     "Kitsune",
+     "BONE",
+     "LAMA",
+     "[WEBRip] [x265] [10bit]"
+    ],
+    "tags": [
+     "odyssey-mockbusters"
+    ]
+   },
+   {
+    "id": 5,
+    "name": "DirtyHippie: only a DirtyHippie remux replaces it",
+    "enabled": true,
+    "required": [
+     "/^(?=.*dirtyhippie)(?=.*remux)/i"
+    ],
+    "ignored": [],
+    "tags": [
+     "dirtyhippie"
+    ]
+   },
+   {
+    "id": 6,
+    "name": "Open matte: only another open matte release replaces it",
+    "enabled": true,
+    "required": [
+     "/\\b(open[ ._-]?matte)\\b/i"
+    ],
+    "ignored": [],
+    "tags": [
+     "open-matte"
+    ]
+   }
+  ],
+  "rootFolders": [
+   "/media/4kmovies",
+   "/media/movies"
+  ]
+ },
+ "sonarr": {
+  "tags": [
+   "hush-audio",
+   "hush-av1",
+   "hush-downscale",
+   "hush-dual-audio",
+   "hush-dual-encode",
+   "hush-encode",
+   "hush-hevc",
+   "hush-keep"
+  ],
+  "customFormats": [
+   {
+    "id": 1,
+    "name": "Megusta",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "megusta",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "megusta"
+     }
+    ]
+   },
+   {
+    "id": 2,
+    "name": "Elite",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "elite",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "elite"
+     }
+    ]
+   },
+   {
+    "id": 3,
+    "name": "Xen0n",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "xen0n",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "xen0n"
+     }
+    ]
+   },
+   {
+    "id": 4,
+    "name": "Edith",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "edith",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "edith"
+     }
+    ]
+   },
+   {
+    "id": 6,
+    "name": "PSA",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "PSA",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": true,
+      "value": "PSA"
+     }
+    ]
+   },
+   {
+    "id": 8,
+    "name": "Vyndros",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Vyndros",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": true,
+      "value": "Vyndros"
+     }
+    ]
+   },
+   {
+    "id": 9,
+    "name": "5.1 Surround",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "5.1 Surround",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "[^0-9]5[ .][0-1]\\b"
+     },
+     {
+      "name": "Not 7.1 Surround",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "[^0-9][7-8][ .][0-1]\\b"
+     },
+     {
+      "name": "Not Low Channel Count",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "(?<!repac)[^0-9][1-4][ .][0-1]|\\b(Stereo|Mono)\\b"
+     }
+    ]
+   },
+   {
+    "id": 10,
+    "name": "AV1",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "AV1",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\bAV1\\b"
+     }
+    ]
+   },
+   {
+    "id": 11,
+    "name": "QxR",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Tigole",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Tigole"
+     },
+     {
+      "name": "Ghost",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Ghost"
+     },
+     {
+      "name": "SAMPA",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "SAMPA"
+     },
+     {
+      "name": "Silence",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Silence"
+     },
+     {
+      "name": "Silence",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Silence"
+     },
+     {
+      "name": "Ghost",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Ghost"
+     },
+     {
+      "name": "Tigole",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Tigole"
+     },
+     {
+      "name": "QxR",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "QxR"
+     },
+     {
+      "name": "QxR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "QxR"
+     },
+     {
+      "name": "Garshasp",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Garshasp"
+     },
+     {
+      "name": "Garshasp",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Garshasp"
+     },
+     {
+      "name": "MONOLITH",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "MONOLITH"
+     },
+     {
+      "name": "MONOLITH",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "MONOLITH"
+     },
+     {
+      "name": "SAMPA",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "SAMPA"
+     },
+     {
+      "name": "FreetheFish",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "FreetheFish"
+     },
+     {
+      "name": "FreetheFish",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "FreetheFish"
+     },
+     {
+      "name": "r00t",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "r00t"
+     },
+     {
+      "name": "r00t",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "r00t"
+     },
+     {
+      "name": "t3nzin",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "t3nzin"
+     },
+     {
+      "name": "t3nzin",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "t3nzin"
+     },
+     {
+      "name": "ImE",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "ImE"
+     },
+     {
+      "name": "ImE",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "ImE"
+     }
+    ]
+   },
+   {
+    "id": 12,
+    "name": "UTR",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Joy",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Joy"
+     },
+     {
+      "name": "UTR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "UTR"
+     },
+     {
+      "name": "Joy",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Joy"
+     },
+     {
+      "name": "UTR",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "UTR"
+     },
+     {
+      "name": "Qman",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Qman"
+     },
+     {
+      "name": "Qman",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Qman"
+     },
+     {
+      "name": "Absinth",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^Absinth$"
+     },
+     {
+      "name": "Aegon",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^Aegon$"
+     },
+     {
+      "name": "Absinth title",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Absinth"
+     },
+     {
+      "name": "Aegon title",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "Aegon"
+     }
+    ]
+   },
+   {
+    "id": 13,
+    "name": "FLUX",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "FLUX",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "FLUX"
+     },
+     {
+      "name": "FLUX",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "FLUX"
+     }
+    ]
+   },
+   {
+    "id": 14,
+    "name": "SM737",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "SM737",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "SM737"
+     },
+     {
+      "name": "SM737",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "SM737"
+     }
+    ]
+   },
+   {
+    "id": 15,
+    "name": "RGzsRutracker",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "RGzsRutracker",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "RGzsRutracker"
+     },
+     {
+      "name": "RGzsRutracker",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "RGzsRutracker"
+     }
+    ]
+   },
+   {
+    "id": 16,
+    "name": "d3g",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "d3g",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "d3g"
+     },
+     {
+      "name": "d3g",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "d3g"
+     },
+     {
+      "name": "d3t",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "d3t"
+     },
+     {
+      "name": "d3t",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "d3t"
+     }
+    ]
+   },
+   {
+    "id": 17,
+    "name": "HUSH SHR",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "HUSH SHR",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "HUSH"
+     },
+     {
+      "name": "SHR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "SHR"
+     }
+    ]
+   },
+   {
+    "id": 18,
+    "name": "DD",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Basic Dolby Digital",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e)ac3"
+     },
+     {
+      "name": "Not Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac3)\\b"
+     },
+     {
+      "name": "Not TrueHD/ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "True[ .-]?HD|\\bATMOS(\\b|\\d)"
+     },
+     {
+      "name": "Not DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDTS(\\b|\\d)"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not AAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bAAC(\\b|\\d)"
+     },
+     {
+      "name": "Not PCM",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(l?)PCM(\\b|\\d)"
+     }
+    ]
+   },
+   {
+    "id": 19,
+    "name": "DD+",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\bDD[P+](?!A)|\\b(e[-_. ]?ac-?3)\\b"
+     },
+     {
+      "name": "Not TrueHD/ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(True[ .-]?HD|ATMOS|DDPA)(\\b|\\d)"
+     },
+     {
+      "name": "Not DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDTS(\\b|\\d)"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not AAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bAAC(\\b|\\d)"
+     },
+     {
+      "name": "Not PCM",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(l?)PCM(\\b|\\d)"
+     }
+    ]
+   },
+   {
+    "id": 20,
+    "name": "TrueHD ATMOS",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "TrueHD",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "True[ .-]?HD"
+     },
+     {
+      "name": "ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\bATMOS(\\b|\\d)"
+     },
+     {
+      "name": "Not Basic Dolby Digital",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e-)\\b(ac-?3)\\b"
+     },
+     {
+      "name": "Not Dolby Digital Plus ",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac-?3)\\b"
+     },
+     {
+      "name": "Not DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDTS(\\b|\\d)"
+     },
+     {
+      "name": "Not DTS X",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(dts[-_.: ]?x7?)\\b(?![-_. ]?(26[456]))"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     }
+    ]
+   },
+   {
+    "id": 21,
+    "name": "DTS X",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "DTS X",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\b(dts[-_.: ]?x7?)\\b(?![-_. ]?(26[456]))"
+     },
+     {
+      "name": "Not Basic DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "DTS[ .]?[1-9]"
+     },
+     {
+      "name": "Not Basic Dolby Digital",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e-)\\b(ac-?3)\\b"
+     },
+     {
+      "name": "Not Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac-?3)\\b"
+     },
+     {
+      "name": "Not TrueHD/ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "True[ .-]?HD|\\bATMOS(\\b|\\d)"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not AAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bAAC(\\b|\\d)"
+     },
+     {
+      "name": "Not PCM",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(l?)PCM(\\b|\\d)"
+     }
+    ]
+   },
+   {
+    "id": 22,
+    "name": "DTS-HD MA",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "DTS-HD MA",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\b(dts[-_. ]?(ma|hd([-_. ]?ma)?|xll))(\\b|\\d)"
+     },
+     {
+      "name": "Not TrueHD/ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "True[ .-]?HD|\\bATMOS(\\b|\\d)"
+     },
+     {
+      "name": "Not Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac-?3)\\b"
+     },
+     {
+      "name": "Not Basic Dolby Digital ",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e-)\\b(ac-?3)\\b"
+     },
+     {
+      "name": "Not DTS X",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(dts[-_.: ]?x7?)\\b(?![-_. ]?(26[456]))"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not AAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bAAC(\\b|\\d)"
+     },
+     {
+      "name": "Not PCM",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(l?)PCM(\\b|\\d)"
+     },
+     {
+      "name": "Not DTS-HD HRA/ES",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "dts[-. ]?(es|(hd[. ]?)?(hr|hi))"
+     }
+    ]
+   },
+   {
+    "id": 23,
+    "name": "TrueHD",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "TrueHD",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "True[ .-]?HD"
+     },
+     {
+      "name": "ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bATMOS(\\b|\\d)"
+     },
+     {
+      "name": "Not Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac-?3)\\b"
+     },
+     {
+      "name": "Not DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDTS(\\b|\\d)"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not Basic Dolby Digital",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e-)\\b(ac-?3)\\b"
+     }
+    ]
+   },
+   {
+    "id": 24,
+    "name": "DD+ ATMOS",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac-?3)\\b"
+     },
+     {
+      "name": "ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\b(ATMOS|DDPA)(\\b|\\d)"
+     },
+     {
+      "name": "Not TrueHD",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "True[ .-]?HD"
+     },
+     {
+      "name": "Not DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDTS(\\b|\\d)"
+     },
+     {
+      "name": "Not Basic Dolby Digital ",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e-)\\b(ac-?3)\\b"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not AAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bAAC(\\b|\\d)"
+     },
+     {
+      "name": "Not PCM",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(l?)PCM(\\b|\\d)"
+     }
+    ]
+   },
+   {
+    "id": 25,
+    "name": "DTS",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Basic DTS",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\bDTS(\\b|\\d)"
+     },
+     {
+      "name": "Not DTS-HD",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(dts[-_. ]?(ma|hd([-_. ]?ma)?|xll))(\\b|\\d)"
+     },
+     {
+      "name": "Not DTS-HD HRA/ES",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "dts[-. ]?(es|(hd[. ]?)?(hr|hi))"
+     },
+     {
+      "name": "Not Dolby Digital Plus",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[P+]|\\b(e[-_. ]?ac-?3)\\b"
+     },
+     {
+      "name": "Not TrueHD/ATMOS",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "True[ .-]?HD|\\bATMOS(\\b|\\d)"
+     },
+     {
+      "name": "Not Basic Dolby Digital",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bDD[^a-z+]|(?<!e-)\\b(ac-?3)\\b"
+     },
+     {
+      "name": "Not DTS X",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(dts[-_.: ]?x7?)\\b(?![-_. ]?(26[456]))"
+     },
+     {
+      "name": "Not FLAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bFLAC(\\b|\\d)"
+     },
+     {
+      "name": "Not AAC",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\bAAC(\\b|\\d)"
+     },
+     {
+      "name": "Not PCM",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(l?)PCM(\\b|\\d)"
+     }
+    ]
+   },
+   {
+    "id": 26,
+    "name": "Opus",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Opus",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\bOPUS(\\b|\\d)(?!.*[ ._-](\\d{3,4}p))"
+     },
+     {
+      "name": "Not OPUS Release Group",
+      "type": "ReleaseGroupSpecification",
+      "negate": true,
+      "required": true,
+      "value": "OPUS"
+     }
+    ]
+   },
+   {
+    "id": 27,
+    "name": "HDR",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "DV With HDR10 fallback",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(?=.*\\b(dv|dovi|dolby[ .]?v(ision)?)\\b)(?!(?=.*\\b(WEB[ ._-]?(DL|Rip)?)\\b)(?!.*\\b(hulu)\\b))"
+     },
+     {
+      "name": "HDR",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\b(HDR)\\b"
+     },
+     {
+      "name": "HDR10",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\b(HDR10(?![+]|P(lus)?))"
+     },
+     {
+      "name": "HDR10+",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\b(HDR10(?=[+]|P(lus)?))"
+     },
+     {
+      "name": "HLG",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\b(HLG)\\b"
+     },
+     {
+      "name": "PQ",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\b(PQ)\\b"
+     },
+     {
+      "name": "RlsGrp (Missing HDR)",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(?=.*\\b(FraMeSToR|HQMUX|SiCFoI)\\b)(?=.*\\b(2160p)\\b)(?!.*\\b(HDR10([+]|P(lus)?)))(?!.*\\b(SDR)\\b).*"
+     }
+    ]
+   },
+   {
+    "id": 28,
+    "name": "DV Boost",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "DV",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\b(dv|dovi|dolby[ .]?v(ision)?)\\b"
+     }
+    ]
+   },
+   {
+    "id": 29,
+    "name": "HDR10+ Boost",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "HDR10+",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\b(HDR10(?=[+]|P(lus)?))"
+     }
+    ]
+   },
+   {
+    "id": 30,
+    "name": "Hybrid",
+    "includeWhenRenaming": true,
+    "specs": [
+     {
+      "name": "Hybrid",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "\\bhybrid(\\b|\\d)"
+     },
+     {
+      "name": "Not Hybrid Release Group",
+      "type": "ReleaseGroupSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b(HYBRID)\\b"
+     },
+     {
+      "name": "Remux",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 7
+     },
+     {
+      "name": "Bluray",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 6
+     }
+    ]
+   },
+   {
+    "id": 31,
+    "name": "Remaster",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Remaster",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "Remaster"
+     },
+     {
+      "name": "Not 4K Remaster",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "4K"
+     }
+    ]
+   },
+   {
+    "id": 32,
+    "name": "Remux Tier 01",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Remux",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": true,
+      "value": 7
+     },
+     {
+      "name": "BLURANiUM",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(BLURANiUM)$"
+     },
+     {
+      "name": "BMF",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(BMF)$"
+     },
+     {
+      "name": "FraMeSToR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(FraMeSToR)$"
+     },
+     {
+      "name": "PmP",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(PmP)$"
+     }
+    ]
+   },
+   {
+    "id": 33,
+    "name": "Remux Tier 02",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Remux",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": true,
+      "value": 7
+     },
+     {
+      "name": "12GaugeShotgun",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(12GaugeShotgun)$"
+     },
+     {
+      "name": "decibeL",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(decibeL)$"
+     },
+     {
+      "name": "EPSiLON",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(EPSiLON)$"
+     },
+     {
+      "name": "HiFi",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(HiFi)$"
+     },
+     {
+      "name": "KRaLiMaRKo",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(KRaLiMaRKo)$"
+     },
+     {
+      "name": "playBD",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(playBD)$"
+     },
+     {
+      "name": "PTer",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(PTer)$"
+     },
+     {
+      "name": "SiCFoI",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SiCFoI)$"
+     },
+     {
+      "name": "TRiToN",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(TRiToN)$"
+     }
+    ]
+   },
+   {
+    "id": 34,
+    "name": "HD Bluray Tier 01",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "BLURAY",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": true,
+      "value": 6
+     },
+     {
+      "name": "Not REMUX",
+      "type": "SourceSpecification",
+      "negate": true,
+      "required": true,
+      "value": 7
+     },
+     {
+      "name": "Not 2160p",
+      "type": "ResolutionSpecification",
+      "negate": true,
+      "required": true,
+      "value": 2160
+     },
+     {
+      "name": "Chotab",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(Chotab)$"
+     },
+     {
+      "name": "CtrlHD",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(CtrlHD)$"
+     },
+     {
+      "name": "DON",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(DON)$"
+     },
+     {
+      "name": "EbP",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(EbP)$"
+     },
+     {
+      "name": "NTb",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(NTb)$"
+     },
+     {
+      "name": "PTer",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(PTer)$"
+     }
+    ]
+   },
+   {
+    "id": 35,
+    "name": "HD Bluray Tier 02",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "BLURAY",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": true,
+      "value": 6
+     },
+     {
+      "name": "Not REMUX",
+      "type": "SourceSpecification",
+      "negate": true,
+      "required": true,
+      "value": 7
+     },
+     {
+      "name": "Not 2160p",
+      "type": "ResolutionSpecification",
+      "negate": true,
+      "required": true,
+      "value": 2160
+     },
+     {
+      "name": "SA89",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SA89)$"
+     },
+     {
+      "name": "sbR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(sbR)$"
+     }
+    ]
+   },
+   {
+    "id": 36,
+    "name": "WEB Tier 01",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "ABBiE",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(ABBiE)$"
+     },
+     {
+      "name": "AJP69",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(AJP69)$"
+     },
+     {
+      "name": "APEX",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(APEX|PAXA|PEXA|XEPA)$"
+     },
+     {
+      "name": "CasStudio",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(CasStudio)$"
+     },
+     {
+      "name": "CRFW",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(CRFW)$"
+     },
+     {
+      "name": "CtrlHD",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(CtrlHD)$"
+     },
+     {
+      "name": "FLUX",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(FLUX)$"
+     },
+     {
+      "name": "HONE",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(HONE)$"
+     },
+     {
+      "name": "KiNGS",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(KiNGS)$"
+     },
+     {
+      "name": "Kitsune",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(Kitsune)$"
+     },
+     {
+      "name": "monkee",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(monkee)$"
+     },
+     {
+      "name": "NOSiViD",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(NOSiViD)$"
+     },
+     {
+      "name": "NTb",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(NTb)$"
+     },
+     {
+      "name": "NTG",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(NTG)$"
+     },
+     {
+      "name": "QOQ",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(QOQ)$"
+     },
+     {
+      "name": "RAWR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(RAWR)$"
+     },
+     {
+      "name": "RTN",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(RTN)$"
+     },
+     {
+      "name": "SiC",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SiC)$"
+     },
+     {
+      "name": "T6D",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(T6D)$"
+     },
+     {
+      "name": "TOMMY",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(TOMMY)$"
+     },
+     {
+      "name": "ViSUM",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(ViSUM)$"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 37,
+    "name": "WEB Tier 02",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "3cTWeB",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(3cTWeB)$"
+     },
+     {
+      "name": "BLUTONiUM",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(BLUTONiUM)$"
+     },
+     {
+      "name": "BTW",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(BTW)$"
+     },
+     {
+      "name": "BYNDR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(BYNDR)$"
+     },
+     {
+      "name": "Chotab",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(Chotab)$"
+     },
+     {
+      "name": "Cinefeel",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(Cinefeel)$"
+     },
+     {
+      "name": "CiT",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(CiT)$"
+     },
+     {
+      "name": "CMRG",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(CMRG)$"
+     },
+     {
+      "name": "Coo7",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(Coo7)$"
+     },
+     {
+      "name": "dB",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(dB)$"
+     },
+     {
+      "name": "DEEP",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(DEEP)$"
+     },
+     {
+      "name": "END",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(END)$"
+     },
+     {
+      "name": "ETHiCS",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(ETHiCS)$"
+     },
+     {
+      "name": "FC",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(FC)$"
+     },
+     {
+      "name": "Flights",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(Flights)$"
+     },
+     {
+      "name": "GNOME",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(GNOME)$"
+     },
+     {
+      "name": "iJP",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(iJP)$"
+     },
+     {
+      "name": "iKA",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(iKA)$"
+     },
+     {
+      "name": "iT00NZ",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(iT00NZ)$"
+     },
+     {
+      "name": "JETIX",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(JETIX)$"
+     },
+     {
+      "name": "KHN",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(KHN)$"
+     },
+     {
+      "name": "KiMCHI",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(KiMCHI)$"
+     },
+     {
+      "name": "LAZY",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(LAZY)$"
+     },
+     {
+      "name": "MiU",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(MiU)$"
+     },
+     {
+      "name": "MZABI",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(MZABI)$"
+     },
+     {
+      "name": "NPMS",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(NPMS)$"
+     },
+     {
+      "name": "NYH",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(NYH)$"
+     },
+     {
+      "name": "orbitron",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(orbitron)$"
+     },
+     {
+      "name": "PHOENiX",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(PHOENiX)$"
+     },
+     {
+      "name": "playWEB",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(playWEB)$"
+     },
+     {
+      "name": "PSiG",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(PSiG)$"
+     },
+     {
+      "name": "ROCCaT",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(ROCCaT)$"
+     },
+     {
+      "name": "RTFM",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(RTFM)$"
+     },
+     {
+      "name": "SA89",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SA89)$"
+     },
+     {
+      "name": "SbR",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SbR)$"
+     },
+     {
+      "name": "SDCC",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SDCC)$"
+     },
+     {
+      "name": "SIGMA",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SIGMA)$"
+     },
+     {
+      "name": "SMURF",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SMURF)$"
+     },
+     {
+      "name": "SPiRiT",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SPiRiT)$"
+     },
+     {
+      "name": "TEPES",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(TEPES)$"
+     },
+     {
+      "name": "TVSmash",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(TVSmash)$"
+     },
+     {
+      "name": "WELP",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(WELP)$"
+     },
+     {
+      "name": "XEBEC",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(XEBEC|4KBEC|CEBEX)$"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 38,
+    "name": "WEB Tier 03",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     },
+     {
+      "name": "Dooky",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(Dooky)$"
+     },
+     {
+      "name": "DRACULA",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(DRACULA)$"
+     },
+     {
+      "name": "HHWEB",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(HHWEB)$"
+     },
+     {
+      "name": "NINJACENTRAL",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(NINJACENTRAL)$"
+     },
+     {
+      "name": "SLiGNOME",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SLiGNOME)$"
+     },
+     {
+      "name": "SwAgLaNdEr",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(SwAgLaNdEr)$"
+     },
+     {
+      "name": "T4H",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(T4H)$"
+     },
+     {
+      "name": "ViSiON",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "^(ViSiON)$"
+     }
+    ]
+   },
+   {
+    "id": 39,
+    "name": "Repack/Proper",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Repack/Proper/Rerip",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\b(Repack|Proper|Rerip)\\b"
+     },
+     {
+      "name": "Not Higher Version Repack/Proper",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "\\b((repack|proper)[23])\\b|\\bREAL\\.(REAL\\.)?(PROPER|REPACK)\\b"
+     }
+    ]
+   },
+   {
+    "id": 40,
+    "name": "7.1 Surround",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "7.1 Surround",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "[^0-9][7-8][ .][0-1]\\b"
+     },
+     {
+      "name": "Not Low Channel Count",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "(?<!repac)[^0-9][1-4][ .][0-1]\\b|\\b(Stereo|Mono)\\b"
+     }
+    ]
+   },
+   {
+    "id": 41,
+    "name": "6.1 Surround",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "6.1 Surround",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "[^0-9]6[ .][0-1]\\b"
+     },
+     {
+      "name": "Not 7.1 Surround",
+      "type": "ReleaseTitleSpecification",
+      "negate": true,
+      "required": true,
+      "value": "[^0-9][7-8][ .][0-1]\\b"
+     }
+    ]
+   },
+   {
+    "id": 42,
+    "name": "Executable Malware",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Executable extension in title",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "[. ](exe|msi|bat|cmd|scr|lnk|zipx|vbs|ps1|hta|pif)(\\s*\\[[^\\]]*\\])?\\s*$"
+     }
+    ]
+   },
+   {
+    "id": 43,
+    "name": "HUSH SHK",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "SHK",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": true,
+      "value": "^SHK$"
+     }
+    ]
+   },
+   {
+    "id": 44,
+    "name": "Language: Not Original",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Not Original Language",
+      "type": "LanguageSpecification",
+      "negate": true,
+      "required": false,
+      "value": -2
+     }
+    ]
+   },
+   {
+    "id": 45,
+    "name": "HUSH SHH",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "SHH",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": true,
+      "value": "^SHH$"
+     }
+    ]
+   },
+   {
+    "id": 46,
+    "name": "HUSH SHA",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "SHA",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": true,
+      "value": "^SHA$"
+     }
+    ]
+   },
+   {
+    "id": 47,
+    "name": "HUSH SHT",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "HUSH SHT",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": true,
+      "value": "^SHT$"
+     }
+    ]
+   },
+   {
+    "id": 48,
+    "name": "afm72",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "afm72 ReleaseGroup",
+      "type": "ReleaseGroupSpecification",
+      "negate": false,
+      "required": false,
+      "value": "afm72"
+     },
+     {
+      "name": "afm72 ReleaseTitle",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": false,
+      "value": "afm72"
+     }
+    ]
+   },
+   {
+    "id": 49,
+    "name": "AMZN",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Amazon",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\b(?:amzn|amazon(?:hd)?)(?![a-z0-9])[ ._-]+(?:[a-z0-9]{3,5}[ ._-]+)?(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 50,
+    "name": "ATVP",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Apple TV+",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "\\b(?:atvp|aptv|apple[ ._-]?tv\\+)(?![a-z0-9])[ ._-]+(?:[a-z0-9]{3,5}[ ._-]+)?(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 51,
+    "name": "iT",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "iTunes / Apple TV store",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:it|itunes|atv)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 52,
+    "name": "MA",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Movies Anywhere",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:ma)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 53,
+    "name": "VUDU",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Vudu / Fandango at Home",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:vudu|fdng|fandango)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 54,
+    "name": "AMCP",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "AMC+",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:amcp|amc\\+)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 55,
+    "name": "BCORE",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Bravia Core",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:bcore|core)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 56,
+    "name": "PCOK",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Peacock",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:pcok|peacock)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 57,
+    "name": "DSNP",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Disney+",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:dsnp|dsny|disney\\+?)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 58,
+    "name": "HMAX",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "HBO Max / Max / HBO",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:hmax|hbom|hbo[ ._-]?max|max|hbo)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 59,
+    "name": "STZ",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "Starz",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:stz|starz)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 60,
+    "name": "MGMP",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "MGM+",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:mgmp|mgm\\+|epix)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 61,
+    "name": "SKST",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "SkyShowtime",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:skst|skyshowtime)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   },
+   {
+    "id": 62,
+    "name": "NOW",
+    "includeWhenRenaming": false,
+    "specs": [
+     {
+      "name": "NOW",
+      "type": "ReleaseTitleSpecification",
+      "negate": false,
+      "required": true,
+      "value": "(?<!(?:amzn|atvp)[ ._-])\\b(?:now)(?![a-z0-9])[ ._-]+(?:(?:hybrid|cbr|cvbr|open[ ._-]matte)[ ._-]+)?web(?:[ ._-]?(?:dl|rip|mux))?\\b"
+     },
+     {
+      "name": "WEBDL",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 3
+     },
+     {
+      "name": "WEBRIP",
+      "type": "SourceSpecification",
+      "negate": false,
+      "required": false,
+      "value": 4
+     }
+    ]
+   }
+  ],
+  "qualityProfiles": [
+   {
+    "id": 1,
+    "name": "HD-1080p",
+    "upgradeAllowed": true,
+    "cutoffFormatScore": 3000,
+    "minFormatScore": 50,
+    "minUpgradeFormatScore": 1,
+    "cutoffQuality": 1004,
+    "language": null,
+    "qualities": [
+     "HQ-1080p"
+    ],
+    "scores": {
+     "NOW": 100,
+     "SKST": 100,
+     "MGMP": 100,
+     "STZ": 100,
+     "PCOK": 100,
+     "BCORE": 100,
+     "AMCP": 100,
+     "VUDU": 100,
+     "MA": 100,
+     "iT": 100,
+     "ATVP": 100,
+     "AMZN": 100,
+     "afm72": 1500,
+     "HUSH SHT": 2000,
+     "HUSH SHA": 450,
+     "HUSH SHH": 500,
+     "Language: Not Original": -10000,
+     "HUSH SHK": 3000,
+     "Executable Malware": -10000,
+     "6.1 Surround": 50,
+     "7.1 Surround": 50,
+     "Repack/Proper": 5,
+     "WEB Tier 03": 300,
+     "WEB Tier 02": 400,
+     "WEB Tier 01": 1000,
+     "HUSH SHR": 3000,
+     "d3g": 1000,
+     "RGzsRutracker": -1000,
+     "SM737": 1500,
+     "UTR": 400,
+     "QxR": 1500,
+     "AV1": 50,
+     "5.1 Surround": 50,
+     "Vyndros": 300,
+     "PSA": 200,
+     "Megusta": 100,
+     "Elite": 150,
+     "Xen0n": 50,
+     "Edith": 50
+    }
+   },
+   {
+    "id": 5,
+    "name": "UHD-4K",
+    "upgradeAllowed": true,
+    "cutoffFormatScore": 1000,
+    "minFormatScore": 25,
+    "minUpgradeFormatScore": 1,
+    "cutoffQuality": 1003,
+    "language": null,
+    "qualities": [
+     "2160p"
+    ],
+    "scores": {
+     "HUSH SHT": 900,
+     "HUSH SHA": 400,
+     "HUSH SHH": 400,
+     "Language: Not Original": -10000,
+     "Executable Malware": -10000,
+     "6.1 Surround": 10,
+     "7.1 Surround": 50,
+     "WEB Tier 03": 50,
+     "WEB Tier 02": 75,
+     "WEB Tier 01": 100,
+     "HD Bluray Tier 02": 125,
+     "HD Bluray Tier 01": 150,
+     "Remux Tier 02": 175,
+     "Remux Tier 01": 200,
+     "HDR10+ Boost": 100,
+     "DV Boost": 100,
+     "HDR": 75,
+     "DTS": 25,
+     "DD+ ATMOS": 30,
+     "TrueHD": 50,
+     "DTS-HD MA": 25,
+     "DTS X": 25,
+     "TrueHD ATMOS": 50,
+     "DD+": 50,
+     "DD": 25,
+     "HUSH SHR": 1000,
+     "d3g": 20,
+     "FLUX": 20,
+     "UTR": 25,
+     "QxR": 30,
+     "AV1": 10,
+     "5.1 Surround": 25,
+     "Vyndros": 25,
+     "PSA": 15,
+     "Megusta": 15,
+     "Elite": 10
+    }
+   }
+  ],
+  "releaseProfiles": [
+   {
+    "id": 2,
+    "name": "Block Those Who Kill US (2014 remake, mis-maps to the 2019 Danish series)",
+    "enabled": true,
+    "required": [],
+    "ignored": [
+     "/\\bThose[ ._-]?Who[ ._-]?Kill[ ._-]?US\\b/i"
+    ],
+    "tags": []
+   }
+  ],
+  "rootFolders": [
+   "/media/4kshows",
+   "/media/shows"
+  ]
+ }
+}

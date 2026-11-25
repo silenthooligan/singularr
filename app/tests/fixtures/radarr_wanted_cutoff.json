@@ -1,0 +1,23 @@
+{
+ "page": 1,
+ "pageSize": 1000,
+ "totalRecords": 1,
+ "records": [
+  {
+   "id": 3001,
+   "title": "Harry Potter and the Prisoner of Azkaban",
+   "monitored": true,
+   "hasFile": true,
+   "inCinemas": "2004-05-31T00:00:00Z",
+   "movieFile": {
+    "id": 9002,
+    "quality": {
+     "quality": {
+      "id": 18,
+      "name": "WEBDL-2160p"
+     }
+    }
+   }
+  }
+ ]
+}

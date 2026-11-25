@@ -1,0 +1,41 @@
+{
+ "MediaContainer": {
+  "size": 2,
+  "Metadata": [
+   {
+    "type": "movie",
+    "title": "The 'Burbs",
+    "ratingKey": "109882",
+    "duration": 6000000,
+    "viewOffset": 3000000,
+    "User": {
+     "title": "friend"
+    },
+    "Player": {
+     "title": "Living Room TV",
+     "state": "playing"
+    },
+    "TranscodeSession": {
+     "videoDecision": "transcode",
+     "audioDecision": "copy"
+    }
+   },
+   {
+    "type": "episode",
+    "title": "Pilot",
+    "grandparentTitle": "Breaking Bad",
+    "parentIndex": 1,
+    "index": 1,
+    "duration": 3480000,
+    "viewOffset": 60000,
+    "User": {
+     "title": "owner"
+    },
+    "Player": {
+     "title": "Phone",
+     "state": "paused"
+    }
+   }
+  ]
+ }
+}

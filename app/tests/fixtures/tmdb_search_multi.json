@@ -1,0 +1,21 @@
+{
+ "page": 1,
+ "total_pages": 1,
+ "results": [
+  {
+   "id": 603,
+   "media_type": "movie",
+   "title": "The Matrix",
+   "release_date": "1999-03-30",
+   "poster_path": "/matrix.jpg",
+   "vote_average": 8.2
+  },
+  {
+   "id": 6384,
+   "media_type": "person",
+   "name": "Keanu Reeves",
+   "known_for_department": "Acting",
+   "profile_path": "/keanu.jpg"
+  }
+ ]
+}

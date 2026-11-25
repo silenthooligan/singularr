@@ -1,0 +1,57 @@
+{
+ "page": 1,
+ "pageSize": 500,
+ "totalRecords": 2,
+ "records": [
+  {
+   "id": 9101,
+   "seriesId": 1,
+   "episodeId": 55,
+   "sourceTitle": "1883.S01E02.1080p.BluRay.x265-Ghost",
+   "quality": {
+    "quality": {
+     "id": 7,
+     "name": "Bluray-1080p"
+    }
+   },
+   "date": "2026-11-22T08:00:00Z",
+   "eventType": "downloadFolderImported",
+   "data": {
+    "importedPath": "/media/shows/1883 {tvdb-396390}/Season 01/1883 (2021) - S01E02 - Behind Us a Cliff [Bluray-1080p]-Ghost.mkv"
+   },
+   "episode": {
+    "id": 55,
+    "seriesId": 1,
+    "seasonNumber": 1,
+    "episodeNumber": 2,
+    "title": "Behind Us a Cliff"
+   }
+  },
+  {
+   "id": 9100,
+   "seriesId": 1,
+   "episodeId": 55,
+   "sourceTitle": "1883.S01E02.1080p.BluRay.x265-Ghost",
+   "quality": {
+    "quality": {
+     "id": 7,
+     "name": "Bluray-1080p"
+    }
+   },
+   "date": "2026-11-22T07:00:00Z",
+   "eventType": "grabbed",
+   "data": {
+    "indexer": "Indexer Two",
+    "releaseGroup": "Ghost",
+    "size": "3000000000"
+   },
+   "episode": {
+    "id": 55,
+    "seriesId": 1,
+    "seasonNumber": 1,
+    "episodeNumber": 2,
+    "title": "Behind Us a Cliff"
+   }
+  }
+ ]
+}

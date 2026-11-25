@@ -1,0 +1,26 @@
+{
+ "MediaContainer": {
+  "size": 1,
+  "totalSize": 1,
+  "Metadata": [
+   {
+    "ratingKey": "120209",
+    "type": "artist",
+    "title": "+44",
+    "Genre": [
+     {
+      "tag": "Pop/Rock"
+     }
+    ],
+    "Country": [
+     {
+      "tag": "United States of America"
+     }
+    ],
+    "summary": "Forming during pop-punk trio blink-182's 2005 hiatus, +44 brought blink alums Travis Barker (drums) and Mark Hoppus (vocals/bass) back together as their former bandmate Tom DeLonge went off to form his own band, Angels and Airwaves. Originally billed as a largely electronic-based project, their songs eventually fell instead under the alternative rock umbrella; their name came from the international dialing code to the United Kingdom, where the duo first discussed doing the project. The two initially hooked up with vocalist Carol Heller of Get the Girl, but by summer 2006, she was no longer in ",
+    "thumb": "/library/metadata/120209/thumb/1",
+    "addedAt": 1771223314
+   }
+  ]
+ }
+}

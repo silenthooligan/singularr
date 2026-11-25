@@ -1,0 +1,81 @@
+[package]
+name = "singularr"
+description = "Singularr: a media manager for a Plex server. The server: the API, the sync loops, the rules, and the web client's files."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "singularrd"
+path = "src/main.rs"
+
+[dependencies]
+singularr-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+
+# server
+axum = { version = "0.8", features = ["macros"], optional = true }
+# Compressed answers (gzip, brotli), negotiated by Accept-Encoding: the API and the web client.
+tower-http = { version = "0.7", features = ["compression-gzip", "compression-br"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time", "net"], optional = true }
+sqlx = { version = "0.9", features = ["postgres", "runtime-tokio", "tls-rustls-ring", "chrono", "migrate", "json"], optional = true }
+reqwest = { version = "0.13", features = ["json"], optional = true }
+async-trait = { version = "0.1", optional = true }
+async-stream = { version = "0.3", optional = true }
+futures = { version = "0.3", optional = true }
+thiserror = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+sha2 = { version = "0.11", optional = true }
+hex = { version = "0.4", optional = true }
+subtle = { version = "2.6", optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
+utoipa = { version = "6", features = ["axum_extras", "chrono"], optional = true }
+axum-prometheus = { version = "0.10", optional = true }
+metrics = { version = "0.24", optional = true }
+# Mail (core::smtp): TLS over tokio with the crates sqlx and reqwest already build on. No
+# default features: each feature named here is one the lock file already resolves.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
+webpki-roots = { version = "1", optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+# The tests read a compressed answer back.
+flate2 = "1"
+brotli = "8"
+
+[features]
+# Everything that touches the database or the network is behind `ssr`, the only feature.
+default = ["ssr"]
+ssr = [
+    "dep:axum",
+    "dep:tower-http",
+    "dep:tokio",
+    "dep:sqlx",
+    "dep:reqwest",
+    "dep:async-trait",
+    "dep:async-stream",
+    "dep:futures",
+    "dep:thiserror",
+    "dep:toml",
+    "dep:tracing",
+    "dep:tracing-subscriber",
+    "dep:sha2",
+    "dep:hex",
+    "dep:subtle",
+    "dep:uuid",
+    "dep:utoipa",
+    "dep:axum-prometheus",
+    "dep:metrics",
+    "dep:rustls",
+    "dep:tokio-rustls",
+    "dep:webpki-roots",
+    "dep:rustls-native-certs",
+]

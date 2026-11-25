@@ -1,0 +1,37 @@
+/* Discover: the billboard's title logo and flags, the body under it, and logo tiles. */
+@layer pages {
+  .disc-bb { min-block-size: 480px; }
+  .disc-bb-img { animation: disc-fade 0.5s ease-out; }
+  .disc-bb-body { gap: 14px; padding-block-end: var(--s7); }
+  .disc-bb-body > * { animation: disc-fade 0.35s ease-out; }
+  @keyframes disc-fade { from { opacity: 0; } }
+  .disc-bb-flags { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .disc-bb-title a:hover { color: var(--text); }
+  .disc-bb-logo { max-inline-size: min(440px, 100%); max-block-size: 140px; object-fit: contain; object-position: left bottom; filter: drop-shadow(0 1px 3px rgb(0 0 0 / 0.55)); }
+  .disc-bb .mq-metaline a:hover { color: var(--accent-2); }
+  .disc-star { fill: var(--warn); stroke: none; }
+  .disc-bb .mq-hero-actions { margin-block-start: 4px; }
+  .disc-bb .mq-billboard-dots button { block-size: 24px; background: none; position: relative; }
+  .disc-bb .mq-billboard-dots button::before { content: ""; position: absolute; inset-inline: 0; inset-block-start: 10px; block-size: 4px; border-radius: 2px; background: rgb(255 255 255 / 0.25); }
+  .disc-bb .mq-billboard-dots button[aria-current="true"]::before { background: var(--text); }
+  .disc-bb .mq-billboard-dots button:hover::before { background: rgb(255 255 255 / 0.55); }
+
+  .disc-body { padding: var(--s4) var(--gutter) 0; }
+  .disc-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); }
+  .disc-title { font-size: var(--fs-xl); margin-inline-end: auto; }
+  .disc-body .mq-kindbar { margin-block: var(--s3) 0; }
+  .disc-bb[hidden] + .disc-body { padding-block-start: var(--s5); }
+  .disc-body .mq-section:first-child { margin-block-start: var(--s5); }
+  .disc-tiles .mq-tile { inline-size: 232px; }
+  .disc-logo { background: var(--raised); }
+  .disc-logo:hover { background: var(--raised-2); }
+
+  @media (max-width: 720px) {
+    .disc-bb { min-block-size: 420px; }
+    .disc-bb-body { padding-block-end: var(--s7); gap: 10px; }
+    .disc-bb-logo { max-block-size: 88px; max-inline-size: 260px; }
+    .disc-bb .mq-billboard-dots { inset-block-end: 12px; }
+    .disc-tiles .mq-tile { inline-size: 176px; }
+    .disc-controls .mq-btn--ghost { margin-inline-start: auto; }
+  }
+}

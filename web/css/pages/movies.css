@@ -1,0 +1,8 @@
+/* Movies: links inside a row (genres, network, studio, collection) and the rating mark. */
+@layer pages {
+  .lib-link { color: inherit; }
+  .lib-link:hover, .lib-filter:hover { color: var(--accent-2); text-decoration: underline; text-underline-offset: 3px; }
+  .lib-rating { display: inline-flex; align-items: center; gap: 4px; }
+  .lib-rating .mq-icon { inline-size: 11px; block-size: 11px; fill: var(--warn); stroke: none; }
+  td[data-k="network"] .lib-filter { color: inherit; }
+}

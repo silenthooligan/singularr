@@ -1,0 +1,9 @@
+{
+ "status": "good",
+ "isProduction": true,
+ "os": "linux",
+ "version": "3.09.00",
+ "buildDate": "2026_11_22T20_10_58z",
+ "uptime": 33343,
+ "serverEngine": "rust"
+}

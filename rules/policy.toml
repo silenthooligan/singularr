@@ -1,0 +1,355 @@
+# Singularr's default policy: what a new installation takes and prefers until its owner writes
+# their own. It names no release group, no title and no house rule. An installation keeps its
+# own policy outside the product tree and names it with SINGULARR_POLICY (DESIGN.md, Product and
+# instance).
+#
+# A trait is a named condition with a reason. A lane (a profile in the interface) gives points
+# to traits and sets the thresholds. A trait with no points in a lane still shows there,
+# dimmed, when it matches.
+#
+# Conditions: every key must match. `any` needs one of its entries, `not` inverts. Picture and
+# sound keys read the release name first and the file probe where the name is silent.
+#
+# `arr_profiles` ties a lane to a quality profile of a Radarr or Sonarr integration, written
+# `<integration id>:<profile name>`. The names below are the profiles a new Radarr and Sonarr
+# ship with; rename them here when yours differ.
+
+name = "singularr-default"
+version = "2026-11-23"
+
+# ----------------------------------------------------------------------------------------------
+# Resolution
+# ----------------------------------------------------------------------------------------------
+
+[[traits]]
+id = "resolution.2160p"
+label = "2160p"
+category = "resolution"
+why = "Ultra HD: four times the pixels of 1080p."
+when = { resolution = ["2160p"] }
+
+[[traits]]
+id = "resolution.1080p"
+label = "1080p"
+category = "resolution"
+why = "Full HD."
+when = { resolution = ["1080p"] }
+
+[[traits]]
+id = "resolution.720p"
+label = "720p"
+category = "resolution"
+why = "HD at a lower resolution than the 1080p profiles want."
+when = { resolution = ["720p"] }
+
+# ----------------------------------------------------------------------------------------------
+# Source
+# ----------------------------------------------------------------------------------------------
+
+[[traits]]
+id = "source.remux"
+label = "Remux"
+category = "source"
+why = "The disc's video and audio, untouched."
+when = { source = ["Remux"] }
+
+[[traits]]
+id = "source.bluray"
+label = "Blu-ray encode"
+category = "source"
+why = "Encoded from the disc, the best source after a remux."
+when = { source = ["BluRay"] }
+
+[[traits]]
+id = "source.webdl"
+label = "WEB-DL"
+category = "source"
+why = "The stream as the service delivers it, not encoded again."
+when = { source = ["WebDl"] }
+
+[[traits]]
+id = "source.webrip"
+label = "WEBRip"
+category = "source"
+why = "A stream captured and encoded again, a step below a WEB-DL."
+when = { source = ["WebRip"] }
+
+[[traits]]
+id = "source.hdtv"
+label = "HDTV"
+category = "source"
+why = "Recorded from a broadcast, often with a channel logo."
+when = { source = ["Tv"] }
+
+# ----------------------------------------------------------------------------------------------
+# Picture
+# ----------------------------------------------------------------------------------------------
+
+[[traits]]
+id = "hdr.dolby-vision"
+label = "Dolby Vision"
+category = "hdr"
+why = "Dynamic HDR metadata, scene by scene."
+when = { hdr = ["DolbyVision"] }
+
+[[traits]]
+id = "hdr.hdr10plus"
+label = "HDR10+"
+category = "hdr"
+why = "Dynamic HDR metadata in the open format."
+when = { hdr = ["Hdr10Plus"] }
+
+[[traits]]
+id = "hdr.hdr10"
+label = "HDR10"
+category = "hdr"
+why = "Static HDR metadata, played by every HDR screen."
+when = { hdr = ["Hdr10", "Hdr", "Pq"] }
+
+[[traits]]
+id = "hdr.hlg"
+label = "HLG"
+category = "hdr"
+why = "The broadcast HDR format."
+when = { hdr = ["Hlg"] }
+
+[[traits]]
+id = "hdr.sdr"
+label = "SDR in 2160p"
+category = "hdr"
+why = "Standard dynamic range: a 2160p copy without HDR loses most of what 2160p is for."
+when = { sdr = true, resolution = ["2160p"] }
+
+[[traits]]
+id = "video.hevc"
+label = "HEVC"
+category = "video"
+why = "The same picture in a smaller file."
+when = { video_codec = ["H265"] }
+
+[[traits]]
+id = "video.av1"
+label = "AV1"
+category = "video"
+why = "A newer codec, smaller again; some older players cannot play it directly."
+when = { video_codec = ["Av1"] }
+
+# ----------------------------------------------------------------------------------------------
+# Sound
+# ----------------------------------------------------------------------------------------------
+
+[[traits]]
+id = "audio.atmos"
+label = "Atmos"
+category = "audio"
+why = "Object audio with height channels."
+when = { atmos = true }
+
+[[traits]]
+id = "audio.lossless"
+label = "Lossless audio"
+category = "audio"
+why = "The studio track without lossy compression."
+when = { audio_codec = ["TrueHd", "DtsX", "DtsHdMa", "Flac", "Pcm"] }
+
+[[traits]]
+id = "audio.dts"
+label = "DTS"
+category = "audio"
+why = "A lossy surround track at a high bitrate."
+when = { audio_codec = ["Dts", "DtsHdHra"] }
+
+[[traits]]
+id = "audio.eac3"
+label = "Dolby Digital Plus"
+category = "audio"
+why = "The lossy surround track most streaming services deliver."
+when = { audio_codec = ["Eac3"] }
+
+[[traits]]
+id = "audio.surround"
+label = "Surround sound"
+category = "audio"
+why = "5.1 or more channels."
+when = { channels = ["5.1", "6.1", "7.1"] }
+
+# ----------------------------------------------------------------------------------------------
+# Other
+# ----------------------------------------------------------------------------------------------
+
+[[traits]]
+id = "release.fixed"
+label = "Proper or repack"
+category = "other"
+why = "A fixed release replaces a flawed one."
+when = { proper_or_repack = true }
+
+[[traits]]
+id = "edition.open-matte"
+label = "Open Matte"
+category = "edition"
+why = "The taller frame, shown as an edition of its own."
+when = { edition = ["Open Matte"] }
+
+# ----------------------------------------------------------------------------------------------
+# Unwanted
+# ----------------------------------------------------------------------------------------------
+
+[[traits]]
+id = "penalty.prerelease"
+label = "Cam, telesync or screener"
+category = "penalty"
+why = "Recorded in a theater or leaked before release."
+when = { prerelease = true }
+
+[[traits]]
+id = "penalty.upscaled"
+label = "AI upscaled"
+category = "penalty"
+why = "Invented detail, not a better source."
+when = { ai_upscaled = true }
+
+[[traits]]
+id = "penalty.3d"
+label = "3D"
+category = "penalty"
+why = "A 3D release plays as two pictures side by side on a normal screen."
+when = { name = '(?i)\b(3D|SBS|HSBS|Half[ ._-]?OU)\b' }
+
+[[traits]]
+id = "penalty.hardcoded-subtitles"
+label = "Hardcoded subtitles"
+category = "penalty"
+why = "Subtitles burned into the picture cannot be turned off."
+when = { name = '(?i)\b(HC|hardsubs?|hardcoded[ ._-]?subs?)\b' }
+
+[[traits]]
+id = "penalty.executable"
+label = "A program, not a video"
+category = "penalty"
+why = "A release that carries a program or a shortcut is not a video and may be malware."
+when = { name = '(?i)\.(exe|lnk|scr|bat|cmd|msi|vbs)$' }
+
+# ----------------------------------------------------------------------------------------------
+# Lanes. `ladder` is best first; qualities in one step rank the same. A candidate must reach
+# `min_score`; an upgrade must beat the file the library has by `upgrade_step`; at
+# `cutoff_score` that file is final. A protection (none by default) applies to a title by its
+# tags or when the file the library has matches `current`, and says what may replace it.
+# ----------------------------------------------------------------------------------------------
+
+[[lanes]]
+id = "movies-hd"
+label = "Movies, 1080p"
+arr_profiles = ["radarr:HD-1080p"]
+ladder = [["Remux-1080p"], ["Bluray-1080p"], ["WEBDL-1080p", "WEBRip-1080p"], ["HDTV-1080p"]]
+min_score = 0
+upgrade_step = 50
+cutoff_score = 400
+
+[lanes.points]
+"source.remux"                = 100
+"source.bluray"               = 80
+"source.webdl"                = 60
+"source.webrip"               = 40
+"hdr.dolby-vision"            = 20
+"hdr.hdr10plus"               = 20
+"hdr.hdr10"                   = 20
+"video.hevc"                  = 30
+"audio.lossless"              = 60
+"audio.atmos"                 = 40
+"audio.dts"                   = 20
+"audio.eac3"                  = 15
+"audio.surround"              = 25
+"release.fixed"               = 25
+"edition.open-matte"          = 0
+"penalty.prerelease"          = -10000
+"penalty.upscaled"            = -10000
+"penalty.3d"                  = -10000
+"penalty.hardcoded-subtitles" = -1000
+"penalty.executable"          = -10000
+
+[[lanes]]
+id = "movies-uhd"
+label = "Movies, 2160p"
+arr_profiles = ["radarr:Ultra-HD"]
+ladder = [["Remux-2160p"], ["Bluray-2160p"], ["WEBDL-2160p", "WEBRip-2160p"], ["HDTV-2160p"]]
+min_score = 0
+upgrade_step = 50
+cutoff_score = 500
+
+[lanes.points]
+"source.remux"                = 120
+"source.bluray"               = 80
+"source.webdl"                = 60
+"source.webrip"               = 40
+"hdr.dolby-vision"            = 100
+"hdr.hdr10plus"               = 90
+"hdr.hdr10"                   = 80
+"hdr.hlg"                     = 40
+"hdr.sdr"                     = -200
+"video.hevc"                  = 10
+"audio.lossless"              = 80
+"audio.atmos"                 = 60
+"audio.dts"                   = 20
+"audio.eac3"                  = 15
+"audio.surround"              = 25
+"release.fixed"               = 25
+"penalty.prerelease"          = -10000
+"penalty.upscaled"            = -10000
+"penalty.3d"                  = -10000
+"penalty.hardcoded-subtitles" = -1000
+"penalty.executable"          = -10000
+
+[[lanes]]
+id = "shows-hd"
+label = "Shows, 1080p"
+arr_profiles = ["sonarr:HD-1080p"]
+ladder = [["Bluray-1080p Remux", "Remux-1080p"], ["Bluray-1080p"], ["WEBDL-1080p", "WEBRip-1080p"], ["HDTV-1080p"]]
+min_score = 0
+upgrade_step = 25
+cutoff_score = 250
+
+[lanes.points]
+"source.remux"                = 60
+"source.bluray"               = 60
+"source.webdl"                = 60
+"source.webrip"               = 40
+"source.hdtv"                 = 10
+"video.hevc"                  = 30
+"audio.atmos"                 = 20
+"audio.eac3"                  = 15
+"audio.surround"              = 25
+"release.fixed"               = 25
+"penalty.prerelease"          = -10000
+"penalty.upscaled"            = -10000
+"penalty.hardcoded-subtitles" = -1000
+"penalty.executable"          = -10000
+
+[[lanes]]
+id = "shows-uhd"
+label = "Shows, 2160p"
+arr_profiles = ["sonarr:Ultra-HD"]
+ladder = [["Remux-2160p"], ["Bluray-2160p"], ["WEBDL-2160p", "WEBRip-2160p"], ["HDTV-2160p"]]
+min_score = 0
+upgrade_step = 25
+cutoff_score = 400
+
+[lanes.points]
+"source.remux"                = 80
+"source.bluray"               = 70
+"source.webdl"                = 60
+"source.webrip"               = 40
+"hdr.dolby-vision"            = 100
+"hdr.hdr10plus"               = 90
+"hdr.hdr10"                   = 80
+"hdr.hlg"                     = 40
+"hdr.sdr"                     = -200
+"video.hevc"                  = 10
+"audio.atmos"                 = 30
+"audio.eac3"                  = 15
+"audio.surround"              = 25
+"release.fixed"               = 25
+"penalty.prerelease"          = -10000
+"penalty.upscaled"            = -10000
+"penalty.hardcoded-subtitles" = -1000
+"penalty.executable"          = -10000

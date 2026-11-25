@@ -1,0 +1,113 @@
+# The editions Singularr knows: the closed list of edition keys (DESIGN.md, Editions).
+#
+# An edition is one cut of a title. Every copy belongs to exactly one edition: the one its
+# name or the arr's record names, else the default (`theatrical`, a copy with no marker). A
+# lane holds one copy per wanted edition, and a candidate competes only with the held copy
+# of its own edition.
+#
+# How a name is read: the release parser finds the edition words after the title (so
+# "Midnight Special" and "The Final Cut (2004)" stay titles), and each word it finds is
+# looked up here by key, label or alias. A name outside the list becomes `other:<label>`
+# (`other:taco-bell-cut`, label "Taco Bell Cut"). An alias is matched without regard to case,
+# dots, dashes, underscores, spaces and apostrophes, and `&` reads as "and": `Directors.Cut`,
+# `DIRECTOR'S CUT` and `Directors-Cut` are one alias. The same lookup reads Radarr's edition
+# field and the label of a `{edition-...}` block.
+#
+# Order matters. A name that carries several editions ("4K Remastered - Director's Cut",
+# "DC Criterion") belongs to the first of them in this file; the others stay with the copy as
+# what it also is. Cuts come first, then presentations (IMAX, open matte), then transfers
+# (remasters), then labels (Criterion), and the default last. An `other:` edition stands
+# where `others_before` says.
+#
+# `label` is what people read and what the library file names carry: Plex
+# `{edition-Director's Cut}`.
+
+# A named cut this list does not know ("Ulysses Cut", "Encore Edition") is a cut: it takes
+# precedence after the cuts below and before this edition, the first presentation.
+others_before = "imax"
+
+[[editions]]
+key = "directors-cut"
+label = "Director's Cut"
+aliases = ["DC", "Directors Cut", "Directors.Cut", "Director's Edition", "Directors Edition", "Director's Version"]
+
+[[editions]]
+key = "final-cut"
+label = "Final Cut"
+aliases = ["The Final Cut"]
+
+[[editions]]
+key = "extended"
+label = "Extended"
+aliases = ["Extended Cut", "Extended Edition", "Extended.Edition", "Extended Version"]
+
+[[editions]]
+key = "unrated"
+label = "Unrated"
+aliases = ["Unrated Cut", "Unrated Edition", "Unrated Version"]
+
+[[editions]]
+key = "uncut"
+label = "Uncut"
+aliases = ["Uncut Edition", "Uncut Version", "Uncensored", "Uncensored Cut", "Uncensored Version"]
+
+[[editions]]
+key = "ultimate"
+label = "Ultimate"
+aliases = ["Ultimate Cut", "Ultimate.Cut", "Ultimate Edition", "Ultimate Version"]
+
+[[editions]]
+key = "black-and-chrome"
+label = "Black and Chrome"
+aliases = ["Black & Chrome", "Black.and.Chrome", "Black and Chrome Edition", "Black & Chrome Edition"]
+
+[[editions]]
+key = "alternate-cut"
+label = "Alternate Cut"
+aliases = ["Alternate", "Alternative Cut", "Alternate Version", "Alternative Version", "Alternate Ending"]
+
+[[editions]]
+key = "special-edition"
+label = "Special Edition"
+aliases = ["Special.Edition", "SE"]
+
+[[editions]]
+key = "anniversary"
+label = "Anniversary"
+aliases = ["Anniversary Edition", "Anniversary Cut"]
+
+[[editions]]
+key = "collectors"
+label = "Collector's Edition"
+aliases = ["Collector's", "Collectors", "Collectors Edition", "Collector's Cut"]
+
+[[editions]]
+key = "imax"
+label = "IMAX"
+aliases = ["IMAX Edition", "IMAX Enhanced"]
+
+[[editions]]
+key = "open-matte"
+label = "Open Matte"
+aliases = ["OM", "OpenMatte", "Open.Matte", "Open-Matte"]
+
+[[editions]]
+key = "remastered"
+label = "Remastered"
+aliases = ["Remaster", "RM", "RM4K", "4K Remaster", "4K Remastered", "Remastered in 4K"]
+
+[[editions]]
+key = "restored"
+label = "Restored"
+aliases = ["Restoration", "Restored Version"]
+
+[[editions]]
+key = "criterion"
+label = "Criterion"
+aliases = ["Criterion Collection", "CC"]
+
+[[editions]]
+key = "theatrical"
+label = "Theatrical"
+aliases = ["Theatrical Cut", "Theatrical Release", "Theatrical Edition", "Theatrical Version"]
+default = true

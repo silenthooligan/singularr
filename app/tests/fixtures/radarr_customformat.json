@@ -1,0 +1,6 @@
+[
+  { "id": 1, "name": "IMAX Enhanced", "includeCustomFormatWhenRenaming": true, "specifications": [] },
+  { "id": 2, "name": "DV HDR10Plus", "includeCustomFormatWhenRenaming": false, "specifications": [] },
+  { "id": 3, "name": "Remux Tier 01", "includeCustomFormatWhenRenaming": false, "specifications": [] },
+  { "id": 4, "name": "Hybrid", "includeCustomFormatWhenRenaming": true, "specifications": [] }
+]

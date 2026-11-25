@@ -1,0 +1,1 @@
+{"api":{"auth":"none","jobs":true,"stage":true},"history":{"identity":"enforce","ledger":true},"service":"Media Link","status":"online","strip_worker":{"clean":0,"current":null,"failed":0,"forced_flagged":0,"queued":0,"running":true,"stripped":0},"tag_watcher":{"cycles":2,"enabled":true,"errors":0,"interval":60,"last_cycle":"2026-11-23T16:33:10","running":true,"staged":0}}

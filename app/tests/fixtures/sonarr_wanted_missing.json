@@ -1,0 +1,19 @@
+{
+ "page": 1,
+ "pageSize": 1000,
+ "totalRecords": 6,
+ "records": [
+  {
+   "id": 9201,
+   "seriesId": 2,
+   "seasonNumber": 1,
+   "episodeNumber": 1,
+   "title": "Pilot",
+   "airDate": "2022-05-26",
+   "airDateUtc": "2022-05-27T03:00:00Z",
+   "hasFile": false,
+   "monitored": true,
+   "lastSearchTime": "2026-11-21T19:00:00Z"
+  }
+ ]
+}

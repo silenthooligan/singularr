@@ -1,0 +1,56 @@
+{
+ "MediaContainer": {
+  "size": 2,
+  "totalSize": 2,
+  "Metadata": [
+   {
+    "ratingKey": "120210-1",
+    "type": "track",
+    "title": "When Your Heart Stops Beating",
+    "parentRatingKey": "120210",
+    "index": 1,
+    "parentIndex": 1,
+    "originalTitle": null,
+    "duration": 187899,
+    "Media": [
+     {
+      "audioCodec": "mp3",
+      "bitrate": 320,
+      "audioChannels": 2,
+      "container": "mp3",
+      "Part": [
+       {
+        "size": 7517023,
+        "file": "/music/+44/When Your Heart Stops Beating/Anberlin - New Surrender - 00 - Feel Good Drag.mp3"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "ratingKey": "121377-1",
+    "type": "track",
+    "title": "Souvenirs",
+    "parentRatingKey": "121377",
+    "index": 10,
+    "parentIndex": 1,
+    "originalTitle": "Groupuskull",
+    "duration": 234214,
+    "Media": [
+     {
+      "audioCodec": "mp3",
+      "bitrate": 192,
+      "audioChannels": 2,
+      "container": "mp3",
+      "Part": [
+       {
+        "size": 5623936,
+        "file": "/music/Bords De Seine Promo Vol.2/Bords De Seine Promo Vol. 2/Groupuskull - Bords De Seine Promo Vol. 2 - 10 - Souvenirs.mp3"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

@@ -1,0 +1,215 @@
+{
+  "pageInfo": { "pages": 1, "pageSize": 100, "results": 8, "page": 1 },
+  "results": [
+    {
+      "id": 2031,
+      "status": 1,
+      "createdAt": "2026-11-22T13:54:00.000Z",
+      "updatedAt": "2026-11-22T13:54:00.000Z",
+      "type": "tv",
+      "is4k": false,
+      "serverId": 0,
+      "profileId": 7,
+      "rootFolder": "/tv",
+      "tags": [],
+      "isAutoRequest": false,
+      "media": {
+        "downloadStatus": [],
+        "downloadStatus4k": [],
+        "id": 901,
+        "mediaType": "tv",
+        "tmdbId": 42009,
+        "tvdbId": 253463,
+        "imdbId": null,
+        "status": 2,
+        "status4k": 1,
+        "createdAt": "2026-11-22T13:54:00.000Z",
+        "updatedAt": "2026-11-22T13:54:00.000Z"
+      },
+      "seasons": [
+        { "id": 501, "seasonNumber": 1, "status": 1 },
+        { "id": 502, "seasonNumber": 2, "status": 1 },
+        { "id": 503, "seasonNumber": 4, "status": 1 },
+        { "id": 504, "seasonNumber": 3, "status": 1 }
+      ],
+      "modifiedBy": null,
+      "requestedBy": {
+        "permissions": 4194464,
+        "id": 4,
+        "email": "maple.reed@example.org",
+        "plexUsername": "maple.reed",
+        "jellyfinUsername": null,
+        "username": null,
+        "userType": 1,
+        "avatar": "https://plex.tv/users/0000/avatar",
+        "requestCount": 12,
+        "displayName": "maple.reed"
+      },
+      "seasonCount": 4
+    },
+    {
+      "id": 2030,
+      "status": 1,
+      "createdAt": "2026-11-22T11:15:00.000Z",
+      "updatedAt": "2026-11-22T11:15:00.000Z",
+      "type": "movie",
+      "is4k": true,
+      "media": {
+        "id": 902,
+        "mediaType": "movie",
+        "tmdbId": 687163,
+        "tvdbId": null,
+        "status": 5,
+        "status4k": 1
+      },
+      "seasons": [],
+      "requestedBy": {
+        "id": 6,
+        "email": "jun.park@example.org",
+        "plexUsername": "jun.park",
+        "username": null,
+        "displayName": "jun.park"
+      }
+    },
+    {
+      "id": 2019,
+      "status": 2,
+      "createdAt": "2026-11-21T17:41:35.000Z",
+      "updatedAt": "2026-11-21T17:41:35.000Z",
+      "type": "tv",
+      "is4k": false,
+      "media": {
+        "id": 903,
+        "mediaType": "tv",
+        "tmdbId": 3797,
+        "tvdbId": 79257,
+        "status": 4,
+        "status4k": 1
+      },
+      "seasons": [
+        { "id": 505, "seasonNumber": 1, "status": 5 },
+        { "id": 506, "seasonNumber": 2, "status": 3 }
+      ],
+      "requestedBy": {
+        "id": 1,
+        "email": "owner@example.org",
+        "plexUsername": "homeowner",
+        "username": null,
+        "displayName": "homeowner"
+      }
+    },
+    {
+      "id": 2010,
+      "status": 5,
+      "createdAt": "2026-11-14T23:19:00.000Z",
+      "updatedAt": "2026-11-15T02:10:00.000Z",
+      "type": "movie",
+      "is4k": false,
+      "media": {
+        "id": 904,
+        "mediaType": "movie",
+        "tmdbId": 333371,
+        "status": 5,
+        "status4k": 1
+      },
+      "seasons": [],
+      "requestedBy": {
+        "id": 1,
+        "email": "owner@example.org",
+        "plexUsername": "homeowner",
+        "displayName": "homeowner"
+      }
+    },
+    {
+      "id": 1990,
+      "status": 5,
+      "createdAt": "2026-09-12T19:04:00.000Z",
+      "updatedAt": "2026-09-13T08:00:00.000Z",
+      "type": "tv",
+      "is4k": false,
+      "media": {
+        "id": 905,
+        "mediaType": "tv",
+        "tmdbId": 900001,
+        "tvdbId": 414443,
+        "status": 5,
+        "status4k": 1
+      },
+      "seasons": [ { "id": 507, "seasonNumber": 1, "status": 5 } ],
+      "requestedBy": {
+        "id": 4,
+        "email": "maple.reed@example.org",
+        "plexUsername": "maple.reed",
+        "displayName": "maple.reed"
+      }
+    },
+    {
+      "id": 1980,
+      "status": 2,
+      "createdAt": "2026-11-08T23:09:00.000Z",
+      "updatedAt": "2026-11-09T01:00:00.000Z",
+      "type": "movie",
+      "is4k": false,
+      "media": {
+        "id": 906,
+        "mediaType": "movie",
+        "tmdbId": 999001,
+        "status": 3,
+        "status4k": 1
+      },
+      "seasons": [],
+      "requestedBy": {
+        "id": 6,
+        "email": "jun.park@example.org",
+        "plexUsername": "jun.park",
+        "displayName": "jun.park"
+      }
+    },
+    {
+      "id": 1970,
+      "status": 3,
+      "createdAt": "2026-10-30T09:00:00.000Z",
+      "updatedAt": "2026-10-30T09:05:00.000Z",
+      "type": "movie",
+      "is4k": false,
+      "media": {
+        "id": 907,
+        "mediaType": "movie",
+        "tmdbId": 550,
+        "status": 1,
+        "status4k": 1
+      },
+      "seasons": [],
+      "requestedBy": {
+        "id": 9,
+        "email": "friend@example.org",
+        "plexUsername": null,
+        "jellyfinUsername": null,
+        "username": null,
+        "displayName": "friend@example.org"
+      }
+    },
+    {
+      "id": 1960,
+      "status": 5,
+      "createdAt": "2026-08-01T12:00:00.000Z",
+      "updatedAt": "2026-10-01T12:00:00.000Z",
+      "type": "movie",
+      "is4k": false,
+      "media": {
+        "id": 908,
+        "mediaType": "movie",
+        "tmdbId": 603,
+        "status": 7,
+        "status4k": 1
+      },
+      "seasons": [],
+      "requestedBy": {
+        "id": 6,
+        "email": "jun.park@example.org",
+        "plexUsername": "jun.park",
+        "displayName": "jun.park"
+      }
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: fmt, clippy and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      # The Dockerfile's check stage runs tools/gate.sh: cargo fmt --check, clippy with warnings as
+      # errors, and every test, the database-backed ones against a throwaway PostgreSQL 18.
+      - name: Gate
+        run: docker buildx build --target check --progress=plain --output type=cacheonly .
+
+  image:
+    name: image, start and smoke check
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      IMAGE: singularr-ci:${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Build the runtime image
+        run: docker buildx build --target runtime --progress=plain --load -t "$IMAGE" .
+      - name: Start against a closed database port
+        run: |
+          # A database that cannot be reached must stop the start with status 1 and a sentence,
+          # not a panic (101) or a hang (124).
+          set +e
+          timeout 90 docker run --rm \
+            -e DATABASE_URL=postgres://singularr:not-a-real-password@127.0.0.1:1/singularr \
+            "$IMAGE" > closed-db.log 2>&1
+          rc=$?
+          set -e
+          head -5 closed-db.log
+          echo "CLOSED_DB_START_RC=$rc"
+          test "$rc" = 1
+      - name: Smoke check against a throwaway PostgreSQL
+        run: SMOKE_IMAGE="$IMAGE" bash tools/smoke.sh
+
+  blocklists:
+    name: content blocker lists
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # uBlock Origin, AdGuard and Brave apply tracker lists to a site's own requests; a rule written
+      # for another site can block one of Singularr's addresses (EasyPrivacy blocks any address that
+      # ends in /api/v1/activity). This tests every address the client asks for and every route.
+      - name: No default blocker list blocks Singularr's own requests
+        run: python3 tools/blockcheck.py --lists /tmp/blocklists

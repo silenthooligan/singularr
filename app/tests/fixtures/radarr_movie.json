@@ -1,0 +1,226 @@
+[
+ {
+  "id": 2877,
+  "title": "10 Cloverfield Lane",
+  "sortTitle": "10 cloverfield lane",
+  "year": 2016,
+  "tmdbId": 333371,
+  "imdbId": "tt1179933",
+  "originalLanguage": {
+   "id": 1,
+   "name": "English"
+  },
+  "status": "released",
+  "monitored": true,
+  "qualityProfileId": 4,
+  "tags": [],
+  "path": "/media/movies/10 Cloverfield Lane (2016) {tmdb-333371}",
+  "rootFolderPath": "/media/movies",
+  "added": "2024-11-22T15:08:18Z",
+  "hasFile": true,
+  "sizeOnDisk": 5269043108,
+  "images": [
+   {
+    "coverType": "fanart",
+    "remoteUrl": "https://image.tmdb.org/t/p/original/fanart1.jpg"
+   },
+   {
+    "coverType": "poster",
+    "url": "/MediaCover/2877/poster.jpg",
+    "remoteUrl": "https://image.tmdb.org/t/p/original/poster1.jpg"
+   }
+  ],
+  "movieFile": {
+   "id": 9001,
+   "movieId": 2877,
+   "relativePath": "10 Cloverfield Lane (2016) {imdb-tt1179933} [Bluray-1080p Proper][DV HDR10][EAC3 Atmos 5.1][x265]-SM737.mkv",
+   "path": "/media/movies/10 Cloverfield Lane (2016) {tmdb-333371}/10 Cloverfield Lane (2016) {imdb-tt1179933} [Bluray-1080p Proper][DV HDR10][EAC3 Atmos 5.1][x265]-SM737.mkv",
+   "size": 5269043108,
+   "dateAdded": "2026-09-21T20:20:00Z",
+   "sceneName": "10 Cloverfield Lane 2016 PROPER UHD BluRay 1080p DD Atmos 5 1 DoVi HDR10 x265-SM737",
+   "releaseGroup": "SM737",
+   "edition": "",
+   "languages": [
+    {
+     "id": 1,
+     "name": "English"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 7,
+     "name": "Bluray-1080p",
+     "source": "bluray",
+     "resolution": 1080,
+     "modifier": "none"
+    },
+    "revision": {
+     "version": 2,
+     "real": 0,
+     "isRepack": false
+    }
+   },
+   "customFormats": null,
+   "customFormatScore": null,
+   "indexerFlags": 0,
+   "mediaInfo": {
+    "videoCodec": "x265",
+    "videoBitDepth": 10,
+    "videoDynamicRangeType": "DV HDR10",
+    "videoFps": 23.976,
+    "resolution": "1920x800",
+    "audioCodec": "EAC3 Atmos",
+    "audioChannels": 5.1,
+    "audioLanguages": "eng",
+    "runTime": "1:43:34"
+   },
+   "originalFilePath": "10 Cloverfield Lane 2016 PROPER UHD BluRay 1080p DD Atmos 5 1 DoVi HDR10 x265-SM737/10 Cloverfield Lane 2016 PROPER UHD BluRay 1080p DD Atmos 5 1 DoVi HDR10 x265-SM737.mkv",
+   "qualityCutoffNotMet": false
+  },
+  "overview": "After a car accident, a woman wakes in the cellar of a man who says the world outside is no longer safe.",
+  "genres": [
+   "Thriller",
+   "Science Fiction"
+  ],
+  "runtime": 104,
+  "certification": "PG-13",
+  "studio": "Bad Robot",
+  "ratings": {
+   "imdb": {
+    "votes": 361000,
+    "value": 7.2,
+    "type": "user"
+   },
+   "tmdb": {
+    "votes": 8100,
+    "value": 6.99,
+    "type": "user"
+   },
+   "metacritic": {
+    "votes": 0,
+    "value": 76,
+    "type": "user"
+   },
+   "rottenTomatoes": {
+    "votes": 0,
+    "value": 90,
+    "type": "user"
+   }
+  },
+  "inCinemas": "2016-03-10T00:00:00Z",
+  "digitalRelease": "2016-05-31T00:00:00Z",
+  "physicalRelease": "2016-06-14T00:00:00Z",
+  "collection": {
+   "title": "Cloverfield Collection",
+   "tmdbId": 529892
+  }
+ },
+ {
+  "id": 3001,
+  "title": "Harry Potter and the Prisoner of Azkaban",
+  "sortTitle": "harry potter and the prisoner of azkaban",
+  "year": 2004,
+  "tmdbId": 673,
+  "imdbId": "tt0304141",
+  "originalLanguage": {
+   "id": 1,
+   "name": "English"
+  },
+  "status": "released",
+  "monitored": true,
+  "qualityProfileId": 5,
+  "tags": [
+   11
+  ],
+  "path": "/media/movies/Harry Potter and the Prisoner of Azkaban (2004) {tmdb-673}",
+  "added": "2023-01-05T10:00:00Z",
+  "hasFile": true,
+  "sizeOnDisk": 21000000000,
+  "images": [
+   {
+    "coverType": "poster",
+    "remoteUrl": "https://image.tmdb.org/t/p/original/poster2.jpg"
+   }
+  ],
+  "movieFile": {
+   "id": 9002,
+   "movieId": 3001,
+   "relativePath": "Harry Potter and the Prisoner of Azkaban (2004) {imdb-tt0304141} {edition-Open Matte} [WEBDL-2160p][DV HDR10][EAC3 5.1][HEVC]-PeruGuy.mkv",
+   "size": 21000000000,
+   "dateAdded": "2025-03-02T08:15:00Z",
+   "sceneName": "Harry.Potter.and.the.Prisoner.of.Azkaban.2004.Open.Matte.2160p.AMZN.WEB-DL.DDP5.1.DV.HDR.H.265-PeruGuy",
+   "releaseGroup": "PeruGuy",
+   "edition": "Open Matte",
+   "languages": [
+    {
+     "id": 1,
+     "name": "English"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 18,
+     "name": "WEBDL-2160p",
+     "source": "webdl",
+     "resolution": 2160
+    },
+    "revision": {
+     "version": 1,
+     "real": 0,
+     "isRepack": false
+    }
+   },
+   "customFormats": null,
+   "customFormatScore": null,
+   "mediaInfo": {
+    "videoCodec": "x265",
+    "videoBitDepth": 10,
+    "videoDynamicRangeType": "DV HDR10",
+    "videoFps": 23.976,
+    "resolution": "1920x800",
+    "audioCodec": "EAC3 Atmos",
+    "audioChannels": 5.1,
+    "audioLanguages": "eng",
+    "runTime": "1:43:34"
+   },
+   "originalFilePath": null
+  },
+  "overview": "",
+  "genres": null,
+  "runtime": "long",
+  "ratings": {
+   "imdb": {
+    "votes": 0,
+    "value": 0,
+    "type": "user"
+   },
+   "tmdb": {
+    "votes": 9000,
+    "value": 8.02,
+    "type": "user"
+   }
+  },
+  "inCinemas": "0001-01-01T00:00:00Z",
+  "collection": "none"
+ },
+ {
+  "id": 3050,
+  "title": "A Movie Not Yet Held",
+  "year": 2027,
+  "tmdbId": 999001,
+  "imdbId": null,
+  "originalLanguage": {
+   "id": 1,
+   "name": "English"
+  },
+  "status": "announced",
+  "monitored": true,
+  "qualityProfileId": 9,
+  "tags": [],
+  "path": "/media/movies/A Movie Not Yet Held (2027) {tmdb-999001}",
+  "added": "0001-01-01T00:00:00Z",
+  "hasFile": false,
+  "sizeOnDisk": 0,
+  "images": []
+ }
+]

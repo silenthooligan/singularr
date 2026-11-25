@@ -1,0 +1,85 @@
+/* Music, album and artist pages: square covers, round artist photos, the track list.
+   Linked after singularr.css by music.html, album.html and artist.html. */
+@layer pages {
+  /* cards */
+  /* Five covers and ten artists a row at 1440, so a page of 50 fills its rows. */
+  [data-table="al"] .mq-grid, [data-table="aa"] .mq-grid { --card: 180px; gap: var(--s5) var(--s4); }
+  [data-table="ar"] .mq-grid { --card: 100px; gap: var(--s5) var(--s4); }
+  .mu-card .mu-card-link { display: block; }
+  .mu-card .mu-card-link:hover .mq-card-title { color: var(--accent-2); }
+  .mu-card .mq-card-meta a { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+  .mu-card .mq-card-meta a:hover { color: var(--accent-2); }
+  .mu-card .mq-card-meta > span { flex: none; }
+  .mu-untagged { color: var(--text-2); font-weight: 500; }
+  .mq-card-art .mu-tile, .mu-tile { position: absolute; inset: 0; display: grid; place-content: center; gap: 6px; padding: 14px; text-align: center; background: var(--raised); color: var(--text); }
+  .mu-tile b { font-size: var(--fs-base); font-weight: 600; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .mu-tile small { color: var(--text-2); font-size: var(--fs-sm); font-weight: 450; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .mu-artist .mq-card-art .mq-noart { font-size: var(--fs-2xl); color: var(--text-2); }
+  .mu-artist .mq-card-art img { object-position: center 25%; }
+
+  /* table cells */
+  .mu-link { color: var(--text); }
+  .mu-link:hover { color: var(--accent-2); }
+  .mu-format { display: inline-flex; padding: 0 6px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--line-2); color: var(--text-2); font-size: var(--fs-xs); font-weight: 650; line-height: 18px; letter-spacing: 0.02em; }
+  .mu-format[data-k="lossless"] { color: var(--ok); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 55%, transparent); }
+  .mu-format[data-k="mixed"] { color: var(--warn); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 55%, transparent); }
+  .mu-problems { display: inline-flex; align-items: center; gap: 7px; max-inline-size: 100%; }
+  .mu-problem-l { max-inline-size: 132px; overflow: hidden; text-overflow: ellipsis; }
+  .mu-artist-cell { display: flex; align-items: center; gap: 11px; min-inline-size: 0; }
+  .mu-artist-cell img, .mu-artist-cell .mq-noart { inline-size: 34px; block-size: 34px; border-radius: 50%; object-fit: cover; flex: none; background: var(--raised); font-size: var(--fs-xs); }
+  .mu-artist-cell > span { display: grid; min-inline-size: 0; }
+  .mu-artist-cell b { font-weight: 550; overflow: hidden; text-overflow: ellipsis; }
+  .mu-artist-cell small { color: var(--text-2); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; }
+  a.mu-artist-cell:hover b { color: var(--accent-2); }
+  .mq-cell-title--square .mu-tile, .mq-cell-title--square .mq-noart { position: static; inline-size: 34px; block-size: 34px; padding: 0; }
+
+  /* album and artist headers: no backdrop, the cover or photo does the work */
+  .mu-hero { background: var(--sunk); border-block-end: 1px solid var(--line); }
+  .mu-hero .mq-hero-body { grid-template-columns: 240px minmax(0, 1fr); padding-block: var(--s6); align-items: end; }
+  .mu-hero .mq-hero-poster { position: relative; }
+  .mu-hero .mq-hero-poster .mu-tile b { font-size: var(--fs-xl); }
+  .mu-hero h1 small { white-space: nowrap; }
+  .mu-byline { font-size: var(--fs-lg); color: var(--text-2); }
+  .mu-byline a { color: var(--text); font-weight: 600; }
+  .mu-byline a:hover { color: var(--accent-2); }
+  .mu-summary { max-inline-size: 78ch; color: var(--text); line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .mu-summary[data-open="1"] { -webkit-line-clamp: unset; display: block; }
+  .mu-sumwrap { display: grid; gap: 6px; }
+  .mu-more { justify-self: start; color: var(--accent); font-size: var(--fs-md); font-weight: 550; }
+  .mu-more:hover { color: var(--accent-2); text-decoration: underline; text-underline-offset: 3px; }
+  .mu-hero .mq-hero-poster--round img { object-position: center 25%; }
+  .mu-hero .mq-hero-poster--round .mq-noart { inline-size: 100%; block-size: 100%; font-size: 3rem; }
+
+  /* the album body */
+  .mu-body { padding-block-start: var(--s5); }
+  .mu-tracks + .mu-tracks { margin-block-start: var(--s5); }
+  .mu-track b { font-weight: 500; }
+  .mu-track small { display: block; color: var(--text-2); font-size: var(--fs-sm); }
+  .mu-problem + .mu-problem { margin-block-start: 8px; }
+  .mu-problem .mq-callout { display: grid; grid-template-columns: auto minmax(0, 1fr); }
+  .mu-problem .mq-callout > .mq-btn { grid-column: 2; justify-self: start; margin: 8px 0 0; }
+  .mu-n { display: none; font-style: normal; color: var(--text-3); font-variant-numeric: tabular-nums; margin-inline-end: 10px; }
+  .mu-problem .mq-callout p a { color: var(--accent); }
+  .mu-about { display: grid; gap: 10px; }
+  .mu-about-head { display: flex; align-items: center; gap: 12px; }
+  .mu-about-head img, .mu-about-head .mq-noart { inline-size: 52px; block-size: 52px; border-radius: 50%; object-fit: cover; object-position: center 25%; flex: none; background: var(--raised); font-size: var(--fs-sm); }
+  .mu-about-head b { display: block; font-weight: 600; }
+  .mu-about-head small { color: var(--text-2); font-size: var(--fs-sm); }
+  .mu-about p { color: var(--text-2); font-size: var(--fs-md); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+  .mu-slider .mq-card { inline-size: 168px; }
+
+  @media (max-width: 900px) {
+    .mu-hero .mq-hero-body { grid-template-columns: 132px minmax(0, 1fr); gap: var(--s4); padding-block: var(--s5); align-items: center; }
+    .mu-hero .mq-hero-poster .mu-tile b { font-size: var(--fs-md); }
+  }
+  @media (max-width: 720px) {
+    [data-table="al"] .mq-grid, [data-table="aa"] .mq-grid { --card: 150px; gap: var(--s4) 12px; }
+    [data-table="ar"] .mq-grid { --card: 96px; }
+    .mq-table .mq-cell-title--square img, .mq-table .mq-cell-title--square .mq-noart { inline-size: 44px; block-size: 44px; }
+    /* The cover sits beside the name, as the shared phone header lays it out; an odd last tile takes the row. */
+    .mu-body .mq-stats > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+    .mu-slider .mq-card { inline-size: 136px; }
+    .mu-n { display: inline; }
+    .mu-track b { font-weight: 500; }
+  }
+}

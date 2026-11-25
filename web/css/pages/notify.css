@@ -1,0 +1,11 @@
+/* Notifications in Settings: the panel of js/notify.js (channels, their forms, the delivery log). */
+.nt-log { margin-block-start: 24px; }
+.nt-type { display: flex; align-items: center; gap: 10px; margin-block-end: 12px; }
+.nt-section { margin-block-start: 18px; }
+.nt-section > h4 { margin: 0 0 8px; }
+.nt-section [data-nt-kinds] { margin-block-end: 12px; }
+.nt-events { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 24px; }
+.nt-group { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.nt-group legend { display: flex; align-items: center; justify-content: space-between; gap: 8px; inline-size: 100%; padding: 0 0 4px 10px; font-size: var(--fs-xs); font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-3); }
+.nt-group legend .mq-btn { text-transform: none; letter-spacing: normal; }
+.nt-section .st-err:empty { display: none; }

@@ -1,0 +1,52 @@
+{
+ "title": "Shoresy.S01E03.1080p.WEB.h264-NTb",
+ "parsedEpisodeInfo": {
+  "releaseTitle": "Shoresy.S01E03.1080p.WEB.h264-NTb",
+  "seriesTitle": "Shoresy",
+  "seriesTitleInfo": {
+   "title": "Shoresy",
+   "year": 0
+  },
+  "quality": {
+   "quality": {
+    "id": 3,
+    "name": "WEBDL-1080p",
+    "source": "web",
+    "resolution": 1080
+   },
+   "revision": {
+    "version": 1,
+    "real": 0,
+    "isRepack": false
+   }
+  },
+  "seasonNumber": 1,
+  "episodeNumbers": [
+   3
+  ],
+  "absoluteEpisodeNumbers": [],
+  "languages": [
+   {
+    "id": 1,
+    "name": "English"
+   }
+  ],
+  "fullSeason": false,
+  "special": false,
+  "releaseGroup": "NTb",
+  "releaseHash": ""
+ },
+ "series": {
+  "id": 2,
+  "title": "Shoresy"
+ },
+ "episodes": [],
+ "languages": [
+  {
+   "id": 1,
+   "name": "English"
+  }
+ ],
+ "customFormats": [],
+ "customFormatScore": 0
+}

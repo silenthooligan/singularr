@@ -1,0 +1,66 @@
+{
+ "MediaContainer": {
+  "size": 2,
+  "totalSize": 2,
+  "offset": 0,
+  "Metadata": [
+   {
+    "ratingKey": "109882",
+    "key": "/library/metadata/109882",
+    "type": "movie",
+    "title": "The 'Burbs",
+    "year": 1989,
+    "contentRating": "PG",
+    "studio": "Universal Pictures",
+    "tagline": "He's a man of peace in a savage land... Suburbia.",
+    "addedAt": 1765739034,
+    "Guid": [
+     {
+      "id": "imdb://tt0096734"
+     },
+     {
+      "id": "tmdb://11974"
+     },
+     {
+      "id": "tvdb://5869"
+     }
+    ],
+    "thumb": "/library/metadata/109882/thumb/1",
+    "rating": 5.7,
+    "ratingImage": "rottentomatoes://image.rating.rotten",
+    "audienceRating": 7.1,
+    "audienceRatingImage": "rottentomatoes://image.rating.upright"
+   },
+   {
+    "ratingKey": "70577",
+    "key": "/library/metadata/70577",
+    "type": "movie",
+    "title": "2 Fast 2 Furious",
+    "year": 2003,
+    "contentRating": "PG-13",
+    "studio": "Ardustry Entertainment",
+    "tagline": "How fast do you like it?",
+    "addedAt": 1729948427,
+    "Guid": [
+     {
+      "id": "imdb://tt0322259"
+     },
+     {
+      "id": "tmdb://584"
+     },
+     {
+      "id": "tvdb://20800"
+     }
+    ],
+    "thumb": "/library/metadata/70577/thumb/1",
+    "rating": 3.7,
+    "ratingImage": "rottentomatoes://image.rating.rotten",
+    "audienceRating": 5.0,
+    "audienceRatingImage": "rottentomatoes://image.rating.spilled",
+    "viewCount": 3,
+    "lastViewedAt": 1763000000,
+    "editionTitle": "Open Matte"
+   }
+  ]
+ }
+}

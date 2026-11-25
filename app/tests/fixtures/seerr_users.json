@@ -1,0 +1,40 @@
+{
+  "pageInfo": { "pages": 1, "pageSize": 50, "results": 4, "page": 1 },
+  "results": [
+    {
+      "id": 1,
+      "email": "owner@example.org",
+      "plexUsername": "owneraccount",
+      "username": null,
+      "userType": 1,
+      "plexId": 1000001,
+      "displayName": "Owner Account",
+      "permissions": 2,
+      "requestCount": 12,
+      "createdAt": "2024-01-02T10:00:00.000Z"
+    },
+    {
+      "id": 7,
+      "email": "friend@example.org",
+      "plexUsername": "brightfriend",
+      "userType": 1,
+      "plexId": "1000007",
+      "displayName": "friend@example.org",
+      "permissions": 32,
+      "requestCount": 3,
+      "createdAt": "2024-03-05T10:00:00.000Z"
+    },
+    {
+      "id": 9,
+      "email": "local@example.org",
+      "username": "localonly",
+      "userType": 2,
+      "displayName": "Local Only",
+      "createdAt": "2024-04-01T10:00:00.000Z"
+    },
+    {
+      "email": "noid@example.org",
+      "displayName": "No Id"
+    }
+  ]
+}

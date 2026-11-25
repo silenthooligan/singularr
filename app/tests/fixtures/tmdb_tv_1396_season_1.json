@@ -1,0 +1,34 @@
+{
+ "id": 3572,
+ "season_number": 1,
+ "name": "Season 1",
+ "overview": "High school chemistry teacher Walter White learns he has cancer.",
+ "air_date": "2008-01-20",
+ "poster_path": "/s1.jpg",
+ "episodes": [
+  {
+   "episode_number": 1,
+   "name": "Pilot",
+   "air_date": "2008-01-20",
+   "runtime": 59,
+   "overview": "Walter White begins.",
+   "still_path": "/still1.jpg"
+  },
+  {
+   "episode_number": 2,
+   "name": "Cat's in the Bag...",
+   "air_date": "2008-01-27",
+   "runtime": 49,
+   "overview": "",
+   "still_path": "/still2.jpg"
+  },
+  {
+   "episode_number": 3,
+   "name": "To Be Announced",
+   "air_date": null,
+   "runtime": null,
+   "overview": null,
+   "still_path": null
+  }
+ ]
+}

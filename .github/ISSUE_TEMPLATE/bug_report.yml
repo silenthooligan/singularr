@@ -1,0 +1,31 @@
+name: Bug report
+description: Something in Singularr does not work as it should.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings, System, or the image tag you run.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: integrations
+    attributes:
+      label: Integrations
+      description: Which services Singularr reads, and which may act.
+      placeholder: Plex, Radarr (act), Sonarr, qBittorrent
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. For a failed request, the status, the problem's code and the time.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant lines from `docker logs`. Remove keys, tokens and addresses first.
+      render: text

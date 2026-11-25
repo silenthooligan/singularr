@@ -1,0 +1,21 @@
+{
+ "page": 1,
+ "pageSize": 500,
+ "totalRecords": 1,
+ "records": [
+  {
+   "id": 601,
+   "seriesId": 1,
+   "episodeId": 55,
+   "seasonNumber": 1,
+   "title": "1883.S01E03.1080p.WEB-DL-GRP",
+   "status": "downloading",
+   "trackedDownloadStatus": "ok",
+   "trackedDownloadState": "downloading",
+   "statusMessages": [],
+   "downloadId": "ddddddddddddddddddddddddddddddddddddddd4",
+   "protocol": "torrent",
+   "indexer": "Indexer Two"
+  }
+ ]
+}

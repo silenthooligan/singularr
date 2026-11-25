@@ -1,0 +1,115 @@
+# The fallback policy built into the binary. It is used only when the file named by
+# SINGULARR_POLICY is missing, and by tests. The product's default rules are rules/policy.toml;
+# an installation's own are the file SINGULARR_POLICY names. It carries four lanes (movies and
+# shows, 1080p and 2160p), each with the arr profiles it stands for, and a small set of plain
+# traits.
+
+name = "builtin-fallback"
+version = "0"
+
+[[traits]]
+id = "source.remux"
+label = "Remux"
+why = "The disc's video and audio, untouched."
+category = "video"
+when = { source = ["Remux"] }
+
+[[traits]]
+id = "video.hevc"
+label = "HEVC"
+why = "The same picture in a smaller file."
+category = "video"
+when = { video_codec = ["H265"] }
+
+[[traits]]
+id = "video.hdr"
+label = "HDR"
+why = "High dynamic range picture."
+category = "video"
+when = { hdr = ["DolbyVision", "Hdr10", "Hdr10Plus", "Hdr", "Hlg"] }
+
+[[traits]]
+id = "audio.atmos"
+label = "Atmos"
+why = "Object audio."
+category = "audio"
+when = { atmos = true }
+
+[[traits]]
+id = "audio.lossless"
+label = "Lossless audio"
+why = "The studio track without lossy compression."
+category = "audio"
+when = { audio_codec = ["TrueHd", "DtsX", "DtsHdMa", "Flac", "Pcm"] }
+
+[[traits]]
+id = "release.fixed"
+label = "Proper or repack"
+why = "A fixed release replaces a flawed one."
+category = "other"
+when = { proper_or_repack = true }
+
+[[traits]]
+id = "edition.open-matte"
+label = "Open Matte"
+why = "The taller frame."
+category = "edition"
+arr_formats = ["radarr:Open Matte"]
+when = { edition = ["Open Matte"] }
+
+[[traits]]
+id = "penalty.prerelease"
+label = "Cam, telesync or screener"
+why = "Recorded in a theater or leaked before release."
+category = "penalty"
+when = { prerelease = true }
+
+[[traits]]
+id = "penalty.upscaled"
+label = "AI upscaled"
+why = "Invented detail, not a better source."
+category = "penalty"
+when = { ai_upscaled = true }
+
+[[lanes]]
+id = "movies-hd"
+label = "Movies HD"
+arr_profiles = ["radarr:HD-1080p"]
+ladder = [["Remux-1080p"], ["Bluray-1080p"], ["WEBDL-1080p", "WEBRip-1080p"], ["HDTV-1080p"], ["Bluray-720p", "WEBDL-720p", "WEBRip-720p"]]
+min_score = -1000
+upgrade_step = 50
+points = { "video.hevc" = 100, "audio.atmos" = 50, "audio.lossless" = 50, "release.fixed" = 25, "edition.open-matte" = 100, "penalty.prerelease" = -10000, "penalty.upscaled" = -10000 }
+
+[[lanes]]
+id = "movies-uhd"
+label = "Movies UHD"
+arr_profiles = ["radarr:UHD-4K"]
+ladder = [["Remux-2160p"], ["Bluray-2160p"], ["WEBDL-2160p", "WEBRip-2160p"]]
+min_score = -1000
+upgrade_step = 50
+points = { "source.remux" = 200, "video.hdr" = 200, "audio.atmos" = 100, "audio.lossless" = 100, "release.fixed" = 25, "penalty.prerelease" = -10000, "penalty.upscaled" = -10000 }
+
+[[lanes]]
+id = "shows-hd"
+label = "Shows HD"
+arr_profiles = ["sonarr:HD-1080p"]
+ladder = [["Bluray-1080p"], ["WEBDL-1080p", "WEBRip-1080p"], ["HDTV-1080p"], ["Bluray-720p", "WEBDL-720p", "WEBRip-720p", "HDTV-720p"]]
+min_score = -1000
+upgrade_step = 50
+points = { "video.hevc" = 100, "audio.atmos" = 50, "release.fixed" = 25, "penalty.prerelease" = -10000, "penalty.upscaled" = -10000 }
+
+[[lanes]]
+id = "shows-uhd"
+label = "Shows UHD"
+arr_profiles = ["sonarr:UHD-4K"]
+ladder = [["Remux-2160p"], ["Bluray-2160p"], ["WEBDL-2160p", "WEBRip-2160p"], ["HDTV-2160p"]]
+min_score = -1000
+upgrade_step = 50
+points = { "video.hdr" = 200, "audio.atmos" = 100, "release.fixed" = 25, "penalty.prerelease" = -10000, "penalty.upscaled" = -10000 }
+
+[[protections]]
+id = "open-matte"
+label = "an open matte copy is replaced only by another open matte copy"
+why = "The taller frame is kept once the library has it."
+current = { edition = ["Open Matte"] }
+allow = { edition = ["Open Matte"] }

@@ -1,0 +1,49 @@
+/* Person: portrait and facts in a side column, the biography clamped to six lines, the library line, the credits. */
+@layer pages {
+  .pp { display: grid; grid-template-columns: 264px minmax(0, 1fr); gap: var(--s6); align-items: start; }
+  .pp-side { display: grid; gap: var(--s4); position: sticky; inset-block-start: calc(var(--top) + var(--s5)); }
+  .pp-photo { aspect-ratio: 2 / 3; border-radius: var(--r-lg); overflow: hidden; background: var(--raised); box-shadow: 0 0 0 1px rgb(0 0 0 / 0.3); }
+  .pp-photo img, .pp-photo .mq-noart { inline-size: 100%; block-size: 100%; object-fit: cover; }
+  .pp-photo .mq-noart { font-size: 3rem; }
+  .pp-side .mq-facts > div { grid-template-columns: 100px minmax(0, 1fr); }
+  .pp-aka { display: block; }
+  .pp-ext { inline-size: 12px; block-size: 12px; margin-inline-start: 4px; color: var(--text-3); }
+
+  .pp-main { display: grid; gap: var(--s3); min-inline-size: 0; align-content: start; }
+  .pp-name { font-size: clamp(1.75rem, 3vw, var(--fs-3xl)); letter-spacing: -0.02em; line-height: 1.1; }
+  .pp-bio { max-inline-size: 80ch; font-size: var(--fs-base); line-height: 1.6; margin-block-start: var(--s2); }
+  .pp-bio p { white-space: pre-line; }
+  .pp-bio[data-clamp="1"] p { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+  .pp-more { justify-self: start; font-size: var(--fs-md); }
+  .pp-nobio:empty { display: none; }
+  .pp-nobio { color: var(--text-2); }
+  .pp-lib { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3) var(--s5); margin-block: var(--s3) var(--s2); padding: var(--s3) var(--s4); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--head); }
+  .pp-lib-text { min-inline-size: 0; }
+  .pp-lib-text b { font-weight: 600; }
+  .pp-lib-bar { flex: 1; min-inline-size: 140px; max-inline-size: 260px; }
+  .pp-lib .mq-btn { margin-inline-start: auto; }
+  .pp-head { margin-block-start: var(--s4); }
+  .pp-tools { gap: var(--s3); }
+  .pp-grid { margin-block-start: var(--s2); }
+  .pp-role { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+  .pp-main > #tabs .mq-tabs { margin-block: var(--s4) 0; }
+  .pp-part { display: block; max-inline-size: 280px; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+  .pp-rating { display: inline-flex; align-items: center; gap: 4px; }
+  .pp-rating .mq-icon { inline-size: 11px; block-size: 11px; fill: var(--warn); stroke: none; }
+  .pp-switches { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+  #credits .mq-toolbar .mq-inputwrap { inline-size: min(260px, 100%); }
+
+  @media (max-width: 900px) {
+    .pp { grid-template-columns: minmax(0, 1fr); gap: var(--s4); }
+    .pp-side { position: static; grid-template-columns: 112px minmax(0, 1fr); align-items: start; }
+    .pp-side .mq-facts > div { grid-template-columns: 92px minmax(0, 1fr); padding-inline: 10px; }
+    .pp-side .mq-panel-head { display: none; }
+    .pp-side .mq-extlinks { padding: 10px; }
+  }
+  @media (max-width: 720px) {
+    .pp-lib .mq-btn { margin-inline-start: 0; }
+    .pp-tools .mq-toolbar-end { margin-inline-start: 0; }
+    .pp-switches { inline-size: 100%; }
+    .pp-switches .mq-seg { max-inline-size: 100%; overflow-x: auto; }
+  }
+}

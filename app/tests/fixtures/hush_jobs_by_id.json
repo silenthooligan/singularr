@@ -1,0 +1,29 @@
+{
+ "jobs": [
+  {
+   "created": "2026-11-23T16:05:00Z",
+   "events": [
+    {
+     "actor": "hushq",
+     "event": "staged",
+     "mode": "audio",
+     "path": "/media/movies/Damsel (2024) {tmdb-763215}/Damsel (2024) {imdb-tt13452446} [WEBDL-1080p][Opus 5.1][HEVC]-FLUX.mkv",
+     "size": 4618100950,
+     "trigger": "api:marquee",
+     "ts": "2026-11-23T16:05:00Z"
+    }
+   ],
+   "id": "20261123T160500Z-0a1b2c3d",
+   "mode": "audio",
+   "queue_path": "/media/hush/queue/movies/audio_1080p/Damsel (2024) {tmdb-763215}/Damsel (2024) {imdb-tt13452446} [WEBDL-1080p][Opus 5.1][HEVC]-FLUX.mkv",
+   "source": {
+    "path": "/media/movies/Damsel (2024) {tmdb-763215}/Damsel (2024) {imdb-tt13452446} [WEBDL-1080p][Opus 5.1][HEVC]-FLUX.mkv",
+    "size": 4618100950
+   },
+   "state": "staged",
+   "trigger": "api:marquee",
+   "updated": "2026-11-23T16:05:01Z"
+  }
+ ],
+ "missing": []
+}

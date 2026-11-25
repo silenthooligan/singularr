@@ -1,0 +1,26 @@
+{
+ "_note": "A reduced copy of web/data/journal.json: the field names GET /api/v1/journal answers for an event.",
+ "events": [
+  {
+   "actor": {
+    "id": "sonarr",
+    "kind": "integration",
+    "name": "Sonarr"
+   },
+   "at": "2026-11-23T00:17:00Z",
+   "body": {
+    "season": 5,
+    "episode": 10
+   },
+   "cause": "e-184",
+   "id": "e-185",
+   "kind": "file.imported",
+   "subject": {
+    "id": "show-63639",
+    "label": "The Expanse S05E10",
+    "type": "title"
+   },
+   "summary": "A file was imported"
+  }
+ ]
+}

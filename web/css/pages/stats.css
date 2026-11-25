@@ -1,0 +1,63 @@
+/* Statistics: the tiles, the charts (inline SVG in the page's tokens), the ranked lists and the shares.
+   Four series colors at most: direct play, direct stream, transcode, unknown; local and remote reuse the first two. */
+@layer pages {
+  .st [data-s="s1"] { --st: var(--ok); }
+  .st [data-s="s2"] { --st: var(--info); }
+  .st [data-s="s3"] { --st: var(--warn); }
+  .st [data-s="s4"] { --st: var(--mute); }
+  .mq-drawer [data-s="s1"] { --st: var(--ok); }
+  .mq-drawer [data-s="s2"] { --st: var(--info); }
+  .mq-drawer [data-s="s3"] { --st: var(--warn); }
+  .mq-drawer [data-s="s4"] { --st: var(--mute); }
+
+  .st-tiles { margin-block-end: var(--s5); }
+  .st-panel { margin-block-end: var(--s5); }
+  .st-panel .mq-panel-body { padding: 14px 16px; }
+  .st-two { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 0 var(--s5); align-items: start; }
+  .st-stack { display: grid; }
+  .st-three { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 0 var(--s5); align-items: start; }
+  @media (max-width: 1100px) { .st-two { grid-template-columns: minmax(0, 1fr); } }
+
+  .st-chart { display: block; inline-size: 100%; block-size: auto; overflow: visible; }
+  .st-grid { stroke: var(--line); stroke-width: 1; }
+  .st-tick { fill: var(--text-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .st-total { fill: var(--text); font-weight: 600; }
+  .st-hit { fill: transparent; }
+  .st-bar { fill: var(--st); }
+  g:hover > .st-hit { fill: var(--head); }
+  .st-cell { fill: var(--accent); stroke: var(--line); stroke-width: 1; }
+  .st-heat { max-inline-size: 860px; }
+
+  .st-key { display: inline-block; inline-size: 10px; block-size: 10px; border-radius: 2px; background: var(--st); flex: none; }
+  .st-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-block-start: 10px; color: var(--text-2); font-size: var(--fs-sm); }
+  .st-legend li { display: inline-flex; align-items: center; gap: 6px; }
+  .st-legend b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .st-legend small { color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+  .st-share { display: flex; block-size: 14px; border-radius: var(--r); overflow: hidden; background: var(--sunk); gap: 2px; }
+  .st-share > span { background: var(--st); min-inline-size: 3px; }
+
+  .st-rank { display: grid; gap: 8px; }
+  .st-rank li { display: grid; grid-template-columns: minmax(0, 1fr) auto 52px; grid-template-rows: auto 6px; align-items: center; gap: 4px 10px; font-size: var(--fs-md); }
+  .st-rank-name { grid-area: 1 / 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: start; color: var(--text); min-inline-size: 0; }
+  .st-rank-name small { color: var(--text-2); }
+  a.st-rank-name:hover { color: var(--accent-2); }
+  .st-rank-bar { grid-area: 2 / 1 / 3 / -1; display: block; block-size: 6px; border-radius: var(--r); background: var(--sunk); overflow: hidden; }
+  .st-rank-bar > span { display: block; block-size: 100%; background: var(--accent); }
+  .st-rank b { grid-area: 1 / 2; text-align: end; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .st-rank small { grid-area: 1 / 3; text-align: end; color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .st-rank-name small { grid-area: auto; }
+  .st-history .mq-section-head { margin-block-end: var(--s2); }
+  .st-none { color: var(--text-2); font-size: var(--fs-md); }
+
+  .st-avatar { display: grid; place-items: center; inline-size: 64px; block-size: 64px; border-radius: 50%; font-weight: 600; font-size: var(--fs-lg); }
+  .st-recent { display: grid; gap: 8px; }
+  .st-recent li { display: grid; gap: 2px; font-size: var(--fs-md); }
+  .st-recent small { color: var(--text-2); }
+
+  @media (max-width: 720px) {
+    .st-three { grid-template-columns: minmax(0, 1fr); }
+    .st .mq-head-actions { inline-size: 100%; min-inline-size: 0; margin-inline-start: 0; overflow-x: auto; }
+    .st .mq-kindbar { overflow-x: auto; }
+  }
+}

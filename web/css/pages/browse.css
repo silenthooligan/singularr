@@ -1,0 +1,22 @@
+/* Browse: the list's banner (the genre's backdrop or the studio's logo), the rating mark, and the
+   tiles of the other lists below. */
+@layer pages {
+  .br-banner { position: relative; display: flex; align-items: center; gap: var(--s5); min-block-size: 132px; margin-block-end: var(--s5); padding: var(--s5); border-radius: var(--r-lg); overflow: hidden; background: var(--raised); }
+  .br-banner-art { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; object-fit: cover; object-position: center 30%; opacity: 0.3; }
+  .br-banner > :not(.br-banner-art) { position: relative; }
+  .br-banner-text { display: grid; gap: 8px; min-inline-size: 0; }
+  .br-banner h1 { font-size: clamp(1.5rem, 2.6vw, 2rem); letter-spacing: -0.02em; text-shadow: 0 1px 2px rgb(0 0 0 / 0.5); }
+  .br-banner .mq-metaline { color: var(--text); }
+  .br-logo { margin-inline-start: auto; display: grid; place-items: center; inline-size: 200px; block-size: 84px; flex: none; }
+  .br-logo .mq-tile-logo { max-inline-size: 100%; max-block-size: 100%; object-fit: contain; filter: brightness(0) invert(0.9); }
+  .br-more .mq-tile { inline-size: 220px; }
+  .br-logo-tile { background: var(--raised); }
+  .lib-rating { display: inline-flex; align-items: center; gap: 4px; }
+  .lib-rating .mq-icon { inline-size: 11px; block-size: 11px; fill: var(--warn); stroke: none; }
+
+  @media (max-width: 720px) {
+    .br-banner { min-block-size: 104px; padding: var(--s4); flex-wrap: wrap; }
+    .br-logo { margin-inline-start: 0; inline-size: 140px; block-size: 52px; order: -1; }
+    .br-more .mq-tile { inline-size: 170px; }
+  }
+}

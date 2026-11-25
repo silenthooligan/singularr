@@ -1,0 +1,72 @@
+# Singularr with its own PostgreSQL.
+#   cp .env.example .env    then fill it in (docs/configuration.md lists every setting)
+#   docker compose up -d
+# The workspace listens on SINGULARR_PORT. Put your sign-in proxy in front of it: Singularr trusts the
+# signed-in address only from that proxy (README, "Sign-in").
+#
+# Singularr Requests, the viewer portal, is optional:
+#   docker compose --profile requests up -d
+# It runs as its own database role (deploy/requests-role.sql) and holds no integration secret.
+
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  singularr:
+    <<: *hardening
+    image: ghcr.io/silenthooligan/singularr:${SINGULARR_VERSION:-beta}
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://singularr:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/singularr
+    ports:
+      - "${SINGULARR_PORT:-7300}:3000"
+    # Optional, read only: the music and home video folders Singularr scans and serves covers from.
+    # volumes:
+    #   - /path/to/music:/media/music:ro
+    #   - /path/to/home-videos:/media/homemovies:ro
+
+  requests:
+    <<: *hardening
+    image: ghcr.io/silenthooligan/singularr:${SINGULARR_VERSION:-beta}
+    profiles: [requests]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SINGULARR_FACE: requests
+      SINGULARR_REQUESTS_DATABASE_URL: postgres://singularr_requests:${SINGULARR_REQUESTS_DB_PASSWORD:-}@db:5432/singularr
+      SINGULARR_REQUESTS_SESSION_SECRET: ${SINGULARR_REQUESTS_SESSION_SECRET:-}
+      SINGULARR_REQUESTS_PUBLIC_URL: ${SINGULARR_REQUESTS_PUBLIC_URL:-}
+      SINGULARR_TMDB_TOKEN: ${SINGULARR_TMDB_TOKEN:-}
+      TZ: ${TZ:-UTC}
+    ports:
+      - "${SINGULARR_REQUESTS_PORT:-7302}:3000"
+
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: singularr
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: singularr
+    volumes:
+      - db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U singularr -d singularr"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  db:

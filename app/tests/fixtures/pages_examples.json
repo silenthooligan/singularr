@@ -1,0 +1,1203 @@
+{
+ "workspace": {
+  "counts": {
+   "attention": 6,
+   "queue": 37,
+   "requestsPending": 3,
+   "wanted": 95
+  },
+  "formats": {
+   "date": "D MMM YYYY",
+   "time": "24h",
+   "timeZone": "Europe/Berlin"
+  },
+  "generated": "2026-11-23T19:00:00Z",
+  "integrations": [
+   {
+    "detail": "Home Server, Linux, Plex Pass",
+    "id": "plex",
+    "name": "Plex",
+    "role": "Media server: libraries, people, playback",
+    "state": "ok",
+    "type": "plex",
+    "version": "1.43.5.11079-b3b13e506"
+   },
+   {
+    "detail": "Synced 38 s ago",
+    "id": "radarr",
+    "name": "Radarr",
+    "role": "Manages the movie library",
+    "state": "ok",
+    "type": "radarr",
+    "version": null
+   },
+   {
+    "detail": "Synced 52 s ago",
+    "id": "sonarr",
+    "name": "Sonarr",
+    "role": "Manages the show library",
+    "state": "ok",
+    "type": "sonarr",
+    "version": null
+   },
+   {
+    "access": "act",
+    "accessSource": "saved",
+    "actions": [
+     {
+      "id": "send",
+      "label": "Send a file to a flow"
+     }
+    ],
+    "detail": "Ledger on, tag watcher running",
+    "id": "hush",
+    "name": "HUSH",
+    "role": "processing",
+    "state": "ok",
+    "type": "hush",
+    "version": null
+   }
+  ],
+  "libraries": [
+   {
+    "id": "movies",
+    "kind": "movie",
+    "locations": [
+     "/4kmovies",
+     "/movies"
+    ],
+    "manager": "radarr",
+    "name": "Movies",
+    "plexKey": "1",
+    "size": 24471940227434,
+    "titles": 4470,
+    "have": 4328
+   },
+   {
+    "episodes": 7642,
+    "id": "shows",
+    "kind": "show",
+    "locations": [
+     "/4kshows",
+     "/tv"
+    ],
+    "manager": "sonarr",
+    "name": "Shows",
+    "plexKey": "2",
+    "size": 9607468703057,
+    "titles": 373,
+    "have": 7491
+   },
+   {
+    "albums": 2051,
+    "artists": 327,
+    "id": "music",
+    "kind": "music",
+    "locations": [
+     "/music"
+    ],
+    "manager": null,
+    "name": "Music",
+    "plexKey": "6",
+    "size": 173730690656,
+    "titles": 2051,
+    "tracks": 9570
+   },
+   {
+    "id": "home-video",
+    "kind": "homevideo",
+    "locations": [
+     "/homemovies"
+    ],
+    "manager": null,
+    "name": "Home Movies",
+    "plexKey": "5",
+    "size": 26155395622,
+    "titles": 19
+   }
+  ],
+  "name": "Singularr",
+  "portal": {
+   "name": "Requests",
+   "url": "https://requests.example.org"
+  },
+  "profiles": [
+   {
+    "cutoff": 3000,
+    "id": "movies-hd",
+    "kind": "movie",
+    "label": "Movies, 1080p",
+    "minScore": 100,
+    "name": "HD-1080p",
+    "qualities": [
+     "HQ-1080p"
+    ],
+    "upgradeStep": 75
+   },
+   {
+    "cutoff": 3000,
+    "id": "movies-uhd",
+    "kind": "movie",
+    "label": "Movies, 2160p",
+    "minScore": 300,
+    "name": "UHD-4K",
+    "qualities": [
+     "2160p"
+    ],
+    "upgradeStep": 1
+   }
+  ],
+  "server": {
+   "name": "Home Server",
+   "version": "1.43.5.11079-b3b13e506"
+  },
+  "user": {
+   "id": "u-owner",
+   "initials": "OW",
+   "name": "Owner",
+   "role": "owner"
+  },
+  "mode": "act",
+  "acting": [
+   {
+    "id": "hush",
+    "name": "HUSH"
+   }
+  ],
+  "signOut": "/oauth2/sign_out",
+  "attention": [
+   {
+    "id": "q-7",
+    "kind": "queue",
+    "title": "Karen Sisco",
+    "detail": "Stalled: no seeds",
+    "tone": "bad",
+    "since": "2026-11-22T21:51:03Z"
+   }
+  ]
+ },
+ "library-movies": {
+  "columns": [
+   "id",
+   "title",
+   "year",
+   "poster",
+   "rating",
+   "imdb",
+   "certification",
+   "runtime",
+   "genres",
+   "studio",
+   "collection",
+   "state",
+   "monitored",
+   "library",
+   "profile",
+   "resolution",
+   "source",
+   "codec",
+   "hdr",
+   "audio",
+   "group",
+   "editions",
+   "files",
+   "size",
+   "added",
+   "score",
+   "cutoffMet",
+   "released",
+   "collectionId",
+   "plays",
+   "rt"
+  ],
+  "rows": [
+   [
+    "movie-100",
+    "Lock, Stock and Two Smoking Barrels",
+    1998,
+    "/6pJB2t3MbQUy9m5pFIBHXLqnqNd.jpg",
+    8.1,
+    8.1,
+    "R",
+    105,
+    [
+     "Comedy",
+     "Crime"
+    ],
+    "The Steve Tisch Company",
+    null,
+    "available",
+    true,
+    "Movies",
+    "HD-1080p",
+    1080,
+    "BluRay",
+    "HEVC",
+    null,
+    "Opus 5.1",
+    "SHR",
+    [
+     "Theatrical"
+    ],
+    1,
+    9021498004,
+    "2024-06-21T19:09:07Z",
+    3200,
+    true,
+    "1998-08-28",
+    null,
+    0,
+    72
+   ],
+   [
+    "movie-10003",
+    "The Saint",
+    1997,
+    "/z83Pxy1dSf8pJ0XiYCdTqs7jZUY.jpg",
+    6.1,
+    6.2,
+    "PG-13",
+    116,
+    [
+     "Thriller",
+     "Action",
+     "Romance",
+     "Science Fiction",
+     "Adventure"
+    ],
+    "Paramount Pictures",
+    null,
+    "available",
+    true,
+    "Movies",
+    "HD-1080p",
+    1080,
+    "BluRay",
+    "HEVC",
+    "DV HDR10+",
+    "EAC3 5.1",
+    "SM737",
+    [
+     "Theatrical"
+    ],
+    1,
+    6958862959,
+    "2025-12-14T19:01:15Z",
+    1900,
+    true,
+    "1997-04-03",
+    null,
+    0,
+    31
+   ]
+  ]
+ },
+ "library-shows": {
+  "columns": [
+   "id",
+   "title",
+   "year",
+   "poster",
+   "rating",
+   "certification",
+   "network",
+   "status",
+   "genres",
+   "seasons",
+   "episodes",
+   "have",
+   "nextAir",
+   "library",
+   "profile",
+   "size",
+   "added",
+   "monitored",
+   "state",
+   "plays"
+  ],
+  "rows": [
+   [
+    "show-103425",
+    "The Woods",
+    2020,
+    "/cA0o5dT1xCAQNKl8ShYNf84AySO.jpg",
+    6.6,
+    "TV-MA",
+    "Netflix",
+    "ended",
+    [
+     "Crime",
+     "Drama",
+     "Mystery",
+     "Thriller"
+    ],
+    1,
+    6,
+    6,
+    null,
+    "Shows",
+    "HD-1080p",
+    9976211225,
+    "2025-12-14T08:18:52Z",
+    true,
+    "available",
+    0
+   ],
+   [
+    "show-103516",
+    "Star Trek: Strange New Worlds",
+    2022,
+    "/97TTJuqiSMfU0DuXx1B4NG5QNP7.jpg",
+    8.1,
+    "TV-14",
+    "Paramount+",
+    "continuing",
+    [
+     "Action",
+     "Adventure",
+     "Drama",
+     "Science Fiction"
+    ],
+    4,
+    40,
+    40,
+    null,
+    "Shows",
+    "HD-1080p",
+    54911667980,
+    "2025-12-14T08:13:58Z",
+    true,
+    "available",
+    19
+   ]
+  ]
+ },
+ "activity": {
+  "queue": [
+   {
+    "added": "2026-11-23T04:49:00Z",
+    "client": "qBittorrent",
+    "codec": "HEVC",
+    "done": 1212104559,
+    "edition": "Theatrical",
+    "eta": 869,
+    "group": "TAoE",
+    "id": "q-1",
+    "indexer": "TorrentLeech",
+    "kind": "movie",
+    "manager": "Radarr",
+    "peers": 20,
+    "profile": "HD-1080p",
+    "progress": 23,
+    "quality": "1080p BluRay",
+    "release": "Clayface.2026.1080p.BluRay.DDP5.1.x265.10bit-TAoE",
+    "request": "r-7",
+    "resolution": 1080,
+    "score": 600,
+    "seeds": 38,
+    "size": 5270019825,
+    "source": "BluRay",
+    "speed": 4665690,
+    "stage": "downloading",
+    "timeline": [
+     {
+      "at": "2026-11-23T04:49:00Z",
+      "detail": "From TorrentLeech, 4.91 GiB",
+      "stage": "grabbed"
+     },
+     {
+      "at": "2026-11-23T04:49:20Z",
+      "detail": "Sent to qBittorrent",
+      "stage": "downloading"
+     }
+    ],
+    "title": {
+     "id": "movie-1400940",
+     "kind": "movie",
+     "poster": "/9l1NuFjel2j89hiuiJbsxfblqjy.jpg",
+     "rating": 7.4,
+     "state": "downloading",
+     "title": "Clayface",
+     "year": 2026
+    },
+    "trace": [
+     {
+      "label": "TAoE",
+      "points": 400,
+      "why": "TAoE encodes rank below the library's own HEVC conversion."
+     },
+     {
+      "label": "Bluray",
+      "points": 100,
+      "why": "A copy from a Blu-ray disc beats a stream from the same tier of group."
+     }
+    ]
+   },
+   {
+    "added": "2026-11-21T16:24:00Z",
+    "attention": {
+     "detail": "No seeds for 2 d; 59% of the file is here.",
+     "fix": "Search for another release, or remove it and mark the release as failed",
+     "reason": "Stalled: no seeds",
+     "since": "2026-11-22T21:51:03Z"
+    },
+    "client": "qBittorrent",
+    "codec": "H.264",
+    "done": 1148032961,
+    "episode": {
+     "number": 1,
+     "season": 1,
+     "title": "Episode 1"
+    },
+    "eta": null,
+    "group": "KiNGS",
+    "id": "q-7",
+    "indexer": "BeyondHD",
+    "kind": "show",
+    "manager": "Sonarr",
+    "peers": 35,
+    "profile": "HD-1080p",
+    "progress": 59,
+    "quality": "1080p WEB-DL",
+    "release": "Karen.Sisco.S01E01.Episode.1.1080p.ATVP.WEB-DL.DDP5.1.H.264-KiNGS",
+    "request": "r-32",
+    "resolution": 1080,
+    "score": 1100,
+    "seeds": 0,
+    "size": 1945818579,
+    "source": "WEB-DL",
+    "speed": 0,
+    "stage": "downloading",
+    "timeline": [
+     {
+      "at": "2026-11-21T16:24:00Z",
+      "detail": "From BeyondHD, 1.81 GiB",
+      "stage": "grabbed"
+     },
+     {
+      "at": "2026-11-21T16:24:20Z",
+      "detail": "Sent to qBittorrent",
+      "stage": "downloading"
+     },
+     {
+      "at": "2026-11-22T21:51:03Z",
+      "detail": "Stalled: no seeds: No seeds for 2 d; 59% of the file is here.",
+      "stage": "attention"
+     }
+    ],
+    "title": {
+     "id": "show-113",
+     "kind": "show",
+     "poster": null,
+     "rating": 7.2,
+     "state": "attention",
+     "title": "Karen Sisco",
+     "year": 2003
+    },
+    "trace": [
+     {
+      "label": "WEB Tier 01",
+      "points": 1000,
+      "why": "The first tier of web groups for TV in the TRaSH lists: groups that deliver the service's stream untouched."
+     },
+     {
+      "label": "ATVP",
+      "points": 100,
+      "why": "Apple TV+ has the highest 1080p bitrate of the services measured, about 10.5 Mbps."
+     }
+    ]
+   },
+   {
+    "added": "2026-11-22T15:28:00Z",
+    "client": "qBittorrent",
+    "codec": "H.264",
+    "done": 34144464422,
+    "eta": 3359,
+    "group": "RAWR",
+    "id": "q-14",
+    "indexer": "BeyondHD",
+    "kind": "show",
+    "manager": "Sonarr",
+    "pack": {
+     "episodes": 26,
+     "season": 1
+    },
+    "peers": 1,
+    "profile": "HD-1080p",
+    "progress": 57,
+    "quality": "1080p WEB-DL",
+    "release": "Major.Dad.S01.1080p.NF.WEB-DL.DDP5.1.H.264-RAWR",
+    "request": "r-41",
+    "resolution": 1080,
+    "score": 1050,
+    "seeds": 44,
+    "size": 59902569162,
+    "source": "WEB-DL",
+    "speed": 7667484,
+    "stage": "downloading",
+    "timeline": [
+     {
+      "at": "2026-11-22T15:28:00Z",
+      "detail": "From BeyondHD, 55.79 GiB",
+      "stage": "grabbed"
+     },
+     {
+      "at": "2026-11-22T15:28:20Z",
+      "detail": "Sent to qBittorrent",
+      "stage": "downloading"
+     }
+    ],
+    "title": {
+     "id": "show-3484",
+     "kind": "show",
+     "poster": "/qOFp3vszwK8qQ24JvytgvalURUi.jpg",
+     "rating": 6.4,
+     "state": "approved",
+     "title": "Major Dad",
+     "year": 1989
+    },
+    "trace": [
+     {
+      "label": "WEB Tier 01",
+      "points": 1000,
+      "why": "The first tier of web groups for TV in the TRaSH lists: groups that deliver the service's stream untouched."
+     },
+     {
+      "label": "5.1 Surround",
+      "points": 50,
+      "why": "Surround audio beats stereo. The points stay well under the gaps between tiers."
+     }
+    ]
+   },
+   {
+    "added": "2026-11-23T12:52:00Z",
+    "attention": {
+     "detail": "The release is 4K WEB-DL and the request's profile takes 1080p releases only.",
+     "fix": "Change the request's profile, or pick another release",
+     "reason": "Radarr refused the import · 110 against 600",
+     "since": "2026-11-23T17:48:49Z",
+     "message": "Not a Custom Format upgrade for existing movie file(s). New: [DD+, DV HDR10, x265] (110) do not improve on Existing: [5.1 Surround, x265 (HD)] (600)"
+    },
+    "client": "qBittorrent",
+    "codec": "HEVC",
+    "done": 21143929009,
+    "edition": "Theatrical",
+    "eta": null,
+    "group": "CMRG",
+    "hdr": "DV HDR10",
+    "id": "q-15",
+    "indexer": "TorrentLeech",
+    "kind": "movie",
+    "manager": "Radarr",
+    "profile": "HD-1080p",
+    "progress": 100,
+    "quality": "4K WEB-DL",
+    "release": "Cool.Runnings.1993.2160p.ATVP.WEB-DL.DDP5.1.DV.HDR10.H.265-CMRG",
+    "request": "r-42",
+    "resolution": 2160,
+    "score": 110,
+    "size": 21143929009,
+    "source": "WEB-DL",
+    "speed": 0,
+    "stage": "importing",
+    "timeline": [
+     {
+      "at": "2026-11-23T12:52:00Z",
+      "detail": "From TorrentLeech, 19.69 GiB",
+      "stage": "grabbed"
+     },
+     {
+      "at": "2026-11-23T12:52:20Z",
+      "detail": "Sent to qBittorrent",
+      "stage": "downloading"
+     },
+     {
+      "at": "2026-11-23T13:33:00Z",
+      "detail": "Download finished; importing into /media/movies/Cool Runnings (1993) {tmdb-864}",
+      "stage": "importing"
+     },
+     {
+      "at": "2026-11-23T17:48:49Z",
+      "detail": "Import waiting: the profile does not take this quality: The release is 4K WEB-DL and the request's profile takes 1080p releases only.",
+      "stage": "attention"
+     }
+    ],
+    "title": {
+     "id": "movie-864",
+     "kind": "movie",
+     "poster": "/6fXuGEb7EqGmAeUodxm7l5ELPZ.jpg",
+     "rating": 7,
+     "state": "available",
+     "title": "Cool Runnings",
+     "year": 1993
+    },
+    "trace": [
+     {
+      "label": "DV HDR10",
+      "points": 100,
+      "why": "Dolby Vision with an HDR10 layer plays everywhere and looks best on Dolby Vision screens."
+     }
+    ],
+    "refusal": {
+     "by": "Radarr",
+     "reason": "Not a custom format upgrade",
+     "new": {
+      "score": 110,
+      "formats": [
+       "DD+",
+       "DV HDR10",
+       "x265"
+      ]
+     },
+     "held": {
+      "score": 600,
+      "formats": [
+       "5.1 Surround",
+       "x265 (HD)"
+      ]
+     }
+    }
+   }
+  ],
+  "history": [
+   {
+    "at": "2026-11-23T04:36:00Z",
+    "detail": "The download stalled with no seeds and was removed",
+    "episode": {
+     "number": 1,
+     "season": 1,
+     "title": "Born to Race"
+    },
+    "event": "failed",
+    "id": "h-1",
+    "kind": "show",
+    "quality": "1080p WEBRip",
+    "source": "WEBRip",
+    "title": {
+     "id": "show-114707",
+     "kind": "show",
+     "poster": "/h5QBe7pvAYtuIK0gbefrFwFCGFp.jpg",
+     "rating": 9,
+     "state": "partial",
+     "title": "Max Verstappen: Whatever It Takes",
+     "year": 2020
+    }
+   },
+   {
+    "at": "2026-11-19T21:48:00Z",
+    "detail": "Replaced a 1080p HDTV copy with Band of Brothers (2001) - S01E04 - Replacements [Bluray-1080p][AAC 5.1][x265]-afm72.mkv",
+    "episode": {
+     "number": 4,
+     "season": 1,
+     "title": "Episode 4"
+    },
+    "event": "upgraded",
+    "from": "1080p HDTV",
+    "group": "afm72",
+    "id": "h-118",
+    "kind": "show",
+    "quality": "1080p BluRay",
+    "size": 3540425911,
+    "source": "BluRay",
+    "title": {
+     "id": "show-4613",
+     "kind": "show",
+     "poster": "/eLdcio9HBKzsdIJGeD80oObDfkr.jpg",
+     "rating": 8.6,
+     "state": "available",
+     "title": "Band of Brothers",
+     "year": 2001
+    }
+   },
+   {
+    "at": "2026-11-22T23:45:00Z",
+    "detail": "From TorrentLeech, 3.00 GiB: The Expanse (2015) - S05E10 - Nemesis Games [WEBRip-1080p][HDR10][EAC3 5.1][h265]-d3g.mkv",
+    "episode": {
+     "number": 10,
+     "season": 5,
+     "title": "Nemesis Games"
+    },
+    "event": "grabbed",
+    "group": "d3g",
+    "id": "h-3",
+    "indexer": "TorrentLeech",
+    "kind": "show",
+    "quality": "1080p WEBRip",
+    "size": 3223181552,
+    "source": "WEBRip",
+    "title": {
+     "id": "show-63639",
+     "kind": "show",
+     "poster": "/8djpxDeWpINnGhjpFXQjnBe6zbx.jpg",
+     "rating": 8.1,
+     "state": "available",
+     "title": "The Expanse",
+     "year": 2015
+    }
+   }
+  ],
+  "wanted": [
+   {
+    "have": "1080p BluRay, score 0",
+    "id": "w-31",
+    "kind": "movie",
+    "lastSearch": "2026-11-21T11:00:00Z",
+    "monitored": true,
+    "profile": "UHD-4K",
+    "released": "2014-09-19",
+    "title": {
+     "id": "movie-189",
+     "kind": "movie",
+     "poster": "/50kALxDX4mmzIRljbNbPY0u4cie.jpg",
+     "rating": 6.4,
+     "state": "available",
+     "title": "Sin City: A Dame to Kill For",
+     "year": 2014
+    },
+    "want": "UHD-4K, cutoff score 3,000",
+    "why": "upgrade"
+   },
+   {
+    "episode": {
+     "number": 1,
+     "season": 4,
+     "title": "The People's Choice, pt. 1"
+    },
+    "id": "w-48",
+    "kind": "show",
+    "lastSearch": "2026-11-21T19:00:00Z",
+    "monitored": true,
+    "profile": "HD-1080p",
+    "released": "1992-09-25",
+    "title": {
+     "id": "show-3484",
+     "kind": "show",
+     "poster": "/qOFp3vszwK8qQ24JvytgvalURUi.jpg",
+     "rating": 6.4,
+     "state": "approved",
+     "title": "Major Dad",
+     "year": 1989
+    },
+    "want": "HD-1080p, cutoff score 3,000",
+    "why": "missing"
+   }
+  ]
+ },
+ "requests": {
+  "requests": [
+   {
+    "at": "2026-11-22T23:00:00Z",
+    "by": {
+     "id": "u-jordan-lee",
+     "name": "Jordan Lee"
+    },
+    "counts": {
+     "movies": 1
+    },
+    "decided": {
+     "at": "2026-11-22T23:00:00Z",
+     "by": {
+      "id": "rule:auto-approve",
+      "name": "Automatic approval"
+     },
+     "reason": "Automatic approval"
+    },
+    "id": "r-44",
+    "queue": [
+     "q-17"
+    ],
+    "rules": [
+     {
+      "detail": "No limit for this person",
+      "label": "Movie limit",
+      "result": "skip"
+     },
+     {
+      "detail": "Requests from this person are approved without review",
+      "label": "Automatic approval",
+      "result": "pass"
+     }
+    ],
+    "status": "importing",
+    "target": "HD",
+    "title": {
+     "id": "movie-1674276",
+     "kind": "movie",
+     "poster": "/8mip1ezsYkKqbt9Gg7kybw90VT9.jpg",
+     "rating": 10,
+     "state": "importing",
+     "title": "The Godfather, Coda: The Death of Michael Corleone",
+     "year": 2020
+    },
+    "what": {
+     "type": "movie"
+    }
+   },
+   {
+    "at": "2026-11-23T18:34:00Z",
+    "by": {
+     "id": "u-sam-patel",
+     "name": "Sam Patel"
+    },
+    "counts": {
+     "seasons": 4
+    },
+    "id": "r-49",
+    "note": "Over the season limit: 5 of 4 seasons in 7 days. It waits until an admin approves it or the window frees seasons.",
+    "rules": [
+     {
+      "detail": "5 of 4 seasons in 7 days, over the limit",
+      "label": "Season limit",
+      "result": "fail"
+     },
+     {
+      "detail": "Waiting for review: a limit applies first",
+      "label": "Automatic approval",
+      "result": "skip"
+     }
+    ],
+    "status": "requested",
+    "target": "HD",
+    "title": {
+     "id": "show-1434",
+     "kind": "show",
+     "poster": "/3PFsEuAiyLkWsP4GG6dIV37Q6gu.jpg",
+     "rating": 7.4,
+     "state": "requested",
+     "title": "Family Guy",
+     "year": 1999
+    },
+    "what": {
+     "seasons": [
+      1,
+      2,
+      3,
+      4
+     ],
+     "type": "seasons"
+    }
+   },
+   {
+    "at": "2026-11-23T17:00:00Z",
+    "by": {
+     "id": "u-alex-rivera",
+     "name": "Alex Rivera"
+    },
+    "counts": {
+     "seasons": 1
+    },
+    "decided": {
+     "at": "2026-11-23T17:47:00Z",
+     "by": {
+      "id": "u-jordan-lee",
+      "name": "Jordan Lee"
+     }
+    },
+    "id": "r-47",
+    "progress": 75,
+    "queue": [
+     "q-20"
+    ],
+    "rules": [
+     {
+      "detail": "1 of 6 seasons in 7 days",
+      "label": "Season limit",
+      "result": "pass"
+     },
+     {
+      "detail": "Requests from this person wait for an admin",
+      "label": "Manual approval",
+      "result": "skip"
+     }
+    ],
+    "status": "downloading",
+    "target": "HD",
+    "title": {
+     "id": "show-3484",
+     "kind": "show",
+     "poster": "/qOFp3vszwK8qQ24JvytgvalURUi.jpg",
+     "rating": 6.4,
+     "state": "approved",
+     "title": "Major Dad",
+     "year": 1989
+    },
+    "what": {
+     "items": [
+      {
+       "episodes": [
+        1
+       ],
+       "season": 4
+      }
+     ],
+     "type": "episodes"
+    }
+   }
+  ],
+  "people": [
+   {
+    "autoApprove": true,
+    "id": "u-owner",
+    "lastSeen": "2026-11-22T14:00:00Z",
+    "name": "Owner",
+    "quota": {
+     "movies": {
+      "days": 7,
+      "limit": null,
+      "used": 1
+     },
+     "seasons": {
+      "days": 7,
+      "limit": null,
+      "used": 0
+     }
+    },
+    "requests": 4,
+    "role": "owner"
+   },
+   {
+    "autoApprove": true,
+    "id": "u-jordan-lee",
+    "lastSeen": "2026-11-22T23:00:00Z",
+    "name": "Jordan Lee",
+    "quota": {
+     "movies": {
+      "days": 7,
+      "limit": null,
+      "used": 1
+     },
+     "seasons": {
+      "days": 7,
+      "limit": null,
+      "used": 1
+     }
+    },
+    "requests": 4,
+    "role": "admin"
+   }
+  ]
+ },
+ "calendar": {
+  "from": "2026-11-16",
+  "to": "2026-12-13",
+  "today": "2026-11-23",
+  "items": [
+   {
+    "date": "2026-11-16",
+    "kind": "movie",
+    "release": "theaters",
+    "state": "unreleased",
+    "title": {
+     "id": "movie-1300968",
+     "kind": "movie",
+     "poster": "/jNcZH8yplxttRlf0wwqfGGMKHxX.jpg",
+     "rating": 7.6,
+     "state": "unreleased",
+     "title": "The Hunger Games: Sunrise on the Reaping",
+     "year": 2026
+    }
+   },
+   {
+    "date": "2026-11-22",
+    "episode": {
+     "number": 7,
+     "season": 2,
+     "title": "Under the Influence"
+    },
+    "kind": "show",
+    "state": "importing",
+    "time": "2026-11-22T20:00:00-05:00",
+    "title": {
+     "id": "show-290856",
+     "kind": "show",
+     "poster": "/zV1MRb6eqx6Uj3NSXquZFfz75pa.jpg",
+     "rating": 8,
+     "state": "available",
+     "title": "Marshals",
+     "year": 2026
+    }
+   }
+  ]
+ },
+ "home": {
+  "added": {
+   "movies": [
+    {
+     "added": "2026-11-22T12:34:52Z",
+     "id": "movie-763215",
+     "kind": "movie",
+     "poster": "/AgHbB9DCE9aE57zkHjSmseszh6e.jpg",
+     "rating": 7,
+     "state": "available",
+     "title": "Damsel",
+     "year": 2024
+    }
+   ],
+   "episodes": [
+    {
+     "added": "2026-11-23T00:17:00Z",
+     "episode": {
+      "number": 10,
+      "season": 5,
+      "title": "Nemesis Games"
+     },
+     "title": {
+      "id": "show-63639",
+      "kind": "show",
+      "poster": "/8djpxDeWpINnGhjpFXQjnBe6zbx.jpg",
+      "rating": 8.1,
+      "state": "available",
+      "title": "The Expanse",
+      "year": 2015
+     }
+    }
+   ]
+  },
+  "attention": [
+   {
+    "href": "requests.html#rq.view=waiting",
+    "id": "r-49",
+    "kind": "request",
+    "reason": "Waiting for a decision",
+    "since": "2026-11-23T18:34:00Z",
+    "title": "Family Guy"
+   },
+   {
+    "href": "activity.html#state=attention&q=Cool%20Runnings",
+    "id": "q-15",
+    "kind": "queue",
+    "reason": "Import waiting: the profile does not take this quality",
+    "since": "2026-11-23T17:48:49Z",
+    "title": "Cool Runnings"
+   }
+  ],
+  "nowPlaying": [
+   {
+    "id": "s-1",
+    "player": "Living room TV",
+    "progress": 37,
+    "stream": "Direct play",
+    "title": {
+     "id": "movie-1246049",
+     "kind": "movie",
+     "poster": "/ykyRfv7JDofLxXLAwtLXaSuaFfM.jpg",
+     "rating": 7.3,
+     "state": "available",
+     "title": "Dracula",
+     "year": 2025
+    },
+    "user": {
+     "id": "u-morgan-chen",
+     "name": "Morgan Chen"
+    }
+   },
+   {
+    "episode": {
+     "number": 21,
+     "season": 5,
+     "title": "The One with the Ball"
+    },
+    "id": "s-2",
+    "player": "Phone",
+    "progress": 72,
+    "stream": "Transcode: 1080p to 720p for the connection",
+    "title": {
+     "id": "show-1668",
+     "kind": "show",
+     "poster": "/2koX1xLkpTQM4IZebYvKysFW1Nh.jpg",
+     "rating": 8.4,
+     "state": "available",
+     "title": "Friends",
+     "year": 1994
+    },
+    "user": {
+     "id": "u-alex-rivera",
+     "name": "Alex Rivera"
+    }
+   }
+  ],
+  "queue": {
+   "movies": 21,
+   "shows": 16
+  },
+  "requests": [
+   "r-49",
+   "r-48"
+  ],
+  "stats": [
+   {
+    "detail": "4,328 with a file",
+    "id": "movies",
+    "label": "Movies",
+    "value": 4470
+   },
+   {
+    "detail": "7,491 of 7,642 episodes",
+    "id": "shows",
+    "label": "Shows",
+    "value": 373
+   },
+   {
+    "detail": "6 need attention",
+    "id": "queue",
+    "label": "Queue",
+    "value": 37
+   },
+   {
+    "detail": "waiting for a decision",
+    "id": "requests",
+    "label": "Requests",
+    "value": 3
+   },
+   {
+    "detail": "missing or below the cutoff",
+    "id": "wanted",
+    "label": "Wanted",
+    "value": 95
+   },
+   {
+    "detail": "sample sessions",
+    "id": "playing",
+    "label": "Playing now",
+    "value": 3
+   }
+  ],
+  "upcoming": [
+   {
+    "date": "2026-11-24",
+    "episode": {
+     "number": 4,
+     "season": 2,
+     "title": "The Grindstone of Survival"
+    },
+    "kind": "show",
+    "state": "unaired",
+    "time": "2026-11-24T00:00:00-05:00",
+    "title": {
+     "id": "show-256106",
+     "kind": "show",
+     "poster": "/Ani2DqDFLqKC4zPqvsPdfft13Fk.jpg",
+     "rating": 7.2,
+     "state": "available",
+     "title": "Homestead: The Series",
+     "year": 2024
+    }
+   },
+   {
+    "date": "2026-11-24",
+    "kind": "movie",
+    "release": "digital",
+    "state": "unreleased",
+    "title": {
+     "id": "movie-1281331",
+     "kind": "movie",
+     "poster": "/7jK6NuxVg1XuEV7UdNa6KO03IgZ.jpg",
+     "rating": 7,
+     "state": "unreleased",
+     "title": "The Social Reckoning",
+     "year": 2026
+    }
+   }
+  ]
+ }
+}

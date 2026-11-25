@@ -1,0 +1,377 @@
+[
+ {
+  "path": "/downloads/The Devil Wears Prada.mkv",
+  "relativePath": "Movie/The Devil Wears Prada.mkv",
+  "folderName": "/downloads/The.Devil.Wears.Prada.2006.Open.Matte.BRRip.1080p.x264.DD5.1.gerald99",
+  "name": "The Devil Wears Prada",
+  "size": 7911378658,
+  "movie": {
+   "title": "The Devil Wears Prada",
+   "originalTitle": "The Devil Wears Prada",
+   "originalLanguage": {
+    "id": 1,
+    "name": "English"
+   },
+   "alternateTitles": [
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "时尚女魔头",
+     "id": 40787
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Diabel ubiera sie u Prady",
+     "id": 40788
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Eshmaki atarebs pradas",
+     "id": 40789
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Ir velnias devi Prada",
+     "id": 40790
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Vrag nosi Pradu",
+     "id": 40791
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Đavo nosi Pradu",
+     "id": 40792
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Hudicevka v Pradi",
+     "id": 40794
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Diavolul se imbraca de la Prada",
+     "id": 40795
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Дьявол носит «Prada»",
+     "id": 40796
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Диявол носить \"Прада\"",
+     "id": 40797
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Djävulen bär Prada",
+     "id": 40798
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "악마는 프라다를 입는다",
+     "id": 40799
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "O Diabo Veste Prada",
+     "id": 40800
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Şeytan Marka Giyer",
+     "id": 40801
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Şeytan Prada Geyiner",
+     "id": 40802
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "穿著Prada的惡魔",
+     "id": 51474
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "穿普拉达的女王",
+     "id": 51612
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Սատանան կրում է Պրադա",
+     "id": 62299
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "El Diablo Viste a la Moda",
+     "id": 65206
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "El Diablo Viste de Prada",
+     "id": 65207
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Yêu Nữ Mặc Đồ Prada",
+     "id": 67838
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Il diavolo veste Prada",
+     "id": 71008
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Djalli vishet me Prada",
+     "id": 71421
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "Дьявол носит Прада",
+     "id": 73209
+    },
+    {
+     "sourceType": "tmdb",
+     "movieMetadataId": 1775,
+     "title": "นางมารสวมปราด้า",
+     "id": 73639
+    }
+   ],
+   "secondaryYearSourceId": 0,
+   "sortTitle": "devil wears prada",
+   "status": "released",
+   "overview": "A young woman from the Midwest gets more than she bargained for when she moves to New York to become a writer and ends up as the assistant to the tyrannical, larger-than-life editor-in-chief of a major fashion magazine.",
+   "inCinemas": "2006-06-29T00:00:00Z",
+   "physicalRelease": "2006-11-28T00:00:00Z",
+   "digitalRelease": "2019-04-17T00:00:00Z",
+   "releaseDate": "2006-11-28T00:00:00Z",
+   "images": [
+    {
+     "coverType": "poster",
+     "remoteUrl": "https://image.tmdb.org/t/p/original/8912AsVuS7Sj915apArUFbv6F9L.jpg"
+    },
+    {
+     "coverType": "fanart",
+     "remoteUrl": "https://image.tmdb.org/t/p/original/gkh6Nt8DtY1XT4gQsyFq9XAVJlJ.jpg"
+    }
+   ],
+   "website": "https://www.20thcenturystudios.com/movies/the-devil-wears-prada",
+   "year": 2006,
+   "youTubeTrailerId": "6ZOZwUQKu3E",
+   "studio": "Fox 2000 Pictures",
+   "path": "/downloads/The Devil Wears Prada (2006) {tmdb-350}",
+   "qualityProfileId": 1,
+   "movieFileId": 18381,
+   "monitored": true,
+   "minimumAvailability": "released",
+   "isAvailable": true,
+   "folderName": "/downloads/The Devil Wears Prada (2006) {tmdb-350}",
+   "runtime": 109,
+   "cleanTitle": "thedevilwearsprada",
+   "imdbId": "tt0458352",
+   "tmdbId": 350,
+   "titleSlug": "350",
+   "certification": "PG-13",
+   "genres": [
+    "Drama",
+    "Comedy"
+   ],
+   "keywords": [
+    "ambivalent",
+    "assistant",
+    "based on novel or book",
+    "bullied",
+    "city life",
+    "editor-in-chief",
+    "fashion",
+    "fashion industry",
+    "fashion journal",
+    "fashion magazine",
+    "job entrant",
+    "job interview",
+    "journalism",
+    "journalist",
+    "new york city",
+    "paris, france",
+    "workplace drama"
+   ],
+   "tags": [
+    38
+   ],
+   "added": "2023-12-01T21:07:28Z",
+   "ratings": {
+    "imdb": {
+     "votes": 577720,
+     "value": 7,
+     "type": "user"
+    },
+    "tmdb": {
+     "votes": 14466,
+     "value": 7.432,
+     "type": "user"
+    },
+    "metacritic": {
+     "votes": 0,
+     "value": 62,
+     "type": "user"
+    },
+    "trakt": {
+     "votes": 22601,
+     "value": 7.74749,
+     "type": "user"
+    }
+   },
+   "movieFile": {
+    "movieId": 4806,
+    "relativePath": "The Devil Wears Prada (2006) {imdb-tt0458352} [WEBDL-1080p][Opus 5.1][HEVC]-SHH.mkv",
+    "path": "/downloads/The Devil Wears Prada (2006) {imdb-tt0458352} [WEBDL-1080p][Opus 5.1][HEVC]-SHH.mkv",
+    "size": 6200516147,
+    "dateAdded": "2026-11-14T02:42:07Z",
+    "releaseGroup": "SHH",
+    "edition": "",
+    "languages": [
+     {
+      "id": 1,
+      "name": "English"
+     }
+    ],
+    "quality": {
+     "quality": {
+      "id": 3,
+      "name": "WEBDL-1080p",
+      "source": "webdl",
+      "resolution": 1080,
+      "modifier": "none"
+     },
+     "revision": {
+      "version": 1,
+      "real": 0,
+      "isRepack": false
+     }
+    },
+    "indexerFlags": 0,
+    "mediaInfo": {
+     "audioBitrate": 651969,
+     "audioChannels": 5.1,
+     "audioCodec": "Opus",
+     "audioLanguages": "eng",
+     "audioStreamCount": 1,
+     "videoBitDepth": 8,
+     "videoBitrate": 6901206,
+     "videoCodec": "h265",
+     "videoFps": 23.976,
+     "videoDynamicRange": "",
+     "videoDynamicRangeType": "",
+     "resolution": "1920x818",
+     "runTime": "1:49:23",
+     "scanType": "Progressive",
+     "subtitles": "eng",
+     "audioStreams": [
+      {
+       "codec": "Opus",
+       "bitrate": 651969,
+       "channels": 5.1,
+       "channelPositions": "5.1",
+       "language": "eng"
+      }
+     ],
+     "subtitleStreams": [
+      {
+       "language": "eng"
+      }
+     ]
+    },
+    "originalFilePath": "hevc_1080p/The Devil Wears Prada (2006) {tmdb-350} [WEB-DL-1080p][Opus 5.1][HEVC HUSH]-[SHH].mkv",
+    "qualityCutoffNotMet": false,
+    "id": 18381
+   },
+   "collection": {
+    "title": "The Devil Wears Prada Collection",
+    "tmdbId": 1314623
+   },
+   "popularity": 20.7249,
+   "lastSearchTime": "2026-11-14T11:50:12Z",
+   "id": 4806
+  },
+  "quality": {
+   "quality": {
+    "id": 7,
+    "name": "Bluray-1080p",
+    "source": "bluray",
+    "resolution": 1080,
+    "modifier": "none"
+   },
+   "revision": {
+    "version": 1,
+    "real": 0,
+    "isRepack": false
+   }
+  },
+  "languages": [
+   {
+    "id": 1,
+    "name": "English"
+   }
+  ],
+  "qualityWeight": 20,
+  "downloadId": "147E6690379BCAC2718AAA6A0D4089BFED6737B2",
+  "customFormats": [
+   {
+    "id": 13,
+    "name": "5.1 Surround"
+   },
+   {
+    "id": 38,
+    "name": "Bluray"
+   },
+   {
+    "id": 8,
+    "name": "DD+"
+   },
+   {
+    "id": 28,
+    "name": "Open Matte"
+   },
+   {
+    "id": 25,
+    "name": "x264"
+   }
+  ],
+  "customFormatScore": 300,
+  "indexerFlags": 1,
+  "rejections": [
+   {
+    "reason": "Not a Custom Format upgrade for existing movie file(s). New: [5.1 Surround, Bluray, DD+, Open Matte, x264] (300) do not improve on Existing: [5.1 Surround, HUSH SHH, Opus, x265 (HD)] (600)",
+    "type": "permanent"
+   }
+  ],
+  "id": 515953832
+ }
+]

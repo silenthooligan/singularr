@@ -1,0 +1,138 @@
+{
+ "status": "success",
+ "data": {
+  "id": 81189,
+  "name": "Breaking Bad",
+  "slug": "breaking-bad",
+  "firstAired": "2008-01-20",
+  "year": "2008",
+  "episodes": [
+   {
+    "id": 1000,
+    "seasonNumber": 1,
+    "number": 1,
+    "aired": "2008-01-20"
+   },
+   {
+    "id": 1001,
+    "seasonNumber": 1,
+    "number": 2,
+    "aired": "2008-01-21"
+   },
+   {
+    "id": 1002,
+    "seasonNumber": 1,
+    "number": 3,
+    "aired": "2008-01-22"
+   },
+   {
+    "id": 1003,
+    "seasonNumber": 1,
+    "number": 4,
+    "aired": "2008-01-23"
+   },
+   {
+    "id": 1004,
+    "seasonNumber": 1,
+    "number": 5,
+    "aired": "2008-01-24"
+   },
+   {
+    "id": 1005,
+    "seasonNumber": 1,
+    "number": 6,
+    "aired": "2008-01-25"
+   },
+   {
+    "id": 1006,
+    "seasonNumber": 1,
+    "number": 7,
+    "aired": "2008-01-26"
+   },
+   {
+    "id": 2000,
+    "seasonNumber": 2,
+    "number": 1,
+    "aired": "2009-03-08"
+   },
+   {
+    "id": 2001,
+    "seasonNumber": 2,
+    "number": 2,
+    "aired": "2009-03-09"
+   },
+   {
+    "id": 2002,
+    "seasonNumber": 2,
+    "number": 3,
+    "aired": "2009-03-10"
+   },
+   {
+    "id": 2003,
+    "seasonNumber": 2,
+    "number": 4,
+    "aired": "2009-03-11"
+   },
+   {
+    "id": 2004,
+    "seasonNumber": 2,
+    "number": 5,
+    "aired": "2009-03-12"
+   },
+   {
+    "id": 2005,
+    "seasonNumber": 2,
+    "number": 6,
+    "aired": "2009-03-13"
+   },
+   {
+    "id": 2006,
+    "seasonNumber": 2,
+    "number": 7,
+    "aired": "2009-03-14"
+   },
+   {
+    "id": 2007,
+    "seasonNumber": 2,
+    "number": 8,
+    "aired": "2009-03-15"
+   },
+   {
+    "id": 2008,
+    "seasonNumber": 2,
+    "number": 9,
+    "aired": "2009-03-16"
+   },
+   {
+    "id": 2009,
+    "seasonNumber": 2,
+    "number": 10,
+    "aired": "2009-03-17"
+   },
+   {
+    "id": 2010,
+    "seasonNumber": 2,
+    "number": 11,
+    "aired": "2009-03-18"
+   },
+   {
+    "id": 2011,
+    "seasonNumber": 2,
+    "number": 12,
+    "aired": "2009-03-19"
+   },
+   {
+    "id": 3000,
+    "seasonNumber": 0,
+    "number": 1,
+    "aired": "2009-02-17"
+   },
+   {
+    "id": 3001,
+    "seasonNumber": 0,
+    "number": 2,
+    "aired": "2009-02-18"
+   }
+  ]
+ }
+}

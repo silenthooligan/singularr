@@ -1,0 +1,122 @@
+[
+  {
+    "id": 1,
+    "title": "10 Cloverfield Lane",
+    "year": 2016,
+    "tmdbId": 333371,
+    "imdbId": "tt1179933",
+    "path": "/movies/10 Cloverfield Lane (2016) {tmdb-333371}",
+    "hasFile": true,
+    "movieFile": {
+      "id": 101,
+      "movieId": 1,
+      "relativePath": "10 Cloverfield Lane (2016) {imdb-tt1179933} [Bluray-1080p Proper][DV HDR10][EAC3 Atmos 5.1][x265]-SM737.mkv",
+      "sceneName": "10 Cloverfield Lane 2016 PROPER UHD BluRay 1080p DD Atmos 5 1 DoVi HDR10 x265-SM737",
+      "releaseGroup": "SM737",
+      "edition": "",
+      "quality": { "quality": { "id": 7, "name": "Bluray-1080p", "source": "bluray", "resolution": 1080, "modifier": "none" }, "revision": { "version": 2, "real": 0, "isRepack": false } },
+      "customFormats": [],
+      "mediaInfo": { "videoCodec": "x265", "videoBitDepth": 10, "videoDynamicRangeType": "DV HDR10", "audioCodec": "EAC3 Atmos", "audioChannels": 5.1, "audioLanguages": "eng", "resolution": "1920x800", "runTime": "1:43:34" }
+    }
+  },
+  {
+    "id": 2,
+    "title": "Harry Potter and the Prisoner of Azkaban",
+    "year": 2004,
+    "tmdbId": 673,
+    "imdbId": "tt0304141",
+    "path": "/movies/Harry Potter and the Prisoner of Azkaban (2004) {tmdb-673}",
+    "hasFile": true,
+    "movieFile": {
+      "id": 102,
+      "movieId": 2,
+      "relativePath": "Harry Potter and the Prisoner of Azkaban (2004) {imdb-tt0304141} {edition-Open Matte} [WEBDL-2160p][DV HDR10][EAC3 5.1][HEVC]-PeruGuy.mkv",
+      "sceneName": "Harry.Potter.and.the.Prisoner.of.Azkaban.2004.Open.Matte.2160p.AMZN.WEB-DL.DDP5.1.DV.HDR.H.265-PeruGuy",
+      "releaseGroup": "PeruGuy",
+      "edition": "Open Matte",
+      "quality": { "quality": { "id": 18, "name": "WEBDL-2160p", "source": "webdl", "resolution": 2160 }, "revision": { "version": 1, "real": 0, "isRepack": false } },
+      "customFormats": [],
+      "mediaInfo": { "videoCodec": "HEVC", "videoBitDepth": 10, "videoDynamicRangeType": "DV HDR10", "audioCodec": "EAC3", "audioChannels": 5.1, "audioLanguages": "eng" }
+    }
+  },
+  {
+    "id": 3,
+    "title": "Mission: Impossible - Dead Reckoning Part One",
+    "year": 2023,
+    "tmdbId": 575264,
+    "imdbId": "tt9603212",
+    "path": "/movies/Mission Impossible Dead Reckoning Part One (2023) {tmdb-575264}",
+    "hasFile": true,
+    "movieFile": {
+      "id": 103,
+      "movieId": 3,
+      "relativePath": "Mission Impossible Dead Reckoning Part One (2023) {imdb-tt9603212} [IMAX Enhanced][Remux-2160p Repack][DV HDR10Plus][TrueHD Atmos 7.1][HEVC]-FraMeSToR.mkv",
+      "sceneName": "Mission.Impossible.Dead.Reckoning.Part.One.2023.REPACK.2160p.UHD.BluRay.REMUX.DV.HDR10Plus.HEVC.TrueHD.7.1.Atmos-FraMeSToR",
+      "releaseGroup": "FraMeSToR",
+      "edition": "",
+      "quality": { "quality": { "id": 31, "name": "Remux-2160p", "source": "bluray", "resolution": 2160, "modifier": "remux" }, "revision": { "version": 2, "real": 0, "isRepack": true } },
+      "customFormats": [ { "id": 1, "name": "IMAX Enhanced" }, { "id": 2, "name": "DV HDR10Plus" }, { "id": 3, "name": "Remux Tier 01" } ],
+      "mediaInfo": { "videoCodec": "HEVC", "videoBitDepth": 10, "videoDynamicRangeType": "DV HDR10Plus", "audioCodec": "TrueHD Atmos", "audioChannels": 7.1, "audioLanguages": "eng/fre" }
+    }
+  },
+  {
+    "id": 4,
+    "title": "Amélie",
+    "year": 2001,
+    "tmdbId": 194,
+    "imdbId": "tt0211915",
+    "path": "/movies/Amelie (2001) {tmdb-194}",
+    "hasFile": true,
+    "movieFile": {
+      "id": 104,
+      "movieId": 4,
+      "relativePath": "Amelie (2001) {imdb-tt0211915} [Bluray-1080p][DTS-HD MA 5.1][x264]-CtrlHD.mkv",
+      "sceneName": "Amelie.2001.1080p.BluRay.DTS-HD.MA.5.1.x264-CtrlHD",
+      "releaseGroup": "CtrlHD",
+      "edition": "",
+      "quality": { "quality": { "id": 7, "name": "Bluray-1080p", "source": "bluray", "resolution": 1080 }, "revision": { "version": 1, "real": 0, "isRepack": false } },
+      "customFormats": [],
+      "mediaInfo": { "videoCodec": "x264", "videoDynamicRangeType": "", "audioCodec": "DTS-HD MA", "audioChannels": 5.1, "audioLanguages": "fre" }
+    }
+  },
+  {
+    "id": 5,
+    "title": "Ocean's Eleven",
+    "year": 2001,
+    "tmdbId": 161,
+    "imdbId": "tt0240772",
+    "path": "/movies/Oceans Eleven (2001) {tmdb-161}",
+    "hasFile": true,
+    "movieFile": {
+      "id": 105,
+      "movieId": 5,
+      "relativePath": "Oceans Eleven (2001) {imdb-tt0240772} [WEBDL-1080p][AC3 5.1][h264].mkv",
+      "sceneName": null,
+      "releaseGroup": null,
+      "edition": "",
+      "quality": { "quality": { "id": 3, "name": "WEBDL-1080p", "source": "webdl", "resolution": 1080 }, "revision": { "version": 1, "real": 0, "isRepack": false } },
+      "customFormats": [],
+      "mediaInfo": { "videoCodec": "h264", "videoDynamicRangeType": "", "audioCodec": "AC3", "audioChannels": 5.1 }
+    }
+  },
+  {
+    "id": 6,
+    "title": "Heat",
+    "year": 1995,
+    "tmdbId": 949,
+    "imdbId": "tt0113277",
+    "path": "/movies/Heat (1995) {tmdb-949}",
+    "hasFile": true,
+    "movieFile": {
+      "id": 106,
+      "movieId": 6,
+      "relativePath": "Heat (1995) {imdb-tt0113277} [Bluray-720p][AAC 2.0][x264]-SPARKS.mkv",
+      "sceneName": "Heat.1995.720p.BluRay.x264-SPARKS",
+      "releaseGroup": "SPARKS",
+      "edition": "",
+      "quality": { "quality": { "id": 6, "name": "Bluray-720p", "source": "bluray", "resolution": 720 }, "revision": { "version": 1, "real": 0, "isRepack": false } },
+      "customFormats": [],
+      "mediaInfo": { "videoCodec": "x264", "audioCodec": "AAC", "audioChannels": 2 }
+    }
+  }
+]

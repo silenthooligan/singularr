@@ -1,0 +1,31 @@
+{
+ "id": 1396,
+ "name": "Breaking Bad",
+ "original_name": "Breaking Bad",
+ "first_air_date": "2008-01-20",
+ "number_of_seasons": 2,
+ "status": "Ended",
+ "seasons": [
+  {
+   "id": 3577,
+   "season_number": 0,
+   "episode_count": 9,
+   "air_date": "2009-02-17",
+   "name": "Specials"
+  },
+  {
+   "id": 3572,
+   "season_number": 1,
+   "episode_count": 7,
+   "air_date": "2008-01-20",
+   "name": "Season 1"
+  },
+  {
+   "id": 3573,
+   "season_number": 2,
+   "episode_count": 13,
+   "air_date": "2009-03-08",
+   "name": "Season 2"
+  }
+ ]
+}

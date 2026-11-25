@@ -1,0 +1,230 @@
+{
+ "id": 1396,
+ "name": "Breaking Bad",
+ "original_name": "Breaking Bad",
+ "first_air_date": "2008-01-20",
+ "last_air_date": "2013-09-29",
+ "next_episode_to_air": null,
+ "episode_run_time": [
+  47
+ ],
+ "genres": [
+  {
+   "id": 18,
+   "name": "Drama"
+  }
+ ],
+ "vote_average": 8.9,
+ "vote_count": 15000,
+ "status": "Ended",
+ "tagline": "Remember my name.",
+ "overview": "A chemistry teacher diagnosed with cancer turns to making methamphetamine.",
+ "original_language": "en",
+ "origin_country": [
+  "US"
+ ],
+ "networks": [
+  {
+   "id": 174,
+   "name": "AMC",
+   "logo_path": "/amc.png"
+  }
+ ],
+ "production_companies": [
+  {
+   "id": 11073,
+   "name": "Sony Pictures Television Studios",
+   "logo_path": "/sony.png"
+  }
+ ],
+ "created_by": [
+  {
+   "id": 66633,
+   "name": "Vince Gilligan",
+   "profile_path": "/vg.jpg"
+  }
+ ],
+ "poster_path": "/bb.jpg",
+ "backdrop_path": "/bb-bd.jpg",
+ "seasons": [
+  {
+   "season_number": 0,
+   "name": "Specials",
+   "episode_count": 9,
+   "air_date": "2009-02-17",
+   "poster_path": "/s0.jpg"
+  },
+  {
+   "season_number": 1,
+   "name": "Season 1",
+   "episode_count": 7,
+   "air_date": "2008-01-20",
+   "poster_path": "/s1.jpg"
+  },
+  {
+   "season_number": 2,
+   "name": "Season 2",
+   "episode_count": 13,
+   "air_date": "2009-03-08",
+   "poster_path": "/s2.jpg"
+  }
+ ],
+ "credits": {
+  "cast": [
+   {
+    "id": 17419,
+    "name": "Bryan Cranston",
+    "character": "Walter White",
+    "order": 0,
+    "profile_path": "/bc.jpg"
+   }
+  ],
+  "crew": []
+ },
+ "aggregate_credits": {
+  "cast": [
+   {
+    "id": 17419,
+    "name": "Bryan Cranston",
+    "profile_path": "/bc.jpg",
+    "order": 0,
+    "total_episode_count": 62,
+    "roles": [
+     {
+      "character": "Walter White",
+      "episode_count": 62
+     }
+    ]
+   },
+   {
+    "id": 84497,
+    "name": "Aaron Paul",
+    "profile_path": "/ap.jpg",
+    "order": 1,
+    "total_episode_count": 62,
+    "roles": [
+     {
+      "character": "Jesse Pinkman",
+      "episode_count": 62
+     }
+    ]
+   },
+   {
+    "id": 209674,
+    "name": "Steven Michael Quezada",
+    "profile_path": null,
+    "order": 9,
+    "total_episode_count": 22,
+    "roles": [
+     {
+      "character": "Steven Gomez",
+      "episode_count": 20
+     },
+     {
+      "character": "Gomez",
+      "episode_count": 2
+     }
+    ]
+   }
+  ],
+  "crew": [
+   {
+    "id": 66633,
+    "name": "Vince Gilligan",
+    "profile_path": "/vg.jpg",
+    "department": "Writing",
+    "total_episode_count": 20,
+    "jobs": [
+     {
+      "job": "Writer",
+      "episode_count": 13
+     },
+     {
+      "job": "Executive Producer",
+      "episode_count": 62
+     }
+    ]
+   },
+   {
+    "id": 29779,
+    "name": "Michelle MacLaren",
+    "profile_path": null,
+    "department": "Directing",
+    "total_episode_count": 11,
+    "jobs": [
+     {
+      "job": "Director",
+      "episode_count": 11
+     }
+    ]
+   },
+   {
+    "id": 5162,
+    "name": "Dave Porter",
+    "profile_path": null,
+    "department": "Sound",
+    "total_episode_count": 62,
+    "jobs": [
+     {
+      "job": "Original Music Composer",
+      "episode_count": 62
+     }
+    ]
+   },
+   {
+    "id": 999,
+    "name": "Grip Person",
+    "profile_path": null,
+    "department": "Crew",
+    "total_episode_count": 3,
+    "jobs": [
+     {
+      "job": "Key Grip",
+      "episode_count": 3
+     }
+    ]
+   }
+  ]
+ },
+ "content_ratings": {
+  "results": [
+   {
+    "iso_3166_1": "US",
+    "rating": "TV-MA"
+   }
+  ]
+ },
+ "keywords": {
+  "results": [
+   {
+    "id": 1,
+    "name": "drug dealer"
+   }
+  ]
+ },
+ "external_ids": {
+  "imdb_id": "tt0903747",
+  "tvdb_id": 81189
+ },
+ "videos": {
+  "results": []
+ },
+ "watch/providers": {
+  "results": {}
+ },
+ "recommendations": {
+  "results": []
+ },
+ "similar": {
+  "results": []
+ },
+ "images": {
+  "logos": []
+ },
+ "last_episode_to_air": {
+  "season_number": 2,
+  "episode_number": 13,
+  "air_date": "2009-05-31",
+  "name": "ABQ"
+ }
+}

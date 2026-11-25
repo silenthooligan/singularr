@@ -1,0 +1,26 @@
+{
+ "history": {
+  "identity": "enforce",
+  "ledger": true
+ },
+ "service": "Media Link",
+ "status": "online",
+ "strip_worker": {
+  "clean": 39,
+  "current": null,
+  "failed": 0,
+  "forced_flagged": 0,
+  "queued": 0,
+  "running": true,
+  "stripped": 0
+ },
+ "tag_watcher": {
+  "cycles": 556,
+  "enabled": true,
+  "errors": 4,
+  "interval": 60,
+  "last_cycle": "2026-11-23T12:42:30",
+  "running": true,
+  "staged": 0
+ }
+}

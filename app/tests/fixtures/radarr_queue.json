@@ -1,0 +1,58 @@
+{
+ "page": 1,
+ "pageSize": 500,
+ "totalRecords": 3,
+ "records": [
+  {
+   "id": 501,
+   "title": "10.Cloverfield.Lane.2016.1080p.WEB-DL.x264-GRP",
+   "size": 1000,
+   "sizeleft": 0,
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [
+    {
+     "title": "10.Cloverfield.Lane.2016.1080p.WEB-DL.x264-GRP.mkv",
+     "messages": [
+      "Not an upgrade for existing movie file(s)"
+     ]
+    }
+   ],
+   "errorMessage": "",
+   "downloadId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1",
+   "protocol": "torrent",
+   "downloadClient": "qBittorrent",
+   "movieId": 2877
+  },
+  {
+   "id": 502,
+   "title": "Harry.Potter.and.the.Prisoner.of.Azkaban.2004.Open.Matte.2160p.WEB-DL-GRP",
+   "size": 1000,
+   "sizeleft": 0,
+   "status": "downloading",
+   "trackedDownloadStatus": "ok",
+   "trackedDownloadState": "downloading",
+   "statusMessages": [],
+   "errorMessage": "",
+   "downloadId": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB2",
+   "protocol": "torrent",
+   "downloadClient": "qBittorrent",
+   "movieId": 3001
+  },
+  {
+   "id": 503,
+   "title": "Some.Unknown.Release.2020.1080p.WEB-DL-GRP",
+   "size": 1000,
+   "sizeleft": 0,
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importPending",
+   "statusMessages": [],
+   "errorMessage": "",
+   "downloadId": "ccccccccccccccccccccccccccccccccccccccc3",
+   "protocol": "torrent",
+   "downloadClient": "qBittorrent"
+  }
+ ]
+}

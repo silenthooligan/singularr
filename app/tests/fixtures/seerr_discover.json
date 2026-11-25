@@ -1,0 +1,116 @@
+{
+  "discover/trending": {
+    "page": 1,
+    "totalPages": 500,
+    "totalResults": 10000,
+    "results": [
+      {
+        "id": 333371,
+        "mediaType": "movie",
+        "title": "10 Cloverfield Lane",
+        "releaseDate": "2016-03-10",
+        "overview": "A young woman wakes up in a bunker.",
+        "voteAverage": 7.078,
+        "posterPath": "/cloverfield-poster.jpg",
+        "backdropPath": "/cloverfield-backdrop.jpg",
+        "mediaInfo": { "status": 5 }
+      },
+      {
+        "id": 77001,
+        "mediaType": "person",
+        "name": "A Person",
+        "profilePath": "/person.jpg"
+      },
+      {
+        "id": 42009,
+        "mediaType": "tv",
+        "name": "Black Mirror",
+        "firstAirDate": "2011-12-04",
+        "overview": "Stories about technology.",
+        "voteAverage": 8.3,
+        "posterPath": "/bm-poster.jpg",
+        "backdropPath": "/bm-backdrop.jpg"
+      },
+      {
+        "id": 999001,
+        "mediaType": "movie",
+        "title": "A Movie Not Yet Held",
+        "releaseDate": "2027-01-01",
+        "voteAverage": 0,
+        "posterPath": "/notyet-poster.jpg",
+        "backdropPath": null
+      },
+      {
+        "id": 12345,
+        "mediaType": "movie",
+        "title": "Nobody Asked For This",
+        "releaseDate": "2025-06-01",
+        "voteAverage": 6.4,
+        "posterPath": "/nobody.jpg",
+        "backdropPath": "/nobody-wide.jpg"
+      }
+    ]
+  },
+  "discover/movies": {
+    "page": 1,
+    "totalPages": 300,
+    "totalResults": 6000,
+    "results": [
+      {
+        "id": 673,
+        "mediaType": "movie",
+        "title": "Harry Potter and the Prisoner of Azkaban",
+        "releaseDate": "2004-05-31",
+        "voteAverage": 8.0,
+        "posterPath": "/azkaban.jpg",
+        "backdropPath": "/azkaban-wide.jpg"
+      },
+      {
+        "id": 12345,
+        "title": "Nobody Asked For This",
+        "releaseDate": "2025-06-01",
+        "posterPath": "/nobody.jpg"
+      }
+    ]
+  },
+  "discover/tv": {
+    "page": 1,
+    "totalPages": 100,
+    "totalResults": 2000,
+    "results": [
+      {
+        "id": 118357,
+        "name": "1883",
+        "firstAirDate": "2021-12-19",
+        "voteAverage": 8.4,
+        "posterPath": "/1883.jpg",
+        "backdropPath": "/1883-wide.jpg"
+      },
+      {
+        "id": 1413,
+        "mediaType": "tv",
+        "name": "American Horror Story",
+        "firstAirDate": "2011-10-05",
+        "voteAverage": 8.078,
+        "posterPath": "/ahs.jpg",
+        "backdropPath": "/ahs-wide.jpg"
+      }
+    ]
+  },
+  "discover/movies/upcoming": {
+    "page": 1,
+    "totalPages": 20,
+    "totalResults": 400,
+    "results": [
+      {
+        "id": 1003596,
+        "mediaType": "movie",
+        "title": "Avengers: Doomsday",
+        "releaseDate": "2026-12-18",
+        "voteAverage": 0,
+        "posterPath": "/doomsday.jpg",
+        "backdropPath": "/doomsday-wide.jpg"
+      }
+    ]
+  }
+}

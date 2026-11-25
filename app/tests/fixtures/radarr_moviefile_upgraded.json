@@ -1,0 +1,102 @@
+[
+ {
+  "id": 9050,
+  "movieId": 2877,
+  "relativePath": "10 Cloverfield Lane (2016) {imdb-tt1179933} [Remux-1080p][TrueHD Atmos 7.1][AVC]-FraMeSToR.mkv",
+  "path": null,
+  "size": 28000000000,
+  "dateAdded": "2026-11-22T09:00:00Z",
+  "sceneName": "10.Cloverfield.Lane.2016.1080p.BluRay.REMUX.AVC.TrueHD.7.1.Atmos-FraMeSToR",
+  "releaseGroup": "FraMeSToR",
+  "edition": "",
+  "languages": [
+   {
+    "id": 1,
+    "name": "English"
+   }
+  ],
+  "quality": {
+   "quality": {
+    "id": 30,
+    "name": "Remux-1080p",
+    "source": "bluray",
+    "resolution": 1080,
+    "modifier": "remux"
+   },
+   "revision": {
+    "version": 1,
+    "real": 0,
+    "isRepack": false
+   }
+  },
+  "customFormats": [
+   {
+    "id": 40,
+    "name": "TrueHD ATMOS"
+   }
+  ],
+  "customFormatScore": 2100,
+  "indexerFlags": 0,
+  "mediaInfo": {
+   "videoCodec": "x265",
+   "videoBitDepth": 10,
+   "videoDynamicRangeType": "DV HDR10",
+   "videoFps": 23.976,
+   "resolution": "1920x800",
+   "audioCodec": "EAC3 Atmos",
+   "audioChannels": 5.1,
+   "audioLanguages": "eng",
+   "runTime": "1:43:34"
+  },
+  "originalFilePath": null,
+  "qualityCutoffNotMet": false
+ },
+ {
+  "id": 9002,
+  "movieId": 3001,
+  "relativePath": "Harry Potter and the Prisoner of Azkaban (2004) {imdb-tt0304141} {edition-Open Matte} [WEBDL-2160p][DV HDR10][EAC3 5.1][HEVC]-PeruGuy.mkv",
+  "size": 21000000000,
+  "dateAdded": "2025-03-02T08:15:00Z",
+  "sceneName": "Harry.Potter.and.the.Prisoner.of.Azkaban.2004.Open.Matte.2160p.AMZN.WEB-DL.DDP5.1.DV.HDR.H.265-PeruGuy",
+  "releaseGroup": "PeruGuy",
+  "edition": "Open Matte",
+  "languages": [
+   {
+    "id": 1,
+    "name": "English"
+   }
+  ],
+  "quality": {
+   "quality": {
+    "id": 18,
+    "name": "WEBDL-2160p",
+    "source": "webdl",
+    "resolution": 2160
+   },
+   "revision": {
+    "version": 1,
+    "real": 0,
+    "isRepack": false
+   }
+  },
+  "customFormats": [
+   {
+    "id": 30,
+    "name": "Open Matte"
+   }
+  ],
+  "customFormatScore": 300,
+  "mediaInfo": {
+   "videoCodec": "x265",
+   "videoBitDepth": 10,
+   "videoDynamicRangeType": "DV HDR10",
+   "videoFps": 23.976,
+   "resolution": "1920x800",
+   "audioCodec": "EAC3 Atmos",
+   "audioChannels": 5.1,
+   "audioLanguages": "eng",
+   "runTime": "1:43:34"
+  },
+  "originalFilePath": null
+ }
+]

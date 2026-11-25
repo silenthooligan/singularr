@@ -1,0 +1,68 @@
+{
+  "movie/687163": {
+    "id": 687163,
+    "title": "Project Hail Mary",
+    "originalTitle": "Project Hail Mary",
+    "releaseDate": "2026-03-20",
+    "posterPath": "/phm-poster.jpg",
+    "backdropPath": "/phm-backdrop.jpg",
+    "overview": "A science teacher wakes up alone on a spaceship.",
+    "voteAverage": 8.1,
+    "externalIds": { "imdbId": "tt12042730", "tvdbId": null },
+    "mediaInfo": { "id": 902, "status": 5, "status4k": 1 }
+  },
+  "tv/42009": {
+    "id": 42009,
+    "name": "Black Mirror",
+    "originalName": "Black Mirror",
+    "firstAirDate": "2011-12-04",
+    "posterPath": "/bm-poster.jpg",
+    "backdropPath": "/bm-backdrop.jpg",
+    "numberOfSeasons": 7,
+    "externalIds": { "imdbId": "tt2085059", "tvdbId": 253463 }
+  },
+  "tv/3797": {
+    "id": 3797,
+    "name": "Life",
+    "firstAirDate": "2007-09-26",
+    "posterPath": "/life-poster.jpg",
+    "backdropPath": "/life-backdrop.jpg",
+    "externalIds": { "tvdbId": 79257 }
+  },
+  "movie/333371": {
+    "id": 333371,
+    "title": "10 Cloverfield Lane",
+    "releaseDate": "2016-03-10",
+    "posterPath": "/cloverfield-poster.jpg",
+    "backdropPath": "/cloverfield-backdrop.jpg"
+  },
+  "tv/900001": {
+    "id": 900001,
+    "name": "Shoresy",
+    "firstAirDate": "2022-05-13",
+    "posterPath": "/shoresy-poster.jpg",
+    "backdropPath": null,
+    "externalIds": { "tvdbId": 414443 }
+  },
+  "movie/999001": {
+    "id": 999001,
+    "title": "A Movie Not Yet Held",
+    "releaseDate": "2027-01-01",
+    "posterPath": "/notyet-poster.jpg",
+    "backdropPath": "/notyet-backdrop.jpg"
+  },
+  "movie/550": {
+    "id": 550,
+    "title": "Fight Club",
+    "releaseDate": "1999-10-15",
+    "posterPath": "/fc-poster.jpg",
+    "backdropPath": "/fc-backdrop.jpg"
+  },
+  "movie/603": {
+    "id": 603,
+    "title": "The Matrix",
+    "releaseDate": "1999-03-30",
+    "posterPath": "https://example.org/not-a-tmdb-path.jpg",
+    "backdropPath": "/matrix-backdrop.jpg"
+  }
+}

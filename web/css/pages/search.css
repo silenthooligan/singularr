@@ -1,0 +1,24 @@
+/* Search: the field on the page, the kind switch, and the result sections. */
+@layer pages {
+  .sr-head { margin-block-end: var(--s3); }
+  .sr-form { display: flex; gap: 8px; max-inline-size: 720px; margin-block-end: var(--s4); }
+  .sr-form .mq-inputwrap { flex: 1; min-inline-size: 0; }
+  .sr-form .mq-input { block-size: 40px; font-size: var(--fs-base); }
+  .sr-form .mq-inputwrap > .mq-icon { inset-block-start: 12px; }
+  .sr-form .mq-btn { block-size: 40px; }
+  .sr-kinds { display: flex; margin-block-end: var(--s2); max-inline-size: 100%; overflow-x: auto; scrollbar-width: none; }
+  .sr-kinds::-webkit-scrollbar { display: none; }
+  .sr-section .mq-section-head { flex-wrap: wrap; }
+  .sr-inlib { font-size: var(--fs-md); }
+  .sr-square { --card: 160px; }
+  .sr-square .mq-card .mq-card-art { aspect-ratio: 1; }
+  .sr-round { --card: 120px; }
+  .sr-ghost { display: grid; gap: 8px; }
+  .sr-ghost .mq-skeleton:first-child { aspect-ratio: 2 / 3; border-radius: var(--r-lg); }
+  .sr-ghost .mq-skeleton:last-child { inline-size: 70%; }
+
+  @media (max-width: 720px) {
+    .sr-form .mq-btn { display: none; }
+    .sr-form .mq-input { font-size: 16px; }
+  }
+}

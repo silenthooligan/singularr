@@ -1,0 +1,39 @@
+{
+ "MediaContainer": {
+  "size": 2,
+  "totalSize": 2,
+  "Metadata": [
+   {
+    "ratingKey": "120210",
+    "type": "album",
+    "title": "When Your Heart Stops Beating",
+    "parentTitle": "+44",
+    "parentRatingKey": "120209",
+    "year": 2006,
+    "originallyAvailableAt": "2006-10-03",
+    "Genre": [],
+    "studio": "Interscope Records",
+    "addedAt": 1771223314,
+    "viewCount": 0,
+    "thumb": "/library/metadata/120210/thumb/1"
+   },
+   {
+    "ratingKey": "121377",
+    "type": "album",
+    "title": "Bords De Seine Promo Vol. 2",
+    "parentTitle": "Bords De Seine Promo Vol.2",
+    "parentRatingKey": "121376",
+    "year": 2008,
+    "originallyAvailableAt": "2008-01-01",
+    "Genre": [
+     {
+      "tag": "Alt-Rock"
+     }
+    ],
+    "studio": null,
+    "addedAt": 1771224041,
+    "viewCount": 0
+   }
+  ]
+ }
+}

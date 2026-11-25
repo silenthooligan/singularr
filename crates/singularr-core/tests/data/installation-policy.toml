@@ -1,0 +1,1390 @@
+# A real installation's rule set, copied for the tests (the installation itself reads its own file,
+# named by SINGULARR_POLICY). The scores the tests assert are the ones that installation quotes for
+# real releases, so a change to the rules that moves them is seen at once.
+# This installation's policy: what it takes, what it prefers, and what it never replaces. It is
+# instance configuration (DESIGN.md, Product and instance), named by SINGULARR_POLICY; the
+# product's default is rules/policy.toml.
+#
+# Translated on 22 Nov 2026 from the arrs' live settings (fixtures/arr_config.json): every
+# custom format became a trait, every quality profile a lane, every tag-scoped release profile a
+# protection or a guard. From here on this file is the source of truth and is edited by hand.
+#
+# A trait is a named condition with a reason. A lane gives points to traits and sets the
+# thresholds. A trait with no points in a lane still shows there, dimmed, when it matches.
+# `arr_formats` names the custom format a trait came from, for the shadow comparison only.
+#
+# Conditions: every key must match. `any` needs one of its entries, `not` inverts. Picture and
+# sound keys read the release name first and the file probe where the name is silent.
+
+name = "home"
+version = "2026-11-23"
+
+# ----------------------------------------------------------------------------------------------
+# The fleet's own encodes
+# ----------------------------------------------------------------------------------------------
+
+[[traits]]
+id = "group.hush-shr"
+label = "SHR, the fleet's master encode"
+category = "group"
+why = "SHR is the fleet's own master encode and the final copy of a title."
+arr_formats = ["radarr:HUSH SHR", "sonarr:HUSH SHR"]
+when = { group = ["SHR"] }
+
+[[traits]]
+id = "group.hush-shk"
+label = "SHK, the fleet's size-first encode"
+category = "group"
+why = "SHK is the fleet's size-first encode for seasons that are deleted once watched, so nothing larger should replace it."
+arr_formats = ["sonarr:HUSH SHK"]
+when = { group = ["SHK"] }
+
+[[traits]]
+id = "group.hush-sht"
+label = "SHT, a fleet conversion held above its source"
+category = "group"
+why = "SHT marks a fleet conversion that would score below the release it was made from, so that release is not grabbed again."
+arr_formats = ["radarr:HUSH SHT", "sonarr:HUSH SHT"]
+when = { group = ["SHT"] }
+
+[[traits]]
+id = "group.hush-shh"
+label = "SHH, the fleet's HEVC conversion"
+category = "group"
+why = "SHH is the fleet's HEVC conversion of an H.264 release."
+arr_formats = ["radarr:HUSH SHH", "sonarr:HUSH SHH"]
+when = { group = ["SHH"] }
+
+[[traits]]
+id = "group.hush-sha"
+label = "SHA, the fleet's AV1 conversion"
+category = "group"
+why = "SHA is the fleet's AV1 conversion of a release."
+arr_formats = ["radarr:HUSH SHA", "sonarr:HUSH SHA"]
+when = { group = ["SHA"] }
+
+# ----------------------------------------------------------------------------------------------
+# Release groups
+# ----------------------------------------------------------------------------------------------
+
+[[traits]]
+id = "group.hevk"
+label = "HeVK"
+category = "group"
+why = "The 1080p movie lane ranks HeVK highest of the encode groups."
+arr_formats = ["radarr:HeVK"]
+when = { group = ["HeVK"] }
+
+[[traits]]
+id = "group.cinephiles"
+label = "CiNEPHiLES"
+category = "group"
+why = "CiNEPHiLES releases remuxes, the untouched disc, which the fleet takes as the source for its own encode."
+arr_formats = ["radarr:CiNEPHiLES"]
+when = { group = ["CiNEPHiLES"] }
+
+[[traits]]
+id = "group.framestor"
+label = "FraMeSToR"
+category = "group"
+why = "FraMeSToR releases remuxes, the untouched disc, which the fleet takes as the source for its own encode."
+arr_formats = ["radarr:FraMeSToR"]
+when = { group = ["FraMeSToR"] }
+
+[[traits]]
+id = "group.triton"
+label = "TRiToN"
+category = "group"
+why = "TRiToN releases remuxes and ranks with FraMeSToR in the 1080p movie lane."
+arr_formats = ["radarr:TRiToN"]
+when = { group = ["TRiToN"] }
+
+[[traits]]
+id = "group.sm737"
+label = "SM737"
+category = "group"
+why = "SM737 encodes 1080p from UHD discs and keeps Dolby Vision and HDR10. It ranks one level above SQS."
+arr_formats = ["radarr:SM737", "sonarr:SM737"]
+when = { group = ["SM737"] }
+
+[[traits]]
+id = "group.sartre"
+label = "SARTRE"
+category = "group"
+why = "The 1080p movie lane ranks SARTRE with the top encode groups."
+arr_formats = ["radarr:SARTRE"]
+when = { group = ["SARTRE"] }
+
+[[traits]]
+id = "group.qxr"
+label = "QxR encoders"
+category = "group"
+why = "QxR members (Tigole, Silence, Ghost and others) made most of the x265 encodes the library holds and rank with the top encode groups."
+arr_formats = ["radarr:QxR", "sonarr:QxR"]
+
+[traits.when]
+not = { group = ["afm72"] }
+
+[[traits.when.any]]
+group = [
+    "Tigole", "Ghost", "SAMPA", "Silence", "QxR", "Garshasp", "MONOLITH", "FreetheFish", "r00t",
+    "Bandi", "Natty", "YOGI", "Celdra", "t3nzin", "ImE",
+]
+
+[[traits.when.any]]
+collective = ["QxR"]
+
+[[traits]]
+id = "group.afm72"
+label = "afm72"
+category = "group"
+why = "The owner ranks afm72 with the top encode groups, apart from the other UTR members."
+arr_formats = ["radarr:QxR", "sonarr:afm72"]
+when = { group = ["afm72"] }
+
+[[traits]]
+id = "group.sqs"
+label = "SQS"
+category = "group"
+why = "SQS ranks one level below SM737 and one above QxR once the HDR and audio extras its releases carry are counted."
+arr_formats = ["radarr:SQS"]
+when = { group = ["SQS"] }
+
+[[traits]]
+id = "group.fgt"
+label = "FGT"
+category = "group"
+why = "FGT ranks just under the top encode groups in the 1080p movie lane."
+arr_formats = ["radarr:FGT"]
+when = { group = ["FGT"] }
+
+[[traits]]
+id = "group.peruguy"
+label = "PeruGuy"
+category = "group"
+why = "PeruGuy makes the open matte and HDR regrade releases this library collects."
+arr_formats = ["radarr:PeruGuy"]
+when = { group = ["PeruGuy"] }
+
+[[traits]]
+id = "group.nmct"
+label = "NmCT"
+category = "group"
+why = "NmCT is a mid-tier encode group: above the fleet's HEVC conversion, below the top groups."
+arr_formats = ["radarr:NmCT"]
+when = { group = ["NmCT"] }
+
+[[traits]]
+id = "group.the-punisher"
+label = "The.PunisheR"
+category = "group"
+why = "The.PunisheR is a mid-tier encode group: above the fleet's HEVC conversion, below the top groups."
+arr_formats = ["radarr:The.PunisheR"]
+when = { group = ["The.PunisheR"] }
+
+[[traits]]
+id = "group.mgb"
+label = "MgB"
+category = "group"
+why = "MgB is a mid-tier encode group: above the fleet's HEVC conversion, below the top groups."
+arr_formats = ["radarr:MgB"]
+when = { group = ["MgB"] }
+
+[[traits]]
+id = "group.kk650"
+label = "KK650"
+category = "group"
+why = "KK650 is a mid-tier encode group, a step above the fleet's HEVC conversion."
+arr_formats = ["radarr:KK650"]
+when = { group = ["KK650"] }
+
+[[traits]]
+id = "group.edge2020"
+label = "EDGE2020"
+category = "group"
+why = "EDGE2020 is a mid-tier encode group, a step above the fleet's HEVC conversion."
+arr_formats = ["radarr:EDGE2020"]
+when = { group = ["EDGE2020"] }
+
+[[traits]]
+id = "group.bhdstudio"
+label = "BHDStudio"
+category = "group"
+why = "BHDStudio is a mid-tier encode group, a step above the fleet's HEVC conversion."
+arr_formats = ["radarr:BHDStudio"]
+when = { group = ["BHDStudio"] }
+
+[[traits]]
+id = "group.taoe"
+label = "TAoE"
+category = "group"
+why = "TAoE encodes rank below the fleet's own HEVC conversion."
+arr_formats = ["radarr:TAoE"]
+when = { any = [{ group = ["TAoE"] }, { collective = ["TAoE"] }] }
+
+[[traits]]
+id = "group.utr"
+label = "UTR encoders"
+category = "group"
+why = "UTR members (Joy, Qman and others) make small encodes that rank below the fleet's own HEVC conversion."
+arr_formats = ["radarr:UTR", "sonarr:UTR"]
+
+[traits.when]
+any = [
+    { group = ["Joy", "UTR", "UTR-HD", "Qman", "Absinth", "Aegon"] },
+    { collective = ["UTR"] },
+]
+
+[traits.when.not]
+group = [
+    "Tigole", "Ghost", "SAMPA", "Silence", "QxR", "Garshasp", "MONOLITH", "FreetheFish", "r00t",
+    "Bandi", "Natty", "YOGI", "Celdra", "t3nzin", "ImE", "afm72",
+]
+
+[[traits]]
+id = "group.oep"
+label = "OEP"
+category = "group"
+why = "OEP encodes rank below the fleet's own HEVC conversion."
+arr_formats = ["radarr:OEP"]
+when = { group = ["OEP"] }
+
+[[traits]]
+id = "group.pirates"
+label = "PiRaTeS"
+category = "group"
+why = "PiRaTeS encodes rank below the fleet's own HEVC conversion in 1080p and are marked down in 2160p."
+arr_formats = ["radarr:PiRaTeS"]
+when = { group = ["PiRaTeS"] }
+
+[[traits]]
+id = "group.psa"
+label = "PSA"
+category = "group"
+why = "PSA makes very small encodes: enough to clear the minimum, below every tier."
+arr_formats = ["radarr:PSA", "sonarr:PSA"]
+when = { group = ["PSA"] }
+
+[[traits]]
+id = "group.ok-releases"
+label = "Acceptable encode groups"
+category = "group"
+why = "OFT, ETRG and GPRS are acceptable when nothing from a ranked group exists."
+arr_formats = ["radarr:OK Releases"]
+when = { group = ["OFT", "ETRG", "GPRS"] }
+
+[[traits]]
+id = "group.better-ok-releases"
+label = "FLUX, BYNDR and APEX (retired list)"
+category = "group"
+why = "The old list of better acceptable groups. Web tier 1 covers them now, so no lane gives this points."
+arr_formats = ["radarr:Better OK Releases"]
+when = { group = ["FLUX", "BYNDR", "APEX"] }
+
+[[traits]]
+id = "group.dirtyhippie"
+label = "DirtyHippie"
+category = "group"
+why = "DirtyHippie makes the AI-interpolated 60 fps 4K releases the owner keeps."
+arr_formats = ["radarr:DirtyHippie"]
+when = { group = ["DirtyHippie", "60fps-DirtyHippie"] }
+
+[[traits]]
+id = "group.d3g"
+label = "d3g"
+category = "group"
+why = "d3g makes compact TV encodes that rank with the top web groups."
+arr_formats = ["sonarr:d3g"]
+when = { group = ["d3g", "d3t"] }
+
+[[traits]]
+id = "group.vyndros"
+label = "Vyndros"
+category = "group"
+why = "Vyndros makes compact TV encodes that rank below the fleet's own HEVC conversion."
+arr_formats = ["sonarr:Vyndros"]
+when = { group = ["Vyndros"] }
+
+[[traits]]
+id = "group.megusta"
+label = "MeGusta"
+category = "group"
+why = "MeGusta makes very small TV encodes: enough to clear the minimum, below every tier."
+arr_formats = ["sonarr:Megusta"]
+when = { group = ["MeGusta"] }
+
+[[traits]]
+id = "group.elite"
+label = "ELiTE"
+category = "group"
+why = "ELiTE makes very small TV encodes: enough to clear the minimum, below every tier."
+arr_formats = ["sonarr:Elite"]
+when = { group = ["ELiTE"] }
+
+[[traits]]
+id = "group.xen0n"
+label = "Xen0n"
+category = "group"
+why = "Xen0n makes very small TV encodes: enough to clear the minimum, below every tier."
+arr_formats = ["sonarr:Xen0n"]
+when = { group = ["Xen0n"] }
+
+[[traits]]
+id = "group.edith"
+label = "EDITH"
+category = "group"
+why = "EDITH makes very small TV encodes: enough to clear the minimum, below every tier."
+arr_formats = ["sonarr:Edith"]
+when = { group = ["EDITH"] }
+
+[[traits]]
+id = "group.flux"
+label = "FLUX"
+category = "group"
+why = "FLUX on its own. The web tiers already count FLUX, so this scores only in lanes that list the group separately."
+arr_formats = ["sonarr:FLUX"]
+when = { group = ["FLUX"] }
+
+[[traits]]
+id = "group.reborn"
+label = "REBORN"
+category = "group"
+why = "The 1080p movie lane marks REBORN down."
+arr_formats = ["radarr:REBORN"]
+when = { group = ["REBORN"] }
+
+[[traits]]
+id = "group.ralphy"
+label = "Ralphy"
+category = "group"
+why = "The 1080p movie lane marks Ralphy down."
+arr_formats = ["radarr:Ralphy"]
+when = { group = ["Ralphy"] }
+
+[[traits]]
+id = "group.rav1ne"
+label = "RAV1NE"
+category = "group"
+why = "The 1080p movie lane marks RAV1NE down: its AV1 encodes are not wanted there."
+arr_formats = ["radarr:RAV1NE"]
+when = { group = ["RAV1NE"] }
+
+[[traits]]
+id = "group.dav1nci"
+label = "dAV1nci"
+category = "group"
+why = "The 1080p movie lane marks dAV1nci down: its AV1 encodes are not wanted there."
+arr_formats = ["radarr:dAV1nci"]
+when = { group = ["dAV1nci"] }
+
+[[traits]]
+id = "group.rgzsrutracker"
+label = "RGzsRutracker"
+category = "group"
+why = "The TV lanes mark RGzsRutracker down."
+arr_formats = ["sonarr:RGzsRutracker"]
+when = { group = ["RGzsRutracker"] }
+
+[[traits]]
+id = "group.web-tier-1.movies"
+label = "Web groups, tier 1 (movies)"
+category = "group"
+why = "The first tier of web groups for movies in the TRaSH lists: groups that deliver the service's stream untouched."
+arr_formats = ["radarr:WEB Tier 01"]
+
+[traits.when]
+group = [
+    "ABBIE", "AJP69", "APEX", "PAXA", "PEXA", "XEPA", "BLUTONiUM", "BYNDR", "CMRG", "CRFW",
+    "CRUD", "FLUX", "GNOME", "HONE", "KiNGS", "Kitsune", "MADSKY", "NOSiViD", "NTb", "NTG",
+    "RAWR", "SiC", "TEPES", "TheFarm", "ZoroSenpai",
+]
+source = ["WebDl", "WebRip"]
+
+[[traits]]
+id = "group.web-tier-1.shows"
+label = "Web groups, tier 1 (TV)"
+category = "group"
+why = "The first tier of web groups for TV in the TRaSH lists: groups that deliver the service's stream untouched."
+arr_formats = ["sonarr:WEB Tier 01"]
+
+[traits.when]
+group = [
+    "ABBiE", "AJP69", "APEX", "PAXA", "PEXA", "XEPA", "CasStudio", "CRFW", "CtrlHD", "FLUX",
+    "HONE", "KiNGS", "Kitsune", "monkee", "NOSiViD", "NTb", "NTG", "QOQ", "RAWR", "RTN", "SiC",
+    "T6D", "TOMMY", "ViSUM",
+]
+source = ["WebDl", "WebRip"]
+
+[[traits]]
+id = "group.web-tier-2.movies"
+label = "Web groups, tier 2 (movies)"
+category = "group"
+why = "The second tier of web groups for movies in the TRaSH lists: groups that deliver the service's stream untouched."
+arr_formats = ["radarr:WEB Tier 02"]
+
+[traits.when]
+group = [
+    "dB", "Flights", "MiU", "monkee", "MZABI", "PHOENiX", "playWEB", "SbR", "SMURF", "TOMMY",
+    "XEBEC", "4KBEC", "CEBEX",
+]
+source = ["WebDl", "WebRip"]
+
+[[traits]]
+id = "group.web-tier-2.shows"
+label = "Web groups, tier 2 (TV)"
+category = "group"
+why = "The second tier of web groups for TV in the TRaSH lists: groups that deliver the service's stream untouched."
+arr_formats = ["sonarr:WEB Tier 02"]
+
+[traits.when]
+group = [
+    "3cTWeB", "BLUTONiUM", "BTW", "BYNDR", "Chotab", "Cinefeel", "CiT", "CMRG", "Coo7", "dB",
+    "DEEP", "END", "ETHiCS", "FC", "Flights", "GNOME", "iJP", "iKA", "iT00NZ", "JETIX", "KHN",
+    "KiMCHI", "LAZY", "MiU", "MZABI", "NPMS", "NYH", "orbitron", "PHOENiX", "playWEB", "PSiG",
+    "ROCCaT", "RTFM", "SA89", "SbR", "SDCC", "SIGMA", "SMURF", "SPiRiT", "TEPES", "TVSmash",
+    "WELP", "XEBEC", "4KBEC", "CEBEX",
+]
+source = ["WebDl", "WebRip"]
+
+[[traits]]
+id = "group.web-tier-3.movies"
+label = "Web groups, tier 3 (movies)"
+category = "group"
+why = "The third tier of web groups for movies in the TRaSH lists: groups that deliver the service's stream untouched."
+arr_formats = ["radarr:WEB Tier 03"]
+
+[traits.when]
+group = [
+    "BLOOM", "Dooky", "GNOMiSSiON", "NINJACENTRAL", "NPMS", "ROCCaT", "SiGMA", "SLiGNOME",
+    "SwAgLaNdEr",
+]
+source = ["WebDl", "WebRip"]
+
+[[traits]]
+id = "group.web-tier-3.shows"
+label = "Web groups, tier 3 (TV)"
+category = "group"
+why = "The third tier of web groups for TV in the TRaSH lists: groups that deliver the service's stream untouched."
+arr_formats = ["sonarr:WEB Tier 03"]
+
+[traits.when]
+group = ["Dooky", "DRACULA", "HHWEB", "NINJACENTRAL", "SLiGNOME", "SwAgLaNdEr", "T4H", "ViSiON"]
+source = ["WebDl", "WebRip"]
+
+[[traits]]
+id = "group.remux-tier-1.movies"
+label = "Remux groups, tier 1 (movies)"
+category = "group"
+why = "The first tier of remux groups for movies in the TRaSH lists."
+arr_formats = ["radarr:Remux Tier 01"]
+
+[traits.when]
+group = [
+    "3L", "BiZKiT", "BLURANiUM", "BMF", "CiNEPHiLES", "FraMeSToR", "PiRAMiDHEAD", "PmP",
+    "WiLDCAT", "ZQ",
+]
+source = ["Remux"]
+
+[[traits]]
+id = "group.remux-tier-2.movies"
+label = "Remux groups, tier 2 (movies)"
+category = "group"
+why = "The second tier of remux groups for movies in the TRaSH lists."
+arr_formats = ["radarr:Remux Tier 02"]
+
+[traits.when]
+group = ["ATELiER", "NCmt", "playBD", "SiCFoI", "SURFINBIRD", "TEPES"]
+source = ["Remux"]
+
+[[traits]]
+id = "group.remux-tier-3.movies"
+label = "Remux groups, tier 3 (movies)"
+category = "group"
+why = "The third tier of remux groups for movies in the TRaSH lists."
+arr_formats = ["radarr:Remux Tier 03"]
+
+[traits.when]
+group = [
+    "12GaugeShotgun", "decibeL", "EPSiLON", "HiFi", "iFT", "KRaLiMaRKo", "NTb", "PTP",
+    "SumVision", "TOA", "TRiToN",
+]
+source = ["Remux"]
+
+[[traits]]
+id = "group.remux-tier-1.shows"
+label = "Remux groups, tier 1 (TV)"
+category = "group"
+why = "The first tier of remux groups for TV in the TRaSH lists."
+arr_formats = ["sonarr:Remux Tier 01"]
+when = { group = ["BLURANiUM", "BMF", "FraMeSToR", "PmP"], source = ["Remux"] }
+
+[[traits]]
+id = "group.remux-tier-2.shows"
+label = "Remux groups, tier 2 (TV)"
+category = "group"
+why = "The second tier of remux groups for TV in the TRaSH lists."
+arr_formats = ["sonarr:Remux Tier 02"]
+
+[traits.when]
+group = [
+    "12GaugeShotgun", "decibeL", "EPSiLON", "HiFi", "KRaLiMaRKo", "playBD", "PTer", "SiCFoI",
+    "TRiToN",
+]
+source = ["Remux"]
+
+[[traits]]
+id = "group.uhd-bluray-tier-1"
+label = "2160p disc encoders, tier 1"
+category = "group"
+why = "The first tier of 2160p disc encode groups in the TRaSH lists."
+arr_formats = ["radarr:UHD Bluray Tier 01"]
+
+[traits.when]
+group = ["CtrlHD", "MainFrame", "DON", "W4NK3R"]
+resolution = ["2160p"]
+not = { source = ["Remux", "WebDl", "WebRip"] }
+
+[[traits]]
+id = "group.uhd-bluray-tier-2"
+label = "2160p disc encoders, tier 2"
+category = "group"
+why = "The second tier of 2160p disc encode groups in the TRaSH lists."
+arr_formats = ["radarr:UHD Bluray Tier 02"]
+
+[traits.when]
+group = ["HQMUX"]
+resolution = ["2160p"]
+not = { source = ["Remux", "WebDl", "WebRip"] }
+
+[[traits]]
+id = "group.uhd-bluray-tier-3"
+label = "2160p disc encoders, tier 3"
+category = "group"
+why = "The third tier of 2160p disc encode groups in the TRaSH lists."
+arr_formats = ["radarr:UHD Bluray Tier 03"]
+
+[traits.when]
+group = ["BHDStudio", "hallowed", "HONE", "PTer", "SPHD", "WEBDV"]
+resolution = ["2160p"]
+not = { source = ["Remux", "WebDl", "WebRip"] }
+
+[[traits]]
+id = "group.hd-bluray-tier-1"
+label = "1080p disc encoders for TV, tier 1"
+category = "group"
+why = "The first tier of HD disc encode groups for TV in the TRaSH lists."
+arr_formats = ["sonarr:HD Bluray Tier 01"]
+
+[traits.when]
+group = ["Chotab", "CtrlHD", "DON", "EbP", "NTb", "PTer"]
+source = ["BluRay"]
+not = { resolution = ["2160p"] }
+
+[[traits]]
+id = "group.hd-bluray-tier-2"
+label = "1080p disc encoders for TV, tier 2"
+category = "group"
+why = "The second tier of HD disc encode groups for TV in the TRaSH lists."
+arr_formats = ["sonarr:HD Bluray Tier 02"]
+when = { group = ["SA89", "sbR"], source = ["BluRay"], not = { resolution = ["2160p"] } }
+
+# ----------------------------------------------------------------------------------------------
+# Streaming services. The tag must stand after the title, and the source must be a web one.
+# ----------------------------------------------------------------------------------------------
+
+[[traits]]
+id = "service.amzn"
+label = "Amazon stream"
+category = "service"
+why = "Amazon's 1080p streams run near 9 Mbps, in the top band of the services measured."
+arr_formats = ["radarr:AMZN", "sonarr:AMZN"]
+when = { service = ["AMZN"], source = ["WebDl", "WebRip"] }
+
+[[traits]]
+id = "service.atvp"
+label = "Apple TV+ stream"
+category = "service"
+why = "Apple TV+ has the highest 1080p bitrate of the services measured, about 10.5 Mbps."
+arr_formats = ["radarr:ATVP", "sonarr:ATVP"]
+when = { service = ["ATVP", "APTV"], source = ["WebDl", "WebRip"] }
+
+[[traits]]
+id = "service.it"
+label = "iTunes stream"
+category = "service"
+why = "iTunes streams run 7.5 to 8.9 Mbps at 1080p, in the top band."
+arr_formats = ["radarr:iT", "sonarr:iT"]
+when = { service = ["IT", "ATV"], source = ["WebDl", "WebRip"] }
+
+[[traits]]
+id = "service.ma"
+label = "Movies Anywhere stream"
+category = "service"
+why = "Movies Anywhere streams run about 8.6 Mbps at 1080p, level with Amazon."
+arr_formats = ["radarr:MA", "sonarr:MA"]
+when = { service = ["MA"], source = ["WebDl", "WebRip"] }
+
+[[traits]]
+id = "service.vudu"
+label = "Vudu stream"
+category = "service"
+why = "Vudu (Fandango at Home) counts in the top band of services with Amazon."
+arr_formats = ["radarr:VUDU", "sonarr:VUDU"]
+when = { service = ["VUDU", "FDNG"], source = ["WebDl", "WebRip"] }
+
+[[traits]]
+id = "service.amcp"
+label = "AMC+ stream"
+category = "service"
+why = "AMC+ counts in the top band of services with Amazon."
+arr_formats = ["radarr:AMCP", "sonarr:AMCP"]
+when = { service = ["AMCP"], source = ["WebDl", "WebRip"] }
+
+[[traits]]
+id = "service.bcore"
+label = "Bravia Core stream"
+category = "service"
+why = "Bravia Core counts in the top band of services with Amazon."
+arr_formats = ["radarr:BCORE", "sonarr:BCORE"]
+when = { service = ["BCORE"], source = ["WebDl", "WebRip"] }
+
+[[traits]]
+id = "service.pcok"
+label = "Peacock stream"
+category = "service"
+why = "Peacock streams run about 8 Mbps at 1080p, one band under Amazon for movies."
+arr_formats = ["radarr:PCOK", "sonarr:PCOK"]
+when = { service = ["PCOK"], source = ["WebDl", "WebRip"] }
+
+[[traits]]
+id = "service.dsnp"
+label = "Disney+ stream"
+category = "service"
+why = "Disney+ streams run about 7.2 Mbps for movies and 5.3 for TV at 1080p."
+arr_formats = ["radarr:DSNP", "sonarr:DSNP"]
+when = { service = ["DSNP", "DSNY"], source = ["WebDl", "WebRip"] }
+
+[[traits]]
+id = "service.hmax"
+label = "HBO Max stream"
+category = "service"
+why = "HBO Max streams run 8.2 to 8.9 Mbps for movies at 1080p. Its TV streams under the MAX tag run far lower."
+arr_formats = ["radarr:HMAX", "sonarr:HMAX"]
+when = { service = ["HMAX", "MAX", "HBO"], source = ["WebDl", "WebRip"] }
+
+[[traits]]
+id = "service.stz"
+label = "Starz stream"
+category = "service"
+why = "Starz counts in the second band of services."
+arr_formats = ["radarr:STZ", "sonarr:STZ"]
+when = { service = ["STZ"], source = ["WebDl", "WebRip"] }
+
+[[traits]]
+id = "service.mgmp"
+label = "MGM+ stream"
+category = "service"
+why = "MGM+ counts in the second band of services."
+arr_formats = ["radarr:MGMP", "sonarr:MGMP"]
+when = { service = ["MGMP"], source = ["WebDl", "WebRip"] }
+
+[[traits]]
+id = "service.skst"
+label = "SkyShowtime stream"
+category = "service"
+why = "SkyShowtime counts in the second band of services."
+arr_formats = ["radarr:SKST", "sonarr:SKST"]
+when = { service = ["SKST"], source = ["WebDl", "WebRip"] }
+
+[[traits]]
+id = "service.now"
+label = "NOW stream"
+category = "service"
+why = "NOW counts in the second band of services."
+arr_formats = ["radarr:NOW", "sonarr:NOW"]
+when = { service = ["NOW"], source = ["WebDl", "WebRip"] }
+
+# ----------------------------------------------------------------------------------------------
+# Editions
+# ----------------------------------------------------------------------------------------------
+
+[[traits]]
+id = "edition.open-matte"
+label = "Open matte"
+category = "edition"
+why = "Open matte shows more picture at the top and bottom. It breaks a tie and never outranks a better tier."
+arr_formats = ["radarr:Open Matte"]
+when = { edition = ["Open Matte"] }
+
+[[traits]]
+id = "edition.imax"
+label = "IMAX"
+category = "edition"
+why = "The IMAX version shows more picture in the scenes shot for it."
+arr_formats = ["radarr:IMAX"]
+when = { edition = ["IMAX"] }
+
+[[traits]]
+id = "edition.imax-enhanced"
+label = "IMAX Enhanced"
+category = "edition"
+why = "IMAX Enhanced streams from Disney+ and Bravia Core carry the taller IMAX picture for the whole film."
+arr_formats = ["radarr:IMAX Enhanced"]
+
+[traits.when]
+any = [
+    { edition = ["IMAX Enhanced"] },
+    { edition = ["IMAX"], service = ["DSNP", "DSNY", "BCORE"], source = ["WebDl", "WebRip"] },
+]
+
+[[traits]]
+id = "edition.4k-remaster"
+label = "4K remaster"
+category = "edition"
+why = "A 1080p copy made from a 4K remaster of the film, a better master than the old disc."
+arr_formats = ["radarr:4K Remaster"]
+when = { edition = ["4K Remaster"], not = { resolution = ["2160p"] } }
+
+[[traits]]
+id = "edition.remaster"
+label = "Remaster"
+category = "edition"
+why = "A remastered release, from a newer master than the first disc."
+arr_formats = ["radarr:Remaster", "sonarr:Remaster"]
+when = { edition = ["Remastered"], not = { edition = ["4K Remaster"] } }
+
+[[traits]]
+id = "edition.special"
+label = "Special cut"
+category = "edition"
+why = "An extended, unrated, director's or other special cut holds more of the film than the theatrical one."
+arr_formats = ["radarr:Special Edition"]
+
+[traits.when]
+edition = [
+    "Extended", "Unrated", "Uncut", "Uncensored", "Director's Cut", "Special Edition",
+    "Final Cut", "Ultimate", "Collector's", "Alternate Cut", "* Cut", "* Edition",
+]
+not = { edition = ["Open Matte", "Theatrical"] }
+
+[[traits]]
+id = "edition.criterion"
+label = "Criterion Collection"
+category = "edition"
+why = "A Criterion disc is usually the best master of an older film."
+arr_formats = ["radarr:Criterion Collection"]
+
+[traits.when]
+edition = ["Criterion"]
+source = ["BluRay", "Remux", "Dvd"]
+not = { group = ["Criterion"] }
+
+# ----------------------------------------------------------------------------------------------
+# Source and release facts
+# ----------------------------------------------------------------------------------------------
+
+[[traits]]
+id = "other.disc-source"
+label = "Disc source"
+category = "other"
+why = "A copy from a Blu-ray disc beats a stream from the same tier of group."
+arr_formats = ["radarr:Bluray"]
+when = { source = ["BluRay", "Remux"] }
+
+[[traits]]
+id = "other.uhd-source"
+label = "From a UHD master"
+category = "other"
+why = "The name says DS4K or UHD: the copy was made from the 4K master, which is usually the better one."
+arr_formats = ["radarr:DS4K"]
+when = { name = "DS4K|UHD" }
+
+[[traits]]
+id = "other.repack-proper"
+label = "Repack or proper"
+category = "other"
+why = "A repack or proper fixes a fault in the first release."
+arr_formats = ["radarr:Repack/Proper", "sonarr:Repack/Proper"]
+when = { proper_or_repack = true }
+
+[[traits]]
+id = "other.hybrid"
+label = "Hybrid"
+category = "other"
+why = "A hybrid release combines the best parts of several sources. No lane gives it points today."
+arr_formats = ["sonarr:Hybrid"]
+when = { name = '\bhybrid(\b|\d)', source = ["BluRay", "Remux"], not = { group = ["HYBRID"] } }
+
+# ----------------------------------------------------------------------------------------------
+# Video
+# ----------------------------------------------------------------------------------------------
+
+[[traits]]
+id = "video.x264"
+label = "H.264"
+category = "video"
+why = "Every 1080p encode gets these points for naming its codec, so the lane minimum asks for something more."
+arr_formats = ["radarr:x264"]
+when = { video_codec = ["H264"], not = { source = ["Remux"] } }
+
+[[traits]]
+id = "video.x265-hd"
+label = "HEVC below 2160p"
+category = "video"
+why = "Every 1080p encode gets these points for naming its codec, so the lane minimum asks for something more."
+arr_formats = ["radarr:x265 (HD)"]
+when = { video_codec = ["H265"], not = { resolution = ["2160p"] } }
+
+[[traits]]
+id = "video.av1"
+label = "AV1"
+category = "video"
+why = "AV1 holds the same picture in fewer bits than HEVC."
+arr_formats = ["sonarr:AV1"]
+when = { video_codec = ["Av1"] }
+
+[[traits]]
+id = "video.hdr"
+label = "HDR, format not named"
+category = "video"
+why = "The name says HDR without saying which kind."
+arr_formats = ["radarr:HDR"]
+
+[traits.when]
+hdr = ["Hdr"]
+
+[traits.when.not]
+any = [
+    { hdr = ["DolbyVision", "Hdr10", "Hdr10Plus", "Hlg", "Pq"] },
+    { group = ["FraMeSToR", "HQMUX", "SiCFoI"] },
+]
+
+[[traits]]
+id = "video.hdr10"
+label = "HDR10"
+category = "video"
+why = "HDR10 plays on every HDR screen."
+arr_formats = ["radarr:HDR10"]
+when = { hdr = ["Hdr10"], not = { hdr = ["DolbyVision", "Hlg", "Pq"] } }
+
+[[traits]]
+id = "video.dv-hdr10"
+label = "Dolby Vision with HDR10"
+category = "video"
+why = "Dolby Vision with an HDR10 layer plays everywhere and looks best on Dolby Vision screens."
+arr_formats = ["radarr:DV HDR10"]
+
+[traits.when]
+hdr = ["DolbyVision"]
+not = { hdr = ["Hdr10Plus", "Hlg"] }
+any = [
+    { hdr = ["Hdr10"] },
+    { hdr = ["Hdr"] },
+]
+
+[[traits]]
+id = "video.dv-hdr10plus"
+label = "Dolby Vision with HDR10+"
+category = "video"
+why = "Dolby Vision with an HDR10+ layer carries both kinds of scene-by-scene HDR."
+arr_formats = ["radarr:DV HDR10+"]
+when = { hdr = ["DolbyVision"], any = [{ hdr = ["Hdr10Plus"] }], not = { hdr = ["Hlg"] } }
+
+[[traits]]
+id = "video.hdr10plus"
+label = "HDR10+"
+category = "video"
+why = "HDR10+ adjusts the picture scene by scene on screens that support it."
+arr_formats = ["radarr:HDR10+ Boost", "sonarr:HDR10+ Boost"]
+when = { hdr = ["Hdr10Plus"] }
+
+[[traits]]
+id = "video.hdr-any"
+label = "HDR of any kind"
+category = "video"
+why = "Any HDR format a television can show: HDR10, HDR10+, HLG, PQ, or Dolby Vision that falls back to HDR10."
+arr_formats = ["sonarr:HDR"]
+
+[traits.when]
+
+[[traits.when.any]]
+hdr = ["Hdr", "Hdr10", "Hdr10Plus", "Hlg", "Pq"]
+
+[[traits.when.any]]
+hdr = ["DolbyVision"]
+not = { source = ["WebDl", "WebRip"], not = { service = ["HULU"] } }
+
+[[traits.when.any]]
+group = ["FraMeSToR", "HQMUX", "SiCFoI"]
+resolution = ["2160p"]
+not = { hdr = ["Hdr10Plus"] }
+
+[[traits]]
+id = "video.dv"
+label = "Dolby Vision"
+category = "video"
+why = "Dolby Vision adjusts the picture scene by scene on screens that support it."
+arr_formats = ["sonarr:DV Boost"]
+when = { hdr = ["DolbyVision"] }
+
+# ----------------------------------------------------------------------------------------------
+# Audio
+# ----------------------------------------------------------------------------------------------
+
+[[traits]]
+id = "audio.dd-plus"
+label = "Dolby Digital Plus"
+category = "audio"
+why = "Dolby Digital Plus is the usual streaming audio."
+arr_formats = ["radarr:DD+", "sonarr:DD+"]
+when = { audio_codec = ["Eac3"], atmos = false }
+
+[[traits]]
+id = "audio.dd-plus-atmos"
+label = "Dolby Digital Plus with Atmos"
+category = "audio"
+why = "Dolby Digital Plus with Atmos adds height channels to the streaming audio."
+arr_formats = ["radarr:DD+ ATMOS", "sonarr:DD+ ATMOS"]
+when = { audio_codec = ["Eac3"], atmos = true }
+
+[[traits]]
+id = "audio.dd"
+label = "Dolby Digital"
+category = "audio"
+why = "Dolby Digital is the older lossy disc and broadcast audio."
+arr_formats = ["radarr:DD", "sonarr:DD"]
+when = { audio_codec = ["Ac3"], atmos = false }
+
+[[traits]]
+id = "audio.truehd"
+label = "TrueHD"
+category = "audio"
+why = "TrueHD is lossless disc audio."
+arr_formats = ["radarr:TrueHD", "sonarr:TrueHD"]
+when = { audio_codec = ["TrueHd"], atmos = false, not = { group = ["CtrlHD", "W4NK3R", "DON"] } }
+
+[[traits]]
+id = "audio.truehd-atmos"
+label = "TrueHD with Atmos"
+category = "audio"
+why = "TrueHD with Atmos is lossless disc audio with height channels. CtrlHD, W4NK3R, DON and HQMUX ship it without always naming it."
+arr_formats = ["radarr:TrueHD ATMOS", "sonarr:TrueHD ATMOS"]
+
+[traits.when]
+not = { audio_codec = ["Ac3", "Eac3", "Dts", "DtsHdMa", "DtsHdHra", "DtsX", "Flac"] }
+any = [
+    { audio_codec = ["TrueHd"], atmos = true },
+    { audio_codec = ["TrueHd"], group = ["CtrlHD", "W4NK3R", "DON"] },
+    { group = ["W4NK3R"] },
+    { group = ["HQMUX"], atmos = true },
+]
+
+[[traits]]
+id = "audio.dts"
+label = "DTS"
+category = "audio"
+why = "DTS is the older lossy disc audio."
+arr_formats = ["radarr:DTS", "sonarr:DTS"]
+when = { audio_codec = ["Dts"] }
+
+[[traits]]
+id = "audio.dts-hd-ma"
+label = "DTS-HD MA"
+category = "audio"
+why = "DTS-HD MA is lossless disc audio."
+arr_formats = ["radarr:DTS-HD MA", "sonarr:DTS-HD MA"]
+when = { audio_codec = ["DtsHdMa"] }
+
+[[traits]]
+id = "audio.dts-hd-hra"
+label = "DTS-HD HRA"
+category = "audio"
+why = "DTS-HD HRA is high bitrate lossy disc audio."
+arr_formats = ["radarr:DTS-HD HRA"]
+when = { audio_codec = ["DtsHdHra"] }
+
+[[traits]]
+id = "audio.dts-x"
+label = "DTS:X"
+category = "audio"
+why = "DTS:X is lossless disc audio with height channels."
+arr_formats = ["radarr:DTS X", "sonarr:DTS X"]
+when = { audio_codec = ["DtsX"] }
+
+[[traits]]
+id = "audio.opus"
+label = "Opus"
+category = "audio"
+why = "Opus is the audio codec the fleet's own encodes use."
+arr_formats = ["radarr:Opus", "sonarr:Opus"]
+when = { audio_codec = ["Opus"] }
+
+[[traits]]
+id = "audio.surround-5-1"
+label = "5.1 surround"
+category = "audio"
+why = "Surround audio beats stereo. The points stay well under the gaps between tiers."
+arr_formats = ["radarr:5.1 Surround", "sonarr:5.1 Surround"]
+when = { channels = ["5.1", "5.0"] }
+
+[[traits]]
+id = "audio.surround-6-1"
+label = "6.1 surround"
+category = "audio"
+why = "Surround audio beats stereo. The points stay well under the gaps between tiers."
+arr_formats = ["sonarr:6.1 Surround"]
+when = { channels = ["6.1", "6.0"] }
+
+[[traits]]
+id = "audio.surround-7-1"
+label = "7.1 surround"
+category = "audio"
+why = "Surround audio beats stereo. The points stay well under the gaps between tiers."
+arr_formats = ["radarr:7.1 Surround", "sonarr:7.1 Surround"]
+when = { channels = ["7.1", "7.0", "8.0", "8.1"] }
+
+# ----------------------------------------------------------------------------------------------
+# Guards
+# ----------------------------------------------------------------------------------------------
+
+[[traits]]
+id = "penalty.unwanted-groups"
+label = "Unwanted groups"
+category = "penalty"
+why = "Groups the owner does not want in the library at any score."
+arr_formats = ["radarr:Dont Want Release Group"]
+
+[traits.when]
+group = ["V3SP4EV3R", "Asiimov", "AOC", "Neonoir", "MrTentsaw", "Enjoy", "DE3PM", "HiDt"]
+
+[[traits]]
+id = "penalty.low-quality-groups"
+label = "Low bitrate groups"
+category = "penalty"
+why = "YTS, YIFY, Pahe and similar groups trade too much picture for size."
+arr_formats = ["radarr:Dont Want Release Group"]
+
+[traits.when]
+group = ["themoviesboss", "uHDT", "Pahe", "YTS", "YTS.MX", "YTS.AM", "YTS.LT", "YTS.AG", "YIFY"]
+
+[[traits]]
+id = "penalty.hindi"
+label = "Hindi audio"
+category = "penalty"
+why = "A release that names Hindi audio is a dub or a dual-audio upload, not the original track alone."
+arr_formats = ["radarr:Hindi"]
+when = { language = ["Hindi"] }
+
+[[traits]]
+id = "penalty.not-original-language"
+label = "Not in the original language"
+category = "penalty"
+why = "The release states its languages and the title's original language is not among them, so it is a dub."
+arr_formats = ["radarr:Language: Not Original", "sonarr:Language: Not Original"]
+when = { original_language = false }
+
+[[traits]]
+id = "penalty.executable"
+label = "Executable file"
+category = "penalty"
+why = "A release whose name ends in a program extension is malware, not a film."
+arr_formats = ["radarr:Executable Malware", "sonarr:Executable Malware"]
+when = { name = '[. ](exe|msi|bat|cmd|scr|lnk|zipx|vbs|ps1|hta|pif)(\s*\[[^\]]*\])?\s*$' }
+
+[[traits]]
+id = "penalty.those-who-kill-us"
+label = "Those Who Kill (US remake)"
+category = "penalty"
+why = "Releases of the 2014 US remake are filed under the 2019 Danish series by mistake."
+when = { name = '\bThose[ ._-]?Who[ ._-]?Kill[ ._-]?US\b' }
+
+[[traits]]
+id = "penalty.odyssey-mockbusters"
+label = "Known mockbuster uploads of The Odyssey"
+category = "penalty"
+why = "For the title tagged odyssey-mockbusters, these uploads are The Asylum's 2026 film, not Christopher Nolan's."
+
+[traits.when]
+title_tag = ["odyssey-mockbusters"]
+any = [
+    { group = ["Kitsune", "BONE", "LAMA"] },
+    { name = 'NOT The Chris Nolan|\[WEBRip\] \[x265\] \[10bit\]' },
+]
+
+# ----------------------------------------------------------------------------------------------
+# Lanes. `ladder` is best first; qualities in one step rank the same. `min_score` is the arr's
+# minimum custom format score, `upgrade_step` its minimum score increment, `cutoff_score` its
+# upgrade-until score.
+# ----------------------------------------------------------------------------------------------
+
+# Radarr's HD-1080p profile. Its one quality group, HQ-1080p, makes every 1080p source rank
+# the same, so the score alone decides. The export names the group and not its members:
+# the members below are the 1080p qualities the library holds, plus HDTV as in the TV lane.
+[[lanes]]
+id = "movies-hd"
+label = "Movies, 1080p"
+arr_profiles = ["radarr:HD-1080p"]
+ladder = [["Remux-1080p", "Bluray-1080p", "WEBDL-1080p", "WEBRip-1080p", "HDTV-1080p"]]
+min_score = 100
+upgrade_step = 75
+cutoff_score = 3000
+
+[lanes.points]
+"group.hush-shr"              = 3000
+"group.hush-sht"              = 2000
+"group.hevk"                  = 1750
+"group.cinephiles"            = 1650
+"group.framestor"             = 1600
+"group.triton"                = 1600
+"group.sm737"                 = 1500
+"group.sartre"                = 1500
+"group.qxr"                   = 1500
+"group.afm72"                 = 1500
+"group.sqs"                   = 1400
+"group.fgt"                   = 1300
+"group.peruguy"               = 1200
+"edition.imax-enhanced"       = 1050
+"group.web-tier-1.movies"     = 1000
+"edition.4k-remaster"         = 900
+"group.nmct"                  = 800
+"group.the-punisher"          = 700
+"group.mgb"                   = 700
+"group.kk650"                 = 600
+"group.edge2020"              = 600
+"group.bhdstudio"             = 600
+"group.hush-shh"              = 500
+"group.hush-sha"              = 500
+"edition.imax"                = 500
+"video.hdr10"                 = 500
+"group.taoe"                  = 400
+"group.utr"                   = 400
+"group.web-tier-2.movies"     = 400
+"group.oep"                   = 300
+"group.ok-releases"           = 300
+"group.web-tier-3.movies"     = 300
+"edition.criterion"           = 300
+"group.pirates"               = 250
+"edition.remaster"            = 200
+"other.repack-proper"         = 200
+"group.psa"                   = 100
+"service.amzn"                = 100
+"service.atvp"                = 100
+"service.it"                  = 100
+"service.ma"                  = 100
+"service.vudu"                = 100
+"service.amcp"                = 100
+"service.bcore"               = 100
+"edition.open-matte"          = 100
+"edition.special"             = 100
+"other.disc-source"           = 100
+"other.uhd-source"            = 100
+"video.hdr"                   = 100
+"video.dv-hdr10"              = 100
+"video.dv-hdr10plus"          = 100
+"video.hdr10plus"             = 100
+"service.pcok"                = 50
+"service.dsnp"                = 50
+"service.hmax"                = 50
+"service.stz"                 = 50
+"service.mgmp"                = 50
+"service.skst"                = 50
+"service.now"                 = 50
+"video.x264"                  = 50
+"video.x265-hd"               = 50
+"audio.surround-5-1"          = 50
+"audio.surround-7-1"          = 50
+"group.ralphy"                = -500
+"group.reborn"                = -700
+"group.rav1ne"                = -1000
+"group.dav1nci"               = -1000
+"penalty.hindi"               = -10000
+"penalty.executable"          = -10000
+"penalty.odyssey-mockbusters" = -10000
+"penalty.unwanted-groups"     = -20000
+"penalty.low-quality-groups"  = -20000
+
+# Radarr's UHD-4K profile. One quality group, 2160p: every 2160p source ranks the same and
+# no 1080p quality is taken.
+[[lanes]]
+id = "movies-uhd"
+label = "Movies, 2160p"
+arr_profiles = ["radarr:UHD-4K"]
+ladder = [["Remux-2160p", "Bluray-2160p", "WEBDL-2160p", "WEBRip-2160p", "HDTV-2160p"]]
+min_score = 300
+upgrade_step = 1
+cutoff_score = 3000
+
+[lanes.points]
+"group.hush-shr"                = 3000
+"group.hush-sht"                = 2000
+"group.dirtyhippie"             = 1000
+"group.hush-shh"                = 600
+"group.hush-sha"                = 600
+"group.triton"                  = 500
+"edition.imax"                  = 500
+"edition.imax-enhanced"         = 500
+"group.cinephiles"              = 255
+"group.framestor"               = 250
+"group.fgt"                     = 225
+"video.dv-hdr10plus"            = 150
+"group.remux-tier-1.movies"     = 100
+"edition.special"               = 100
+"video.dv-hdr10"                = 100
+"audio.surround-7-1"            = 100
+"group.remux-tier-2.movies"     = 75
+"group.uhd-bluray-tier-1"       = 75
+"group.remux-tier-3.movies"     = 50
+"group.uhd-bluray-tier-2"       = 50
+"edition.open-matte"            = 50
+"video.hdr10plus"               = 50
+"group.uhd-bluray-tier-3"       = 25
+"video.hdr10"                   = 25
+"edition.criterion"             = 10
+"video.hdr"                     = 10
+"audio.surround-5-1"            = 10
+"group.pirates"                 = -1000
+"penalty.not-original-language" = -10000
+"penalty.executable"            = -10000
+"penalty.odyssey-mockbusters"   = -10000
+
+# Sonarr's HD-1080p profile. One quality group (HDTV, WEB, Bluray and Remux rank the same),
+# so the score alone decides.
+[[lanes]]
+id = "shows-hd"
+label = "TV, 1080p"
+arr_profiles = ["sonarr:HD-1080p"]
+ladder = [["Remux-1080p", "Bluray-1080p", "WEBDL-1080p", "WEBRip-1080p", "HDTV-1080p"]]
+min_score = 50
+upgrade_step = 1
+cutoff_score = 3000
+
+[lanes.points]
+"group.hush-shr"                = 3000
+"group.hush-shk"                = 3000
+"group.hush-sht"                = 2000
+"group.sm737"                   = 1500
+"group.qxr"                     = 1500
+"group.afm72"                   = 1500
+"group.d3g"                     = 1000
+"group.web-tier-1.shows"        = 1000
+"group.hush-shh"                = 500
+"group.hush-sha"                = 450
+"group.utr"                     = 400
+"group.web-tier-2.shows"        = 400
+"group.vyndros"                 = 300
+"group.web-tier-3.shows"        = 300
+"group.psa"                     = 200
+"group.elite"                   = 150
+"group.megusta"                 = 100
+"service.amzn"                  = 100
+"service.atvp"                  = 100
+"service.it"                    = 100
+"service.ma"                    = 100
+"service.vudu"                  = 100
+"service.amcp"                  = 100
+"service.bcore"                 = 100
+"service.pcok"                  = 100
+"service.stz"                   = 100
+"service.mgmp"                  = 100
+"service.skst"                  = 100
+"service.now"                   = 100
+"group.xen0n"                   = 50
+"group.edith"                   = 50
+"video.av1"                     = 50
+"audio.surround-5-1"            = 50
+"audio.surround-6-1"            = 50
+"audio.surround-7-1"            = 50
+"other.repack-proper"           = 5
+"group.rgzsrutracker"           = -1000
+"penalty.not-original-language" = -10000
+"penalty.executable"            = -10000
+"penalty.those-who-kill-us"     = -10000
+
+# Sonarr's UHD-4K profile. One quality group, 2160p.
+[[lanes]]
+id = "shows-uhd"
+label = "TV, 2160p"
+arr_profiles = ["sonarr:UHD-4K"]
+ladder = [["Remux-2160p", "Bluray-2160p", "WEBDL-2160p", "WEBRip-2160p", "HDTV-2160p"]]
+min_score = 25
+upgrade_step = 1
+cutoff_score = 1000
+
+[lanes.points]
+"group.hush-shr"                = 1000
+"group.hush-sht"                = 900
+"group.hush-shh"                = 400
+"group.hush-sha"                = 400
+"group.remux-tier-1.shows"      = 200
+"group.remux-tier-2.shows"      = 175
+"group.hd-bluray-tier-1"        = 150
+"group.hd-bluray-tier-2"        = 125
+"group.web-tier-1.shows"        = 100
+"video.hdr10plus"               = 100
+"video.dv"                      = 100
+"group.web-tier-2.shows"        = 75
+"video.hdr-any"                 = 75
+"group.web-tier-3.shows"        = 50
+"audio.dd-plus"                 = 50
+"audio.truehd"                  = 50
+"audio.truehd-atmos"            = 50
+"audio.surround-7-1"            = 50
+"group.qxr"                     = 30
+"audio.dd-plus-atmos"           = 30
+"group.utr"                     = 25
+"group.vyndros"                 = 25
+"audio.dd"                      = 25
+"audio.dts"                     = 25
+"audio.dts-hd-ma"               = 25
+"audio.dts-x"                   = 25
+"audio.surround-5-1"            = 25
+"group.d3g"                     = 20
+"group.flux"                    = 20
+"group.psa"                     = 15
+"group.megusta"                 = 15
+"group.elite"                   = 10
+"video.av1"                     = 10
+"audio.surround-6-1"            = 10
+"penalty.not-original-language" = -10000
+"penalty.executable"            = -10000
+"penalty.those-who-kill-us"     = -10000
+
+# ----------------------------------------------------------------------------------------------
+# Protections: what may replace the file the library has. A protection applies when the title
+# carries one of its tags or when that file matches `current` (`held`, the older keyword, is still
+# read). A candidate must then match `allow`. With no `allow`, nothing replaces the file.
+# ----------------------------------------------------------------------------------------------
+
+# Radarr release profile 5 (tag dirtyhippie, required term /^(?=.*dirtyhippie)(?=.*remux)/i).
+# Files the encode pipeline renamed before 1 Nov 2026 carry the tag and not the group name.
+# Radarr stores the group as 60fps-DirtyHippie, so both spellings are listed.
+[[protections]]
+id = "dirtyhippie"
+label = "a DirtyHippie copy is replaced only by a DirtyHippie remux"
+why = "The owner keeps the 60 fps version unless its own group releases a remux."
+tags = ["dirtyhippie"]
+current = { group = ["DirtyHippie", "60fps-DirtyHippie"] }
+allow = { group = ["DirtyHippie", "60fps-DirtyHippie"], source = ["Remux"] }
+
+# Radarr release profile 6 (tag open-matte, required term /\b(open[ ._-]?matte)\b/i).
+# A DirtyHippie file that is also open matte keeps only the DirtyHippie rule, as in Radarr, where
+# those titles carry the dirtyhippie tag alone: its remux need not be labeled open matte.
+[[protections]]
+id = "open-matte"
+label = "an open matte copy is replaced only by another open matte copy"
+why = "The owner keeps the taller frame, and a standard copy from a better tier must not replace it."
+tags = ["open-matte"]
+current = { edition = ["Open Matte"], not = { group = ["DirtyHippie", "60fps-DirtyHippie"] } }
+allow = { edition = ["Open Matte"] }
+
+# The hush-keep tag in Radarr and Sonarr. The arrs only stop their own encode rules for it and
+# rely on the title being unmonitored. Here the tag itself holds the copy.
+[[protections]]
+id = "hush-keep"
+label = "a title tagged hush-keep is left exactly as it is"
+why = "The owner keeps this copy as it was imported, for example as the source of a lossless audio track."
+tags = ["hush-keep"]
+
+# The two release profiles with ignored terms are guards, not protections, because they must
+# also stop a first grab: see penalty.odyssey-mockbusters (Radarr profile 4, tag
+# odyssey-mockbusters) and penalty.those-who-kill-us (Sonarr profile 2, every series).
