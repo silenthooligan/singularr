@@ -584,6 +584,17 @@ impl GeoIpConfig {
     }
 }
 
+/// The portal's database role, kept by the full process at each start (`requests::role`).
+#[derive(Clone, PartialEq, Eq)]
+pub struct PortalRoleConfig {
+    /// `SINGULARR_REQUESTS_DB_ROLE`: the role's name. Unset, the role `deploy/requests-role.sql`
+    /// names.
+    pub role: Option<String>,
+    /// `SINGULARR_REQUESTS_DB_PASSWORD`: the role's password, the one in the portal's
+    /// `SINGULARR_REQUESTS_DATABASE_URL`. Unset, the role is left as it is.
+    pub password: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct Config {
     pub database_url: String,
@@ -629,6 +640,7 @@ pub struct Config {
     pub plex_web_url: String,
     pub search: SearchConfig,
     pub geoip: GeoIpConfig,
+    pub portal_role: PortalRoleConfig,
     pub owner_emails: String,
     pub edge_token_set: bool,
     /// `SINGULARR_EDGE_TOKEN` still holds the placeholder. The identity middleware would take
@@ -1499,6 +1511,20 @@ impl Config {
             }),
             data_dir: set(env, "SINGULARR_DATA_DIR").unwrap_or_else(|| "/data".to_string()),
         };
+        let portal_role = PortalRoleConfig {
+            role: match set(env, "SINGULARR_REQUESTS_DB_ROLE") {
+                Some(name) if !plain_role_name(&name) => {
+                    return Err(ConfigError::Invalid(
+                        "SINGULARR_REQUESTS_DB_ROLE",
+                        format!(
+                            "`{name}` is not a role name of lowercase letters, digits and _ (at most 63, the first no digit)"
+                        ),
+                    ));
+                }
+                name => name,
+            },
+            password: set(env, "SINGULARR_REQUESTS_DB_PASSWORD"),
+        };
         let sync = SyncConfig {
             enabled: set(env, "SINGULARR_SYNC_ENABLED")
                 .map(|v| {
@@ -1580,6 +1606,7 @@ impl Config {
                 .unwrap_or_else(|| "https://app.plex.tv/desktop".to_string()),
             search,
             geoip,
+            portal_role,
             owner_emails,
             edge_token_set,
             edge_token_placeholder,
@@ -1611,6 +1638,17 @@ impl Config {
     pub fn integration_ids(&self) -> Vec<String> {
         self.integrations.iter().map(|i| i.id.clone()).collect()
     }
+}
+
+/// A role name that needs no quotes in SQL as far as its characters go: lowercase letters,
+/// digits and `_`, at most 63, the first no digit (`SINGULARR_REQUESTS_DB_ROLE`).
+pub fn plain_role_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 63
+        && !name.starts_with(|c: char| c.is_ascii_digit())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
 /// `postgres://user:secret@host/db` with the password replaced.
@@ -1648,6 +1686,19 @@ impl fmt::Display for Config {
             f,
             "  SINGULARR_DB_MAX_CONNECTIONS   {}",
             self.db_max_connections
+        )?;
+        writeln!(
+            f,
+            "  SINGULARR_REQUESTS_DB_ROLE     {}",
+            self.portal_role
+                .role
+                .as_deref()
+                .unwrap_or("unset (the role of deploy/requests-role.sql)")
+        )?;
+        writeln!(
+            f,
+            "  SINGULARR_REQUESTS_DB_PASSWORD {}",
+            secret(&self.portal_role.password)
         )?;
         writeln!(f, "  SINGULARR_POLICY               {}", self.policy_path)?;
         writeln!(f, "  SINGULARR_EDITIONS             {}", self.editions_path)?;
@@ -1886,6 +1937,7 @@ mod tests {
             ("SINGULARR_SYNC_QUEUE_SECS", "5"),
             ("PLEXSEERR_URL", "http://10.0.0.62:5055/"),
             ("PLEXSEERR_API_KEY", "seerr-secret-key"),
+            ("SINGULARR_REQUESTS_DB_PASSWORD", "portal-db-password"),
         ])
     }
 
@@ -2743,12 +2795,49 @@ mod tests {
             "tmdb-secret-token",
             "owner@example.com",
             "seerr-secret-key",
+            "portal-db-password",
         ] {
             assert!(!text.contains(secret), "the printout leaks {secret}");
         }
         assert!(text.contains("postgres://singularr:***@10.0.0.83:5432/singularr"));
         assert!(text.contains("http://10.0.0.61:7979"));
         assert!(text.contains("RADARR_API_KEY set (32 characters)"));
+        assert!(text.contains("SINGULARR_REQUESTS_DB_PASSWORD set (18 characters)"));
+    }
+
+    #[test]
+    fn the_portal_role_is_a_plain_name() {
+        let c = Config::from(&env()).unwrap();
+        assert!(c.portal_role.role.is_none(), "unset: the script's role");
+        assert_eq!(
+            c.portal_role.password.as_deref(),
+            Some("portal-db-password")
+        );
+        let mut e = env();
+        e.insert("SINGULARR_REQUESTS_DB_ROLE", "portal_2");
+        assert_eq!(
+            Config::from(&e).unwrap().portal_role.role.as_deref(),
+            Some("portal_2")
+        );
+        let long: &'static str = Box::leak("p".repeat(64).into_boxed_str());
+        for bad in [
+            "Portal",
+            "2portal",
+            "portal-role",
+            "portal role",
+            "x; DROP ROLE y",
+            long,
+        ] {
+            e.insert("SINGULARR_REQUESTS_DB_ROLE", bad);
+            assert!(
+                matches!(
+                    Config::from(&e),
+                    Err(ConfigError::Invalid("SINGULARR_REQUESTS_DB_ROLE", _))
+                ),
+                "{bad}"
+            );
+        }
+        assert!(plain_role_name(&"p".repeat(63)));
     }
 
     #[test]

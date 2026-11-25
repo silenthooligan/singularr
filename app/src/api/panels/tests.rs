@@ -475,3 +475,24 @@ fn the_configuration_s_own_checks() {
     assert_eq!(worst(["warn", "down"]), "down");
     assert_eq!(worst([]), "ok");
 }
+
+/// The groups and types of `GET /api/v1/integrations`, pinned as JSON: the groups with their
+/// names, the types with their group, name, label, counts, reads, writes and fields. A change to
+/// any of them fails this test. Its message prints the JSON as it is now, for
+/// `tests/fixtures/integration_types.json`.
+#[test]
+fn the_groups_and_types_of_the_integrations_are_pinned() {
+    let now = serde_json::json!({ "groups": groups(), "types": kinds() });
+    let pinned: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/integration_types.json"
+    ))
+    .unwrap();
+    assert!(
+        now == pinned,
+        "the integrations' groups or types changed. They are now:\n{}",
+        serde_json::to_string_pretty(&now).unwrap()
+    );
+    // Every type's group is a listed group.
+    let ids: Vec<String> = groups().into_iter().map(|g| g.id).collect();
+    assert!(kinds().iter().all(|k| ids.contains(&k.group)));
+}

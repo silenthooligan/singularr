@@ -88,18 +88,20 @@ season or a single episode. Sign-in with Jellyfin and Emby accounts is on the ro
 
 Requirements: Docker with Compose, a media server (Plex, Jellyfin or Emby), a download client
 (qBittorrent, Transmission, Deluge, SABnzbd or NZBGet), Radarr or Sonarr (until native search and import), and a reverse proxy that signs people in
-(oauth2-proxy, Authelia, Authentik or similar). PostgreSQL is part of the compose file.
+(oauth2-proxy, Authelia, Authentik or similar). PostgreSQL and Meilisearch (the search) are part of
+the compose file.
 
 ```bash
 git clone https://github.com/silenthooligan/singularr.git
 cd singularr
-cp .env.example .env    # database password, owner, sign-in proxy, integrations
+cp .env.example .env    # database password, search key, owner, sign-in proxy, integrations
 docker compose up -d
 ```
 
 Compose pulls the beta image from `ghcr.io/silenthooligan/singularr`. `docker compose up -d --build`
 builds from the checkout instead. Point the proxy at port 7300. The volume `data` (at `/data`) holds
-the files Singularr downloads: the location database, once a month unless turned off.
+the files Singularr downloads: the location database, once a month unless turned off. The volume
+`search` holds Meilisearch's index. Singularr writes it again when it is lost.
 [docs/configuration.md](docs/configuration.md) describes every setting.
 
 ### Sign-in

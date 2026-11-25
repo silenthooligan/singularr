@@ -1,6 +1,7 @@
 //! SQL over the tables `requests` owns: `requests`, `request_media`, `seerr_users`,
 //! `discover_items`, `face_settings`, `request_intents`, `request_sessions` and
-//! `request_session_ends`, and the `face_*` views Singularr Requests reads.
+//! `request_session_ends`, and the `face_*` views Singularr Requests reads. The statements that
+//! keep the portal's role (`requests::role`) are here too.
 
 use super::diff::{RequestFacts, StoredRequest};
 use super::model::{
@@ -10,7 +11,7 @@ use super::model::{
 use crate::core::model::Paging;
 use chrono::{DateTime, Utc};
 use sqlx::types::Json;
-use sqlx::{PgConnection, PgPool, Postgres, QueryBuilder};
+use sqlx::{Connection, PgConnection, PgPool, Postgres, QueryBuilder};
 
 /// A stored request with the title Seerr gave for it.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -873,4 +874,118 @@ pub async fn insert_intent(
     .execute(&mut *tx)
     .await?;
     tx.commit().await
+}
+
+// The portal's role, as the full process keeps it (requests::role) ------------------------------
+
+/// What the full process needs to know before it keeps the portal's role.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct RoleFacts {
+    /// This login's name.
+    pub login: String,
+    /// This login may create roles: superuser or CREATEROLE.
+    pub may_create_roles: bool,
+    /// The role's name needs no quotes in SQL: it is no word SQL reserves.
+    pub plain_name: bool,
+    pub role_exists: bool,
+    /// The role holds more than a login: superuser, CREATEROLE, CREATEDB, replication or
+    /// BYPASSRLS.
+    pub powers: bool,
+    pub can_login: bool,
+    /// A role other than this login is a member of the role. (A role this login created has
+    /// this login as a member, with ADMIN OPTION.)
+    pub has_members: bool,
+    /// The role is a member of another role.
+    pub is_member: bool,
+    /// The role owns the database this login is connected to.
+    pub owns_database: bool,
+    /// The role owns the schema `public` or a relation, function or type in it.
+    pub owns_objects: bool,
+}
+
+pub async fn role_facts(
+    connection: &mut PgConnection,
+    role: &str,
+) -> Result<RoleFacts, sqlx::Error> {
+    sqlx::query_as::<_, RoleFacts>(
+        "SELECT current_user::text AS login,
+                coalesce((SELECT rolsuper OR rolcreaterole FROM pg_roles
+                          WHERE rolname = current_user), false) AS may_create_roles,
+                quote_ident($1::text) = $1::text AS plain_name,
+                r.oid IS NOT NULL AS role_exists,
+                coalesce(r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication
+                         OR r.rolbypassrls, false) AS powers,
+                coalesce(r.rolcanlogin, false) AS can_login,
+                EXISTS (SELECT 1 FROM pg_auth_members m
+                        WHERE m.roleid = r.oid
+                          AND m.member <> (SELECT oid FROM pg_roles WHERE rolname = current_user))
+                    AS has_members,
+                EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member = r.oid) AS is_member,
+                EXISTS (SELECT 1 FROM pg_database d
+                        WHERE d.datname = current_database() AND d.datdba = r.oid) AS owns_database,
+                (EXISTS (SELECT 1 FROM pg_namespace n WHERE n.nspname = 'public' AND n.nspowner = r.oid)
+                 OR EXISTS (SELECT 1 FROM pg_class c
+                            WHERE c.relowner = r.oid AND c.relnamespace = 'public'::regnamespace)
+                 OR EXISTS (SELECT 1 FROM pg_proc p
+                            WHERE p.proowner = r.oid AND p.pronamespace = 'public'::regnamespace)
+                 OR EXISTS (SELECT 1 FROM pg_type t
+                            WHERE t.typowner = r.oid AND t.typnamespace = 'public'::regnamespace))
+                    AS owns_objects
+         FROM (SELECT 1) AS one LEFT JOIN pg_roles r ON r.rolname::text = $1::text",
+    )
+    .bind(role)
+    .fetch_one(connection)
+    .await
+}
+
+/// Runs the role script, then gives the role a password verifier when one is passed. One
+/// transaction: a new role never exists without its grants and its password.
+pub async fn apply_role_script(
+    connection: &mut PgConnection,
+    script: String,
+    role: &str,
+    verifier: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    let mut tx = connection.begin().await?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(script))
+        .execute(&mut *tx)
+        .await?;
+    if let Some(verifier) = verifier {
+        alter_role_password(&mut tx, role, verifier).await?;
+    }
+    tx.commit().await
+}
+
+/// Gives the role a password verifier.
+pub async fn set_role_password(
+    connection: &mut PgConnection,
+    role: &str,
+    verifier: &str,
+) -> Result<(), sqlx::Error> {
+    alter_role_password(connection, role, verifier).await
+}
+
+/// `ALTER ROLE ... PASSWORD` with a SCRAM-SHA-256 verifier. PostgreSQL keeps a verifier as it is
+/// sent. A statement of this kind takes no parameters: the role must be a plain name and the
+/// verifier holds letters, digits and `+/=$:-` alone. Neither needs quoting.
+async fn alter_role_password(
+    connection: &mut PgConnection,
+    role: &str,
+    verifier: &str,
+) -> Result<(), sqlx::Error> {
+    let scram = verifier.starts_with("SCRAM-SHA-256$")
+        && verifier
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "+/=$:-".contains(c));
+    if !crate::core::config::plain_role_name(role) || !scram {
+        return Err(sqlx::Error::InvalidArgument(
+            "ALTER ROLE takes a plain role name and a SCRAM-SHA-256 verifier".to_string(),
+        ));
+    }
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "ALTER ROLE {role} PASSWORD '{verifier}'"
+    )))
+    .execute(connection)
+    .await?;
+    Ok(())
 }

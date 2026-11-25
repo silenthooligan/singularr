@@ -1,0 +1,12 @@
+Notices of the libraries in ffmpeg and ffprobe
+==============================================
+
+This file is a copy of ffmpeg-NOTICES.txt in the release ffmpeg-source-n9.0.2-39-g7adfbe40dc of
+https://github.com/silenthooligan/singularr: the license files of every library the build links,
+verbatim. .github/workflows/ffmpeg-source.yml writes it with third_party/ffmpeg/sources.py from the
+libraries' sources at their pinned revisions. That release is not made yet. Until its notices are
+copied here, this file names the build alone.
+
+The build: FFmpeg n9.0.2-39-g7adfbe40dc (commit 7adfbe40dcde598f93a6963d2f7b22cd75202ccc) in
+FFmpeg-Builds' LGPL static build (commit 5031c6f1082414e53688d39e521849905071070d, release
+autobuild-2026-10-31-12-59). Its scripts.d names each library's repository and revision.

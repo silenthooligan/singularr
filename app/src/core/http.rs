@@ -8,6 +8,8 @@
 //!   in handlers.
 //! - [`health_routes`] mounts `/healthz` (the process is up) and `/readyz` (its dependencies
 //!   answer).
+//! - [`check_health`] is `singularrd health`: it asks `/readyz` of the server at the listen
+//!   address. The images' health checks run it.
 //! - [`shutdown_signal`] resolves when the process is asked to stop.
 
 use axum::{
@@ -21,8 +23,12 @@ use axum::{
 use serde::Serialize;
 use std::convert::Infallible;
 use std::future::Future;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
+
+use super::outbound::{OutRequest, Outbound};
 
 pub const REQUEST_ID_HEADER: &str = "x-request-id";
 
@@ -127,6 +133,47 @@ pub fn health_routes<S: Clone + Send + Sync + 'static>(ready: ReadyCheck) -> Rou
                 }
             }),
         )
+}
+
+/// The address `singularrd health` asks: `/readyz` at the listen address. A wildcard address
+/// (`0.0.0.0`, `::`) stands for this machine. The loopback of its family is asked.
+pub fn ready_url(listen: &str) -> Result<String, String> {
+    let addr: SocketAddr = listen
+        .trim()
+        .parse()
+        .map_err(|e| format!("SINGULARR_LISTEN is not an address: {e}"))?;
+    let ip = match addr.ip() {
+        IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(ip) if ip.is_unspecified() => IpAddr::V6(Ipv6Addr::LOCALHOST),
+        ip => ip,
+    };
+    Ok(format!(
+        "http://{}/readyz",
+        SocketAddr::new(ip, addr.port())
+    ))
+}
+
+/// `singularrd health`: `GET /readyz` of the server at the listen address. The way out lists
+/// that address alone, read-only, with that one GET ([`Outbound::direct`]). No proxy of the
+/// environment carries it. `Ok` on 200. Any other answer, or none, is the reason it is not
+/// ready.
+pub async fn check_health(listen: &str, timeout: Duration) -> Result<(), String> {
+    let url = ready_url(listen)?;
+    let base = url.trim_end_matches("/readyz");
+    let out =
+        Outbound::direct("singularrd", base, "/readyz", timeout).map_err(|e| e.to_string())?;
+    let res = out
+        .send(OutRequest::get(&url))
+        .await
+        .map_err(|e| e.to_string())?;
+    if res.status == 200 {
+        return Ok(());
+    }
+    Err(format!(
+        "{url} answered {}: {}",
+        res.status,
+        String::from_utf8_lossy(&res.body).trim()
+    ))
 }
 
 /// Resolves when the process is asked to stop: SIGTERM (`docker stop`, a redeploy) or SIGINT.
@@ -269,5 +316,87 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    /// `singularrd health` asks `/readyz` of a server that listens: 200 is ready, 503 is not,
+    /// and no answer is not either. A wildcard listen address is asked at the loopback.
+    #[tokio::test]
+    async fn the_health_command_asks_readyz_at_the_listen_address() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let up = Arc::new(AtomicBool::new(true));
+        let flag = up.clone();
+        let check: ReadyCheck = Arc::new(move || {
+            let ready = flag.load(Ordering::SeqCst);
+            Box::pin(async move {
+                if ready {
+                    Ok(())
+                } else {
+                    Err("the database does not answer".to_string())
+                }
+            })
+        });
+        let app: Router = health_routes(check);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let wait = Duration::from_secs(5);
+        assert_eq!(check_health(&addr.to_string(), wait).await, Ok(()));
+        up.store(false, Ordering::SeqCst);
+        let err = check_health(&addr.to_string(), wait).await.unwrap_err();
+        assert!(
+            err.contains("503") && err.contains("the database does not answer"),
+            "{err}"
+        );
+        // The way out of the health command: that address with that one GET. Every other path
+        // and host is refused before anything is sent.
+        let base = format!("http://{addr}");
+        let out = Outbound::direct("singularrd", &base, "/readyz", wait).unwrap();
+        for other in ["/healthz", "/api/v1/whoami", "/readyz/x", "/"] {
+            let e = out
+                .send(OutRequest::get(format!("{base}{other}")))
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(e, crate::core::outbound::OutboundError::NotListed { .. }),
+                "{other}: {e}"
+            );
+        }
+        let e = out
+            .send(OutRequest::get("http://127.0.0.2:9/readyz"))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                e,
+                crate::core::outbound::OutboundError::HostNotAllowed { .. }
+            ),
+            "{e}"
+        );
+        // Only an address of this machine, written as one.
+        for elsewhere in [
+            "http://192.0.2.1:3000",
+            "http://localhost:3000",
+            "http://example.org",
+        ] {
+            assert!(
+                Outbound::direct("singularrd", elsewhere, "/readyz", wait).is_err(),
+                "{elsewhere}"
+            );
+        }
+        // Nothing listens there any more.
+        let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let gone = closed.local_addr().unwrap();
+        drop(closed);
+        assert!(check_health(&gone.to_string(), wait).await.is_err());
+        assert_eq!(
+            ready_url("0.0.0.0:3000").unwrap(),
+            "http://127.0.0.1:3000/readyz"
+        );
+        assert_eq!(ready_url("[::]:3000").unwrap(), "http://[::1]:3000/readyz");
+        assert_eq!(
+            ready_url(" 10.0.0.5:8080 ").unwrap(),
+            "http://10.0.0.5:8080/readyz"
+        );
+        assert!(ready_url("nowhere").is_err());
     }
 }

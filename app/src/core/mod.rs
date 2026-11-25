@@ -20,6 +20,9 @@ pub mod identity;
 pub mod jobs;
 #[cfg(feature = "ssr")]
 pub mod journal;
+/// ffmpeg and ffprobe: a run without a shell, capped and timed, and a file's probe.
+#[cfg(feature = "ssr")]
+pub mod media;
 #[cfg(feature = "ssr")]
 pub mod observe;
 #[cfg(feature = "ssr")]

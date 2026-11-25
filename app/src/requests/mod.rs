@@ -13,6 +13,9 @@ pub mod rules;
 pub mod discover;
 #[cfg(feature = "ssr")]
 pub mod intents;
+/// The portal's database role, kept by the full process at each start.
+#[cfg(feature = "ssr")]
+pub mod role;
 #[cfg(feature = "ssr")]
 pub mod service;
 #[cfg(feature = "ssr")]

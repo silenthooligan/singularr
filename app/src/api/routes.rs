@@ -573,6 +573,237 @@ pub fn router(state: AppState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    /// The methods a route can declare, as axum's method routers and OpenAPI both name them.
+    const METHODS: [&str; 5] = ["get", "post", "put", "patch", "delete"];
+
+    /// The routes the OpenAPI document leaves out: the reference page. It is HTML for people. It
+    /// draws the document.
+    const NOT_IN_THE_DOCUMENT: &[(&str, &str)] = &[("/api/docs", "get")];
+
+    /// A path with every parameter written `{}`: a router and the document may name one
+    /// parameter differently.
+    fn shape(path: &str) -> String {
+        let mut out = String::new();
+        let mut inside = false;
+        for c in path.chars() {
+            match c {
+                '{' => {
+                    inside = true;
+                    out.push_str("{}");
+                }
+                '}' => inside = false,
+                c if !inside => out.push(c),
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// The string literal that starts `text`, without its quotes.
+    fn literal(text: &str) -> &str {
+        let rest = text.strip_prefix('"').expect("a string literal");
+        &rest[..rest.find('"').expect("its closing quote")]
+    }
+
+    /// The `let NAME = "VALUE";` bindings of a source.
+    fn bindings(source: &str) -> BTreeMap<&str, &str> {
+        let mut out = BTreeMap::new();
+        for part in source.split("let ").skip(1) {
+            let name_end = part
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(part.len());
+            if let Some(value) = part[name_end..].strip_prefix(" = \"")
+                && let Some(end) = value.find("\";")
+            {
+                out.insert(&part[..name_end], &value[..end]);
+            }
+        }
+        out
+    }
+
+    /// The routes of one source, before its tests: `(path, method)`, each path under `/api/v1`
+    /// unless it names `/api/` itself. A path is a string literal, a `let` binding of one, or a
+    /// `format!` of bindings (the worker's routes).
+    fn routes_in(source: &str, out: &mut BTreeSet<(String, &'static str)>) {
+        let body = source.split("#[cfg(test)]").next().unwrap_or_default();
+        let lets = bindings(body);
+        let mut rest = body;
+        while let Some(at) = rest.find(".route(") {
+            let call = &rest[at + ".route(".len()..];
+            let arg = call.trim_start();
+            let path = if arg.starts_with('"') {
+                literal(arg).to_string()
+            } else if let Some(template) = arg.strip_prefix("&format!(") {
+                let mut text = literal(template)
+                    .replace("{{", "\u{1}")
+                    .replace("}}", "\u{2}");
+                for (name, value) in &lets {
+                    text = text.replace(&format!("{{{name}}}"), value);
+                }
+                text.replace('\u{1}', "{").replace('\u{2}', "}")
+            } else {
+                let name_end = arg
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .unwrap_or(arg.len());
+                lets.get(&arg[..name_end])
+                    .unwrap_or_else(|| {
+                        panic!("a route at `{}` the scan cannot read", &arg[..name_end])
+                    })
+                    .to_string()
+            };
+            // The method router: up to the parenthesis that closes `.route(`.
+            let mut depth = 1;
+            let mut end = call.len();
+            for (i, c) in call.char_indices() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let router = &call[..end];
+            let full = if path.starts_with("/api/") {
+                path
+            } else {
+                format!("/api/v1{path}")
+            };
+            let mut any_method = false;
+            for method in METHODS {
+                let named = router.match_indices(&format!("{method}(")).any(|(i, _)| {
+                    router[..i]
+                        .chars()
+                        .next_back()
+                        .is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_'))
+                });
+                if named {
+                    out.insert((shape(&full), method));
+                    any_method = true;
+                }
+            }
+            // `any()`, `on()`, a service or a method router held in a variable: the scan reads no
+            // method from them. Such a route must not slip past the check.
+            assert!(
+                any_method,
+                "the route {full} names no method the scan reads: `{}`",
+                router.trim()
+            );
+            rest = &call[end..];
+        }
+    }
+
+    /// Every route the API's routers declare is in the OpenAPI document with its method, and
+    /// every route the document lists has a router: a scan of the `.route(` calls of every
+    /// source under `app/src/api`, as `settings::tests` scans the configuration's source.
+    #[test]
+    fn every_route_is_in_the_openapi_document_and_every_documented_route_is_routed() {
+        let mut files = Vec::new();
+        let mut folders = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/api")];
+        while let Some(folder) = folders.pop() {
+            for entry in std::fs::read_dir(&folder).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    folders.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    files.push(path);
+                }
+            }
+        }
+        let mut routed = BTreeSet::new();
+        for file in &files {
+            routes_in(&std::fs::read_to_string(file).unwrap(), &mut routed);
+        }
+        assert!(routed.len() > 100, "the scan found {} routes", routed.len());
+        // Every module with a router of its own is merged into this one. Only then are the routes
+        // the scan counts served.
+        let api = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/api");
+        let this = include_str!("routes.rs");
+        let this = this.split("#[cfg(test)]").next().unwrap_or_default();
+        let mut merged = 0;
+        for file in &files {
+            let text = std::fs::read_to_string(file).unwrap();
+            if file.ends_with("routes.rs") || !text.contains("pub fn router(") {
+                continue;
+            }
+            let module: Vec<String> = file
+                .strip_prefix(&api)
+                .unwrap()
+                .with_extension("")
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .filter(|c| c != "mod")
+                .collect();
+            let module = module.join("::");
+            assert!(
+                this.contains(&format!(".merge(super::{module}::router())")),
+                "{module}::router() is not merged into the API's router"
+            );
+            merged += 1;
+        }
+        assert!(merged > 10, "{merged} module routers");
+        let doc = serde_json::to_value(openapi()).unwrap();
+        let documented: BTreeSet<(String, &'static str)> = doc["paths"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .flat_map(|(path, item)| {
+                METHODS
+                    .into_iter()
+                    .filter(|m| item.get(*m).is_some())
+                    .map(move |m| (shape(path), m))
+            })
+            .collect();
+        let undocumented: Vec<&(String, &str)> = routed
+            .iter()
+            .filter(|r| {
+                !documented.contains(*r) && !NOT_IN_THE_DOCUMENT.contains(&(r.0.as_str(), r.1))
+            })
+            .collect();
+        assert!(
+            undocumented.is_empty(),
+            "routes the OpenAPI document leaves out: {undocumented:?}"
+        );
+        let unrouted: Vec<&(String, &str)> =
+            documented.iter().filter(|d| !routed.contains(*d)).collect();
+        assert!(
+            unrouted.is_empty(),
+            "routes the OpenAPI document lists that no router declares: {unrouted:?}"
+        );
+        // The scan reads every form a path takes here: a literal over two lines, a binding, a
+        // `format!` of a binding.
+        let mut forms = BTreeSet::new();
+        routes_in(
+            "let at = \"/w/{id}\"; Router::new().route(at, get(a)).route(\n    \"/x/{n}\",\n    get(b).post(c),\n).route(&format!(\"{at}/n/{{node}}\"), delete(d)).route(\"/api/docs\", get(page))",
+            &mut forms,
+        );
+        assert_eq!(
+            forms,
+            BTreeSet::from([
+                ("/api/docs".to_string(), "get"),
+                ("/api/v1/w/{}".to_string(), "get"),
+                ("/api/v1/w/{}/n/{}".to_string(), "delete"),
+                ("/api/v1/x/{}".to_string(), "get"),
+                ("/api/v1/x/{}".to_string(), "post"),
+            ])
+        );
+        // A route whose method the scan cannot read stops the test.
+        for unread in [
+            "Router::new().route(\"/y\", any(h))",
+            "Router::new().route(\"/y\", on(MethodFilter::GET, h))",
+            "Router::new().route(\"/y\", get_service(files))",
+            "let methods = get(h); Router::new().route(\"/y\", methods)",
+        ] {
+            let read = std::panic::catch_unwind(|| routes_in(unread, &mut BTreeSet::new()));
+            assert!(read.is_err(), "the scan passed over {unread}");
+        }
+    }
 
     #[test]
     fn the_openapi_document_lists_every_stage_one_route() {

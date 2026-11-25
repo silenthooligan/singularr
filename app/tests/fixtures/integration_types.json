@@ -1,0 +1,737 @@
+{
+  "groups": [
+    {
+      "description": "Libraries, sessions and music",
+      "id": "server",
+      "label": "Media server"
+    },
+    {
+      "description": "Movie and show managers",
+      "id": "managers",
+      "label": "Managers"
+    },
+    {
+      "description": "Release downloads",
+      "id": "downloads",
+      "label": "Download clients"
+    },
+    {
+      "description": "Release search",
+      "id": "indexers",
+      "label": "Indexers"
+    },
+    {
+      "description": "Flows for imported files",
+      "id": "processing",
+      "label": "Processing"
+    },
+    {
+      "description": "Requests made outside the portal",
+      "id": "requests",
+      "label": "Request sources"
+    },
+    {
+      "description": "Titles, people, artwork, ratings and episode order",
+      "id": "metadata",
+      "label": "Metadata providers"
+    }
+  ],
+  "types": [
+    {
+      "available": true,
+      "description": "Libraries, ratings, plays, editions, music and sessions",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://plex:32400",
+          "type": "url"
+        },
+        {
+          "help": "Read from an environment variable",
+          "key": "token",
+          "label": "Token",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        },
+        {
+          "help": "Set in the environment, per integration type",
+          "key": "syncEvery",
+          "label": "Sync interval",
+          "part": "schedule",
+          "placeholder": null,
+          "type": "duration"
+        }
+      ],
+      "group": "server",
+      "label": "Plex Media Server",
+      "max": 1,
+      "reads": [
+        "Libraries and folders",
+        "Movies and shows with ratings, plays and editions",
+        "Artists, albums and tracks",
+        "Now playing",
+        "Artwork"
+      ],
+      "type": "plex",
+      "writes": []
+    },
+    {
+      "available": true,
+      "description": "Libraries, ratings, plays, music and sessions",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://jellyfin:8096",
+          "type": "url"
+        },
+        {
+          "help": "Read from an environment variable",
+          "key": "apiKey",
+          "label": "API key",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        },
+        {
+          "help": "Set in the environment, per integration type",
+          "key": "syncEvery",
+          "label": "Sync interval",
+          "part": "schedule",
+          "placeholder": null,
+          "type": "duration"
+        }
+      ],
+      "group": "server",
+      "label": "Jellyfin",
+      "max": 1,
+      "reads": [
+        "Libraries and folders",
+        "Movies and shows with ratings and plays",
+        "Artists, albums and tracks",
+        "Now playing",
+        "Users",
+        "Artwork"
+      ],
+      "type": "jellyfin",
+      "writes": []
+    },
+    {
+      "available": true,
+      "description": "Libraries, ratings, plays, music and sessions",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://emby:8096",
+          "type": "url"
+        },
+        {
+          "help": "Read from an environment variable",
+          "key": "apiKey",
+          "label": "API key",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        },
+        {
+          "help": "Set in the environment, per integration type",
+          "key": "syncEvery",
+          "label": "Sync interval",
+          "part": "schedule",
+          "placeholder": null,
+          "type": "duration"
+        }
+      ],
+      "group": "server",
+      "label": "Emby",
+      "max": 1,
+      "reads": [
+        "Libraries and folders",
+        "Movies and shows with ratings and plays",
+        "Artists, albums and tracks",
+        "Now playing",
+        "Users",
+        "Artwork"
+      ],
+      "type": "emby",
+      "writes": []
+    },
+    {
+      "available": true,
+      "description": "Movies, files, editions, queue and history",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://radarr:7878",
+          "type": "url"
+        },
+        {
+          "help": "Read from an environment variable",
+          "key": "apiKey",
+          "label": "API key",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        },
+        {
+          "help": "Set in the environment, per integration type",
+          "key": "syncEvery",
+          "label": "Sync interval",
+          "part": "schedule",
+          "placeholder": null,
+          "type": "duration"
+        }
+      ],
+      "group": "managers",
+      "label": "Radarr",
+      "max": null,
+      "reads": [
+        "Movies, files and custom formats",
+        "Quality profiles and tags",
+        "Queue",
+        "Grab history",
+        "Release name parsing"
+      ],
+      "type": "radarr",
+      "writes": [
+        "Search for releases",
+        "Grab a release",
+        "Import a refused download",
+        "Remove a download"
+      ]
+    },
+    {
+      "available": true,
+      "description": "Shows, episodes, files, queue and history",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://sonarr:8989",
+          "type": "url"
+        },
+        {
+          "help": "Read from an environment variable",
+          "key": "apiKey",
+          "label": "API key",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        },
+        {
+          "help": "Set in the environment, per integration type",
+          "key": "syncEvery",
+          "label": "Sync interval",
+          "part": "schedule",
+          "placeholder": null,
+          "type": "duration"
+        }
+      ],
+      "group": "managers",
+      "label": "Sonarr",
+      "max": null,
+      "reads": [
+        "Series, seasons and episode files",
+        "Quality profiles and tags",
+        "Queue",
+        "Grab history",
+        "Release name parsing"
+      ],
+      "type": "sonarr",
+      "writes": [
+        "Search for releases",
+        "Grab a release",
+        "Import a refused download",
+        "Remove a download"
+      ]
+    },
+    {
+      "available": true,
+      "description": "Torrents, progress and unassigned downloads",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://qbittorrent:8080",
+          "type": "url"
+        },
+        {
+          "help": "Empty for a client that needs no sign-in",
+          "key": "username",
+          "label": "Username",
+          "part": "connection",
+          "placeholder": null,
+          "type": "text"
+        },
+        {
+          "help": "Read from an environment variable",
+          "key": "password",
+          "label": "Password",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        },
+        {
+          "help": "Set in the environment, per integration type",
+          "key": "syncEvery",
+          "label": "Sync interval",
+          "part": "schedule",
+          "placeholder": null,
+          "type": "duration"
+        }
+      ],
+      "group": "downloads",
+      "label": "qBittorrent",
+      "max": null,
+      "reads": [
+        "Torrent state, progress and folder",
+        "Speeds, seeds, peers and ratio",
+        "Category and tracker"
+      ],
+      "type": "qbittorrent",
+      "writes": []
+    },
+    {
+      "available": true,
+      "description": "Torrents, progress and unassigned downloads",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://transmission:9091",
+          "type": "url"
+        },
+        {
+          "help": "Empty for a client that needs no sign-in",
+          "key": "username",
+          "label": "Username",
+          "part": "connection",
+          "placeholder": null,
+          "type": "text"
+        },
+        {
+          "help": "Read from an environment variable",
+          "key": "password",
+          "label": "Password",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        },
+        {
+          "help": "Set in the environment, per integration type",
+          "key": "syncEvery",
+          "label": "Sync interval",
+          "part": "schedule",
+          "placeholder": null,
+          "type": "duration"
+        }
+      ],
+      "group": "downloads",
+      "label": "Transmission",
+      "max": null,
+      "reads": [
+        "Torrent state, progress and folder",
+        "Speeds, seeds, peers and ratio",
+        "Category and tracker"
+      ],
+      "type": "transmission",
+      "writes": []
+    },
+    {
+      "available": true,
+      "description": "Torrents, progress and unassigned downloads",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://deluge:8112",
+          "type": "url"
+        },
+        {
+          "help": "Read from an environment variable",
+          "key": "password",
+          "label": "Password",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        },
+        {
+          "help": "Set in the environment, per integration type",
+          "key": "syncEvery",
+          "label": "Sync interval",
+          "part": "schedule",
+          "placeholder": null,
+          "type": "duration"
+        }
+      ],
+      "group": "downloads",
+      "label": "Deluge",
+      "max": null,
+      "reads": [
+        "Torrent state, progress and folder",
+        "Speeds, seeds, peers and ratio",
+        "Category and tracker"
+      ],
+      "type": "deluge",
+      "writes": []
+    },
+    {
+      "available": true,
+      "description": "Usenet downloads, progress and unassigned downloads",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://sabnzbd:8080",
+          "type": "url"
+        },
+        {
+          "help": "Read from an environment variable",
+          "key": "apiKey",
+          "label": "API key",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        },
+        {
+          "help": "Set in the environment, per integration type",
+          "key": "syncEvery",
+          "label": "Sync interval",
+          "part": "schedule",
+          "placeholder": null,
+          "type": "duration"
+        }
+      ],
+      "group": "downloads",
+      "label": "SABnzbd",
+      "max": null,
+      "reads": [
+        "Queue: state, progress, speed and time left",
+        "History: completed, failed and in post-processing",
+        "Category and folder"
+      ],
+      "type": "sabnzbd",
+      "writes": []
+    },
+    {
+      "available": true,
+      "description": "Usenet downloads, progress and unassigned downloads",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://nzbget:6789",
+          "type": "url"
+        },
+        {
+          "help": "Empty for a client that needs no sign-in",
+          "key": "username",
+          "label": "Username",
+          "part": "connection",
+          "placeholder": null,
+          "type": "text"
+        },
+        {
+          "help": "Read from an environment variable",
+          "key": "password",
+          "label": "Password",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        },
+        {
+          "help": "Set in the environment, per integration type",
+          "key": "syncEvery",
+          "label": "Sync interval",
+          "part": "schedule",
+          "placeholder": null,
+          "type": "duration"
+        }
+      ],
+      "group": "downloads",
+      "label": "NZBGet",
+      "max": null,
+      "reads": [
+        "Queue: state, progress, speed and time left",
+        "History: completed, failed and deleted",
+        "Category and folder"
+      ],
+      "type": "nzbget",
+      "writes": []
+    },
+    {
+      "available": false,
+      "description": "Indexers",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://prowlarr:9696",
+          "type": "url"
+        },
+        {
+          "help": "Read from an environment variable",
+          "key": "apiKey",
+          "label": "API key",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        }
+      ],
+      "group": "indexers",
+      "label": "Prowlarr",
+      "max": null,
+      "reads": [],
+      "type": "prowlarr",
+      "writes": []
+    },
+    {
+      "available": true,
+      "description": "Worker nodes, queues, active workers, libraries and flows",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://tdarr:8265",
+          "type": "url"
+        },
+        {
+          "help": "Read from an environment variable",
+          "key": "apiKey",
+          "label": "API key",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        },
+        {
+          "help": "Set in the environment, per integration type",
+          "key": "syncEvery",
+          "label": "Sync interval",
+          "part": "schedule",
+          "placeholder": null,
+          "type": "duration"
+        }
+      ],
+      "group": "processing",
+      "label": "Tdarr",
+      "max": null,
+      "reads": [
+        "Version",
+        "Nodes, worker limits and queue lengths",
+        "Active workers",
+        "Libraries and flows",
+        "Statistics",
+        "File status of open runs"
+      ],
+      "type": "tdarr",
+      "writes": [
+        "Change worker limits",
+        "Pause and resume nodes",
+        "Cancel a worker's file",
+        "Requeue a file",
+        "Scan a library",
+        "Switch folder watching",
+        "Assign a flow to a library"
+      ]
+    },
+    {
+      "available": true,
+      "description": "Processing runs, their results and imports",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://hush",
+          "type": "url"
+        },
+        {
+          "help": "Needed only when the service requires a key",
+          "key": "apiKey",
+          "label": "API key",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        },
+        {
+          "help": "Set in the environment, per integration type",
+          "key": "syncEvery",
+          "label": "Sync interval",
+          "part": "schedule",
+          "placeholder": null,
+          "type": "duration"
+        }
+      ],
+      "group": "processing",
+      "label": "HUSH",
+      "max": null,
+      "reads": [
+        "Runs: flow, trigger, state, source, output and result",
+        "Run events",
+        "Ledger and watcher status",
+        "Flow options for a file"
+      ],
+      "type": "hush",
+      "writes": [
+        "Send a file to a flow"
+      ]
+    },
+    {
+      "available": true,
+      "description": "Requests made in Seerr",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://seerr:5055",
+          "type": "url"
+        },
+        {
+          "help": "Read from an environment variable",
+          "key": "apiKey",
+          "label": "API key",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        },
+        {
+          "help": "Set in the environment, per integration type",
+          "key": "syncEvery",
+          "label": "Sync interval",
+          "part": "schedule",
+          "placeholder": null,
+          "type": "duration"
+        }
+      ],
+      "group": "requests",
+      "label": "Seerr",
+      "max": 1,
+      "reads": [
+        "Requests and status",
+        "Requester display names",
+        "Title lookups",
+        "Discover lists"
+      ],
+      "type": "seerr",
+      "writes": []
+    },
+    {
+      "available": true,
+      "description": "Play history with durations, devices and delivery",
+      "fields": [
+        {
+          "help": "As reached from the server",
+          "key": "address",
+          "label": "Address",
+          "part": "connection",
+          "placeholder": "http://tautulli:8181",
+          "type": "url"
+        },
+        {
+          "help": "Read from an environment variable",
+          "key": "apiKey",
+          "label": "API key",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        },
+        {
+          "help": "Set in the environment, per integration type",
+          "key": "syncEvery",
+          "label": "Sync interval",
+          "part": "schedule",
+          "placeholder": null,
+          "type": "duration"
+        }
+      ],
+      "group": "server",
+      "label": "Tautulli",
+      "max": 1,
+      "reads": [
+        "Play history with durations, devices and delivery",
+        "Users",
+        "Version"
+      ],
+      "type": "tautulli",
+      "writes": []
+    },
+    {
+      "available": true,
+      "description": "Titles, people, collections, artwork, trailers, ratings and where to watch",
+      "fields": [
+        {
+          "help": "Read from an environment variable",
+          "key": "token",
+          "label": "Read access token",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        }
+      ],
+      "group": "metadata",
+      "label": "TMDB",
+      "max": 1,
+      "reads": [
+        "Titles, seasons and episodes",
+        "People and credits",
+        "Collections",
+        "Artwork, trailers and where to watch"
+      ],
+      "type": "tmdb",
+      "writes": []
+    },
+    {
+      "available": true,
+      "description": "Episode order and numbering",
+      "fields": [
+        {
+          "help": "Read from an environment variable",
+          "key": "key",
+          "label": "API key",
+          "part": "connection",
+          "placeholder": null,
+          "type": "secret"
+        }
+      ],
+      "group": "metadata",
+      "label": "TVDB",
+      "max": 1,
+      "reads": [
+        "Series and seasons"
+      ],
+      "type": "tvdb",
+      "writes": []
+    }
+  ]
+}

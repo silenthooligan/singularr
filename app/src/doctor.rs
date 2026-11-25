@@ -6,11 +6,12 @@
 
 use singularr::core::config::{Config, Integration, redact_url};
 use singularr::core::outbound::Outbound;
-use singularr::core::{db, store, units};
+use singularr::core::{db, media, store, units};
 use singularr::engines::Protocol;
 use singularr::engines::service::{EngineSet, allowlist};
 use singularr::metadata::service::ProviderSet;
 use singularr::policy;
+use std::path::Path;
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -323,6 +324,34 @@ pub async fn run() -> ExitCode {
                 Some("Mount it read-only, readable by uid 10001"),
             ),
         }
+    }
+
+    // The media tools and the folder of their scratch files (core::media). Nothing needs them
+    // yet: a missing one is a warning.
+    for (what, program) in [("ffmpeg", media::FFMPEG), ("ffprobe", media::FFPROBE)] {
+        match media::version(Path::new(program)).await {
+            Ok(version) => report.line(Level::Ok, what, &format!("{version} at {program}"), None),
+            Err(e) => report.line(
+                Level::Warn,
+                what,
+                &e.to_string(),
+                Some("The image carries it at /usr/local/bin. Outside the image, put it there"),
+            ),
+        }
+    }
+    match media::scratch_dir(Path::new(&config.geoip.data_dir)) {
+        Ok(dir) => report.line(
+            Level::Ok,
+            "Scratch folder",
+            &dir.display().to_string(),
+            None,
+        ),
+        Err(e) => report.line(
+            Level::Warn,
+            "Scratch folder",
+            &format!("{}/scratch: {e}", config.geoip.data_dir),
+            Some("Mount the data folder (SINGULARR_DATA_DIR) writable by uid 10001"),
+        ),
     }
 
     // Metadata providers: configured or not. They are not called here.

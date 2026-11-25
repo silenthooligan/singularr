@@ -1,4 +1,5 @@
-# Singularr with its own PostgreSQL.
+# Singularr with its own PostgreSQL and its own Meilisearch (the search; the built-in one answers
+# when Meilisearch does not).
 #   cp .env.example .env    then fill it in (docs/configuration.md lists every setting)
 #   docker compose up -d
 # The workspace listens on SINGULARR_PORT. Put your sign-in proxy in front of it: Singularr trusts the
@@ -6,7 +7,9 @@
 #
 # Singularr Requests, the viewer portal, is optional:
 #   docker compose --profile requests up -d
-# It runs as its own database role (deploy/requests-role.sql) and holds no integration secret.
+# It runs as its own database role and holds no integration secret. With
+# SINGULARR_REQUESTS_DB_PASSWORD in .env, Singularr creates that role at its start
+# (deploy/requests-role.sql lists its grants) and gives it the grants again at each start.
 
 x-hardening: &hardening
   restart: unless-stopped
@@ -26,9 +29,18 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      # Singularr waits for Meilisearch to be healthy. When it never is (a key under 16
+      # characters, an unreadable volume), Singularr starts anyway with the built-in search
+      # (`required: false`, Compose 2.20 or newer).
+      meilisearch:
+        condition: service_healthy
+        required: false
     env_file: .env
     environment:
       DATABASE_URL: postgres://singularr:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/singularr
+      # The search: the meilisearch service below with its master key, unless .env names another.
+      SINGULARR_SEARCH_URL: ${SINGULARR_SEARCH_URL:-http://meilisearch:7700}
+      SINGULARR_SEARCH_KEY: ${SINGULARR_SEARCH_KEY:-${MEILI_MASTER_KEY:?set MEILI_MASTER_KEY in .env}}
     ports:
       - "${SINGULARR_PORT:-7300}:3000"
     volumes:
@@ -46,15 +58,40 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      # Singularr creates the portal's role before it answers.
+      singularr:
+        condition: service_healthy
     environment:
       SINGULARR_FACE: requests
-      SINGULARR_REQUESTS_DATABASE_URL: postgres://singularr_requests:${SINGULARR_REQUESTS_DB_PASSWORD:-}@db:5432/singularr
+      # The password goes into this address as it is: letters and digits only.
+      SINGULARR_REQUESTS_DATABASE_URL: postgres://${SINGULARR_REQUESTS_DB_ROLE:-singularr_requests}:${SINGULARR_REQUESTS_DB_PASSWORD:-}@db:5432/singularr
       SINGULARR_REQUESTS_SESSION_SECRET: ${SINGULARR_REQUESTS_SESSION_SECRET:-}
       SINGULARR_REQUESTS_PUBLIC_URL: ${SINGULARR_REQUESTS_PUBLIC_URL:-}
       SINGULARR_TMDB_TOKEN: ${SINGULARR_TMDB_TOKEN:-}
       TZ: ${TZ:-UTC}
     ports:
       - "${SINGULARR_REQUESTS_PORT:-7302}:3000"
+
+  # The search index: built from Singularr's own tables. A lost volume is rebuilt at the next
+  # index pass. No usage data leaves it (MEILI_NO_ANALYTICS).
+  meilisearch:
+    image: getmeili/meilisearch:v1.58.0@sha256:cee0d2e31191594ff8e1651eb144aabd95b389a0bc3532327ecfb9ed91dffe7e
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?set MEILI_MASTER_KEY in .env}
+      MEILI_ENV: production
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - search:/meili_data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   db:
     image: postgres:18@sha256:c699303802144847d238196173655dbbecf7a96aeca1565f2b02eb671a1f0b6b
@@ -74,3 +111,4 @@ services:
 volumes:
   db:
   data:
+  search:

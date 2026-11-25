@@ -9,9 +9,10 @@
 # PostgreSQL: when SINGULARR_TEST_DATABASE_URL is not set and the server binaries are found
 # (SINGULARR_GATE_PG_BIN, default /usr/lib/postgresql/18/bin, which the check stage installs),
 # a server is started for the length of the gate: its data in SINGULARR_GATE_PG_DIR (a tmpfs
-# in the check stage), bound to 127.0.0.1 only, trust authentication, fsync off. It is
-# stopped when the script ends, however it ends. Without either, the database-backed tests
-# skip themselves and say so.
+# in the check stage), bound to 127.0.0.1 only, fsync off. Over its socket in that folder no
+# password is asked. Over TCP every login needs a SCRAM-SHA-256 password, as on a real server:
+# the portal role's tests sign in there. It is stopped when the script ends, however it ends.
+# Without either, the database-backed tests skip themselves and say so.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -45,13 +46,19 @@ step() { # name, command...
 start_pg() {
   mkdir -p "$PG_DIR"
   if [ "$(id -u)" = 0 ]; then chown postgres:postgres "$PG_DIR"; fi
-  as_pg "$PG_BIN/initdb" -D "$PG_DIR/data" -U singularr --auth=trust -E UTF8 >"$PG_DIR/initdb.log" 2>&1 \
+  as_pg "$PG_BIN/initdb" -D "$PG_DIR/data" -U singularr --auth-local=trust \
+    --auth-host=scram-sha-256 -E UTF8 >"$PG_DIR/initdb.log" 2>&1 \
     || { cat "$PG_DIR/initdb.log"; return 1; }
   as_pg "$PG_BIN/pg_ctl" -D "$PG_DIR/data" -l "$PG_DIR/server.log" -w -t 60 \
     -o "-c listen_addresses=127.0.0.1 -p $PG_PORT -k $PG_DIR -c max_connections=200 -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c log_statement=ddl" \
     start >/dev/null || { cat "$PG_DIR/server.log"; return 1; }
   PG_STARTED=1
-  export SINGULARR_TEST_DATABASE_URL="postgres://singularr@127.0.0.1:$PG_PORT/postgres"
+  # The superuser over the socket: its folder as the host, each / written %2F.
+  export SINGULARR_TEST_DATABASE_URL="postgres://singularr@$(printf '%s' "$PG_DIR" | sed 's#/#%2F#g'):$PG_PORT/postgres"
+  # The password the database tests give the portal's role: a new one for each run. The server
+  # logs every DDL statement. The check after the tests reads that log for it.
+  SINGULARR_TEST_PORTAL_PASSWORD="portal-$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  export SINGULARR_TEST_PORTAL_PASSWORD
   "$PG_BIN/postgres" --version
 }
 
@@ -79,5 +86,16 @@ if [ "$PG_STARTED" = 1 ]; then
     echo "== the database-backed tests did not reach PostgreSQL" >&2
     exit 1
   fi
+  # The portal role's password is part of no statement (requests::role). The role's ALTER ROLE
+  # is in the log with the verifier.
+  if grep -qF -- "$SINGULARR_TEST_PORTAL_PASSWORD" "$PG_DIR/server.log"; then
+    echo "== the server's log holds the portal role's password" >&2
+    exit 1
+  fi
+  if ! grep -qF "PASSWORD 'SCRAM-SHA-256\$" "$PG_DIR/server.log"; then
+    echo "== the server's log holds no ALTER ROLE with a verifier: the check above saw nothing" >&2
+    exit 1
+  fi
+  echo "== the portal role's password: in no logged statement"
 fi
 echo "GATE_OK in $(( $(date +%s) - START )) s"

@@ -1414,24 +1414,69 @@ pub struct Outbound {
     transport: Arc<dyn Transport>,
 }
 
+/// One reqwest client: a connect timeout, a total timeout, no redirects, and a user agent that
+/// names the program. With `proxies`, the environment's proxy (`HTTP_PROXY`, `ALL_PROXY` and
+/// their lower-case forms) carries the calls.
+fn reqwest_client(timeout: Duration, proxies: bool) -> Result<reqwest::Client, OutboundError> {
+    let mut builder = reqwest::Client::builder()
+        .timeout(timeout)
+        .connect_timeout(Duration::from_secs(10).min(timeout))
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(concat!("singularr/", env!("CARGO_PKG_VERSION")));
+    if !proxies {
+        builder = builder.no_proxy();
+    }
+    builder.build().map_err(|e| OutboundError::Transport {
+        host: "(client)".to_string(),
+        message: e.to_string(),
+    })
+}
+
 impl Outbound {
     /// The production client: one reqwest client, a connect timeout, a total timeout, no
     /// redirects, and a user agent that names the program.
     pub fn new(allow: Allowlist, timeout: Duration) -> Result<Self, OutboundError> {
-        let client = reqwest::Client::builder()
-            .timeout(timeout)
-            .connect_timeout(Duration::from_secs(10).min(timeout))
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("singularr/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|e| OutboundError::Transport {
-                host: "(client)".to_string(),
-                message: e.to_string(),
-            })?;
         Ok(Outbound {
             allow: Arc::new(allow),
             targets: Targets::default(),
-            transport: Arc::new(ReqwestTransport { client }),
+            transport: Arc::new(ReqwestTransport {
+                client: reqwest_client(timeout, true)?,
+            }),
+        })
+    }
+
+    /// A client for one address of this machine and one GET there, past any proxy: a proxy
+    /// in the environment (`HTTP_PROXY`, common beside a VPN container) would otherwise carry a
+    /// call to 127.0.0.1. The address is an IP literal: loopback, or one this machine holds.
+    /// One read-only rule lists it with the one GET. Every other path and host is refused.
+    /// `singularrd health` asks its own server through it.
+    pub fn direct(
+        label: &str,
+        base: &str,
+        get: &str,
+        timeout: Duration,
+    ) -> Result<Self, OutboundError> {
+        let url = Url::parse(base).map_err(|_| OutboundError::BadUrl(base.to_string()))?;
+        let ip = url
+            .host_str()
+            .map(|host| host.trim_start_matches('[').trim_end_matches(']'))
+            .and_then(|host| host.parse::<std::net::IpAddr>().ok());
+        // An address this machine holds is one a socket binds to.
+        let local =
+            ip.is_some_and(|ip| ip.is_loopback() || std::net::UdpSocket::bind((ip, 0)).is_ok());
+        if !local {
+            return Err(OutboundError::BadUrl(format!(
+                "{base} (not an address of this machine)"
+            )));
+        }
+        let mut allow = Allowlist::default();
+        allow.allow_integration(label, base, Calls::default().get(get))?;
+        Ok(Outbound {
+            allow: Arc::new(allow),
+            targets: Targets::default(),
+            transport: Arc::new(ReqwestTransport {
+                client: reqwest_client(timeout, false)?,
+            }),
         })
     }
 

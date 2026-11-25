@@ -1,7 +1,8 @@
-//! The `singularrd` binary: the server, and the `doctor` subcommand.
+//! The `singularrd` binary: the server, and the `doctor` and `health` subcommands.
 //!
 //!   singularrd           start the server
 //!   singularrd doctor    check the database, the migrations, the policy file and every engine
+//!   singularrd health    ask the server at SINGULARR_LISTEN whether it is ready: exit 0 or 1
 //!   singularrd version   print the version
 #![forbid(unsafe_code)]
 #![recursion_limit = "512"]
@@ -26,6 +27,23 @@ async fn main() -> std::process::ExitCode {
             }
         },
         Some("doctor") => doctor::run().await,
+        // The images' health check. The binary asks itself: the public image holds no curl.
+        Some("health") => {
+            let listen =
+                std::env::var("SINGULARR_LISTEN").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
+            match singularr::core::http::check_health(&listen, std::time::Duration::from_secs(4))
+                .await
+            {
+                Ok(()) => {
+                    println!("ready");
+                    ExitCode::SUCCESS
+                }
+                Err(reason) => {
+                    eprintln!("singularrd: not ready: {reason}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Some("version") | Some("--version") | Some("-V") => {
             println!(
                 "singularrd {} (build {})",
@@ -38,6 +56,9 @@ async fn main() -> std::process::ExitCode {
             println!("singularrd           start the server");
             println!(
                 "singularrd doctor    check the database, the migrations, the policy file and every engine"
+            );
+            println!(
+                "singularrd health    ask the server at SINGULARR_LISTEN whether it is ready: exit 0 or 1"
             );
             println!("singularrd version   print the version");
             ExitCode::SUCCESS

@@ -13,6 +13,15 @@ Copyright 2014 The DM Sans Project Authors (https://github.com/googlefonts/dm-fo
 IBM Plex Mono
 Copyright © 2017 IBM Corp. with Reserved Font Name "Plex"
 
+The image includes ffmpeg and ffprobe of FFmpeg (https://ffmpeg.org), version n9.0.2-39-g7adfbe40dc,
+in the LGPL static build of FFmpeg-Builds (https://github.com/FFmpeg-Builds/FFmpeg-Builds, release
+autobuild-2026-10-31-12-59), under the GNU Lesser General Public License, version 3. In the image,
+/usr/local/share/licenses/ffmpeg holds that license (LICENSE.txt), the GNU General Public License,
+version 3, it builds on (COPYING.GPLv3), the notices of the libraries the build links (NOTICES.txt)
+and SOURCE.txt. SOURCE.txt names the FFmpeg and FFmpeg-Builds commits and the build's configuration.
+The corresponding source is the release ffmpeg-source-n9.0.2-39-g7adfbe40dc of this repository
+(.github/workflows/ffmpeg-source.yml makes it). third_party/ffmpeg holds the same notices.
+
 The statistics can place client addresses with the IP to City Lite database by DB-IP
 (https://db-ip.com), licensed under the Creative Commons Attribution 4.0 International License
 (https://creativecommons.org/licenses/by/4.0/). The database is not bundled. Singularr downloads it

@@ -19,8 +19,8 @@ use singularr::catalog::ingest::Assess;
 use singularr::catalog::model::{CopyQuery, TitleQuery};
 use singularr::catalog::{service as catalog, sync as catalog_sync};
 use singularr::core::auth::{self, Caller};
-use singularr::core::config::SeerrConfig;
 use singularr::core::config::{ArrConfig, ArrKind, ClientKind, Config, DownloadClientConfig};
+use singularr::core::config::{PortalRoleConfig, SeerrConfig};
 use singularr::core::error::AppError;
 use singularr::core::journal::Journal;
 use singularr::core::model::{EventQuery, NewApiKey, Paging, Scope};
@@ -51,11 +51,12 @@ use singularr::releases::model::{ScoreRequest, ShadowQuery};
 use singularr::releases::service as releases;
 use singularr::requests::discover::{DiscoverCache, discover};
 use singularr::requests::model::{DiscoverQuery, RequestQuery};
+use singularr::requests::role::{self as portal_role, Kept};
 use singularr::requests::rules::Rules;
 use singularr::requests::service::{self as requests_service, Requests};
 use singularr::requests::sync::{PassConfig, requests_pass};
 use sqlx::PgPool;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -4634,44 +4635,209 @@ async fn editions_come_from_the_record_the_name_and_the_folders() {
 
 // Singularr Requests -------------------------------------------------------------------------------
 
-/// The role of deploy/requests-role.sql under a name of this test's own (roles are shared by
-/// every database of the server), and a pool that logs in as it to the test database.
+/// The portal's role under a name of this test's own: roles are shared by every database of the
+/// server. It is kept as the full process keeps it at its start (`requests::role` runs
+/// deploy/requests-role.sql). The pool signs in as it to the test database over TCP with its
+/// password, as the portal does.
 async fn face_role(t: &TestDb) -> (String, PgPool) {
     let role = format!("mq_face_{}", uuid_like());
-    let file = std::fs::read_to_string(format!(
-        "{}/../deploy/requests-role.sql",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-    .unwrap();
-    // The file names its role once in CREATE ROLE (an installation may keep an older name); this
-    // test gives the role a name of its own wherever the file uses it.
-    let named = file
-        .split("CREATE ROLE ")
-        .nth(1)
-        .and_then(|rest| rest.split_whitespace().next())
-        .expect("deploy/requests-role.sql creates its role")
-        .to_string();
-    let text = file.replace(&named, &role);
-    sqlx::raw_sql(sqlx::AssertSqlSafe(text.clone()))
-        .execute(&t.pool)
-        .await
-        .expect("deploy/requests-role.sql applies");
-    // Run twice: the file is safe to run again.
-    let again = text;
-    sqlx::raw_sql(sqlx::AssertSqlSafe(again))
-        .execute(&t.pool)
-        .await
-        .expect("deploy/requests-role.sql applies a second time");
-    let url = std::env::var("SINGULARR_TEST_DATABASE_URL").unwrap();
-    let (scheme, rest) = url.split_once("://").unwrap();
-    let host = rest.split_once('@').map(|(_, h)| h).unwrap_or(rest);
-    let host = host.split_once('/').map(|(h, _)| h).unwrap_or(host);
-    let pool = PgPoolOptions::new()
-        .max_connections(4)
-        .connect(&format!("{scheme}://{role}@{host}/{}", t.name))
-        .await
-        .expect("the face role logs in");
+    let config = portal_config(&role);
+    assert_eq!(
+        portal_role::keep(&t.pool, &config).await,
+        Kept::Created { role: role.clone() }
+    );
+    // The next start finds the role as it left it: the password signs in, nothing changes.
+    assert_eq!(
+        portal_role::keep(&t.pool, &config).await,
+        Kept::Granted {
+            role: role.clone(),
+            password_set: false
+        }
+    );
+    let pool = sign_in(&t.name, &role, &portal_password()).await;
     (role, pool)
+}
+
+/// The portal role's password in these tests. The gate sets a new one for each run. Its server
+/// logs every DDL statement. The gate checks that this log never holds the password
+/// (tools/gate.sh).
+fn portal_password() -> String {
+    std::env::var("SINGULARR_TEST_PORTAL_PASSWORD")
+        .unwrap_or_else(|_| "portal-password-of-the-tests".to_string())
+}
+
+/// The password of the test logins that sign in over TCP: a database's owner, a plain login.
+const LOGIN_PASSWORD: &str = "login-password-of-the-tests";
+
+/// The full process's settings for the portal role `role`, with the tests' password.
+fn portal_config(role: &str) -> PortalRoleConfig {
+    PortalRoleConfig {
+        role: Some(role.to_string()),
+        password: Some(portal_password()),
+    }
+}
+
+/// The test server for `role` with `password` in database `db`, over TCP: at 127.0.0.1 when
+/// SINGULARR_TEST_DATABASE_URL names a socket. tools/gate.sh has the server ask every TCP login
+/// for a SCRAM-SHA-256 password. A login over its socket needs none.
+fn over_tcp(db: &str, role: &str, password: &str) -> PgConnectOptions {
+    let server: PgConnectOptions = std::env::var("SINGULARR_TEST_DATABASE_URL")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let host = match server.get_socket() {
+        Some(_) => "127.0.0.1".to_string(),
+        None => server.get_host().to_string(),
+    };
+    PgConnectOptions::new_without_pgpass()
+        .host(&host)
+        .port(server.get_port())
+        .username(role)
+        .password(password)
+        .database(db)
+}
+
+/// A pool that signs in to the test server's database `db` as `role` with `password`, over TCP
+/// with SCRAM-SHA-256.
+async fn sign_in(db: &str, role: &str, password: &str) -> PgPool {
+    PgPoolOptions::new()
+        .max_connections(4)
+        .connect_with(over_tcp(db, role, password))
+        .await
+        .unwrap_or_else(|e| panic!("{role} signs in: {e}"))
+}
+
+/// Whether a sign-in over TCP as `role` with `password` is refused for the password (28P01).
+async fn refused(db: &str, role: &str, password: &str) -> bool {
+    use sqlx::Connection;
+    matches!(
+        sqlx::PgConnection::connect_with(&over_tcp(db, role, password)).await,
+        Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("28P01")
+    )
+}
+
+/// Gives a role a password as a SCRAM-SHA-256 verifier, as psql's \password does: no statement
+/// holds the password itself.
+async fn give_password(admin: &PgPool, role: &str, password: &str) {
+    let verifier = portal_role::verifier(password, b"salt-of-the-test", 4096).unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "ALTER ROLE {role} PASSWORD '{verifier}'"
+    )))
+    .execute(admin)
+    .await
+    .unwrap();
+}
+
+/// A database of a login of the test's own, as on a database server several programs share. The
+/// login has a password and signs in over TCP. With `createrole` it may create roles. The
+/// migrations are applied as that login. Also a pool of the server's superuser on that
+/// database, for what only a superuser reads (pg_authid). `None` without a test server.
+async fn owned_db(test: &str, createrole: bool) -> Option<(TestDb, String, PgPool)> {
+    let Ok(url) = std::env::var("SINGULARR_TEST_DATABASE_URL") else {
+        eprintln!("{test}: skipped, SINGULARR_TEST_DATABASE_URL is not set (see tools/gate.sh)");
+        return None;
+    };
+    let admin = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&url)
+        .await
+        .expect("the test database server is reachable");
+    let owner = format!("mq_{test}_{}", uuid_like());
+    let name = format!("mq_{test}db_{}", uuid_like());
+    let createrole = if createrole { " CREATEROLE" } else { "" };
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "CREATE ROLE {owner} LOGIN{createrole}"
+    )))
+    .execute(&admin)
+    .await
+    .unwrap();
+    give_password(&admin, &owner, LOGIN_PASSWORD).await;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "CREATE DATABASE \"{name}\" OWNER {owner}"
+    )))
+    .execute(&admin)
+    .await
+    .unwrap();
+    let pool = sign_in(&name, &owner, LOGIN_PASSWORD).await;
+    db::migrate(&pool)
+        .await
+        .expect("the migrations apply as the database's owner");
+    let base = url.rsplit_once('/').map(|(b, _)| b).unwrap_or(&url);
+    let superuser = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&format!("{base}/{name}"))
+        .await
+        .unwrap();
+    Some((TestDb { pool, admin, name }, owner, superuser))
+}
+
+async fn role_exists(pool: &PgPool, role: &str) -> bool {
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname::text = $1::text)")
+        .bind(role)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// What a role holds, read as the server's superuser: its attributes and its password, and every
+/// grant on a relation, a column, the schema and the database that names it (each list of grants
+/// sorted).
+async fn role_state(pool: &PgPool, role: &str) -> Vec<String> {
+    sqlx::query_scalar(
+        "WITH acl (kind, name, list) AS (
+             SELECT 'rel', c.relname::text, c.relacl FROM pg_class c
+                 JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public'
+             UNION ALL
+             SELECT 'col', c.relname::text || '.' || a.attname::text, a.attacl FROM pg_attribute a
+                 JOIN pg_class c ON c.oid = a.attrelid
+                 JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public'
+             UNION ALL
+             SELECT 'schema', nspname::text, nspacl FROM pg_namespace WHERE nspname = 'public'
+             UNION ALL
+             SELECT 'db', '', datacl FROM pg_database WHERE datname = current_database())
+         SELECT format('%s %s %s', kind, name,
+                       (SELECT string_agg(item::text, ',' ORDER BY item::text) FROM unnest(list) item))
+         FROM acl WHERE strpos(list::text, $1::text) > 0
+         UNION ALL
+         SELECT format('role %s %s %s %s %s %s %s %s %s %s', rolname, rolcanlogin, rolsuper,
+                       rolinherit, rolcreaterole, rolcreatedb, rolreplication, rolbypassrls,
+                       rolconnlimit, coalesce(rolpassword, '-'))
+         FROM pg_authid WHERE rolname::text = $1::text
+         ORDER BY 1",
+    )
+    .bind(role)
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+/// Base64 (RFC 4648) back to bytes: the salt of a stored verifier.
+fn base64_decoded(text: &str) -> Vec<u8> {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::new();
+    let (mut held, mut bits) = (0u32, 0);
+    for c in text.bytes().take_while(|c| *c != b'=') {
+        let value = ALPHABET
+            .iter()
+            .position(|a| *a == c)
+            .unwrap_or_else(|| panic!("not base64: {text}"));
+        held = (held << 6) | value as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((held >> bits) as u8);
+        }
+    }
+    out
+}
+
+async fn drop_roles(admin: &PgPool, roles: &[&str]) {
+    for role in roles {
+        sqlx::query(sqlx::AssertSqlSafe(format!("DROP ROLE IF EXISTS {role}")))
+            .execute(admin)
+            .await
+            .unwrap();
+    }
 }
 
 async fn drop_role(t: TestDb, role: &str, face: PgPool) {
@@ -4959,6 +5125,375 @@ async fn the_face_role_reads_its_views_and_nothing_else() {
             .is_empty()
     );
     drop_role(t, &role, face).await;
+}
+
+#[tokio::test]
+async fn the_full_process_keeps_the_portal_role() {
+    // Platform step A4: after the migrations, with a portal password set, the full process runs
+    // deploy/requests-role.sql for the portal's role. The password reaches the database as a
+    // SCRAM-SHA-256 verifier computed in process. A second start changes nothing. A grant the
+    // role lost is back at the next start. A login that may not create roles gets one warning
+    // naming the script. The checks of the role's views are the_face_role_reads_its_views_and_nothing_else,
+    // on a role made the same way (face_role).
+    let Some(t) = TestDb::new("portalrole").await else {
+        return;
+    };
+    face_data(&t.pool).await;
+    let role = format!("mq_face_{}", uuid_like());
+    let password = portal_password();
+    let config = portal_config(&role);
+    let unset = PortalRoleConfig {
+        role: Some(role.clone()),
+        password: None,
+    };
+    assert_eq!(portal_role::keep(&t.pool, &unset).await, Kept::NotAsked);
+    assert!(!role_exists(&t.pool, &role).await);
+
+    assert_eq!(
+        portal_role::keep(&t.pool, &config).await,
+        Kept::Created { role: role.clone() }
+    );
+    let attributes: (bool, bool, bool, bool, bool, bool, bool, i32) = sqlx::query_as(
+        "SELECT rolcanlogin, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolreplication,
+                rolbypassrls, rolconnlimit
+         FROM pg_roles WHERE rolname::text = $1::text",
+    )
+    .bind(&role)
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        attributes,
+        (true, false, false, false, false, false, false, 10),
+        "a login and nothing more, at most 10 connections"
+    );
+    // The password is the verifier the process sent, kept as it was: computed again from its own
+    // salt and iterations it is the same text. A password the server had hashed itself would
+    // not be.
+    let stored: String =
+        sqlx::query_scalar("SELECT rolpassword FROM pg_authid WHERE rolname::text = $1::text")
+            .bind(&role)
+            .fetch_one(&t.pool)
+            .await
+            .unwrap();
+    let (iterations, salt) = stored
+        .strip_prefix("SCRAM-SHA-256$")
+        .and_then(|rest| rest.split_once('$'))
+        .and_then(|(head, _)| head.split_once(':'))
+        .map(|(i, s)| (i.parse::<u32>().unwrap(), base64_decoded(s)))
+        .unwrap_or_else(|| panic!("not a SCRAM-SHA-256 verifier: {stored}"));
+    assert_eq!((iterations, salt.len()), (4096, 16));
+    assert_eq!(
+        portal_role::verifier(&password, &salt, iterations).as_deref(),
+        Some(stored.as_str())
+    );
+    assert!(!stored.contains(&password));
+
+    // A second start changes nothing: the role, its password and its grants are as they were.
+    let before = role_state(&t.pool, &role).await;
+    for grant in [
+        "rel face_rules ",
+        "rel face_my_requests ",
+        "col request_intents.kind ",
+        "col request_sessions.token_sha256 ",
+        "schema public ",
+        "db  ",
+        "role ",
+    ] {
+        assert!(
+            before.iter().any(|line| line.starts_with(grant)),
+            "{grant}: {before:#?}"
+        );
+    }
+    assert!(
+        !before.iter().any(|line| line.starts_with("rel requests ")),
+        "{before:#?}"
+    );
+    let granted = Kept::Granted {
+        role: role.clone(),
+        password_set: false,
+    };
+    assert_eq!(portal_role::keep(&t.pool, &config).await, granted);
+    assert_eq!(role_state(&t.pool, &role).await, before);
+
+    // A grant the role does not hold, such as the view of a later migration, is there after the
+    // next start.
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "REVOKE SELECT ON face_rules FROM {role}"
+    )))
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    assert_ne!(role_state(&t.pool, &role).await, before);
+    assert_eq!(portal_role::keep(&t.pool, &config).await, granted);
+    assert_eq!(role_state(&t.pool, &role).await, before);
+
+    // The role signs in with the password over TCP. It reads its views. It reads no table.
+    let face = sign_in(&t.name, &role, &password).await;
+    let rules = singularr::requests::store::face_rules(&face)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(rules.max_seasons, 2);
+    let e = sqlx::query("SELECT 1 FROM requests LIMIT 1")
+        .execute(&face)
+        .await
+        .unwrap_err();
+    assert!(denied(&e), "{e}");
+
+    // A role that is no portal role is left alone: this login itself, a role with more than a
+    // login, a word SQL reserves.
+    let me: String = sqlx::query_scalar("SELECT current_user::text")
+        .fetch_one(&t.pool)
+        .await
+        .unwrap();
+    let strong = format!("mq_strong_{}", uuid_like());
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "CREATE ROLE {strong} LOGIN CREATEDB"
+    )))
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    for (other, why) in [
+        (me.as_str(), "this database login itself"),
+        (strong.as_str(), "more than a login"),
+        ("user", "a word SQL reserves"),
+    ] {
+        let kept = portal_role::keep(&t.pool, &portal_config(other)).await;
+        assert!(
+            matches!(&kept, Kept::Warning(w) if w.contains(why) && w.contains("deploy/requests-role.sql")),
+            "{other}: {kept:?}"
+        );
+    }
+    assert!(
+        role_state(&t.pool, &strong)
+            .await
+            .iter()
+            .all(|line| line.starts_with("role ")),
+        "no grant to a role that is no portal role"
+    );
+
+    // An existing role is taken only when it looks like a portal role. Each of these is one
+    // warning, its grants left as they are.
+    let id = uuid_like();
+    let nologin = format!("mq_nologin_{id}");
+    let group = format!("mq_group_{id}");
+    let member = format!("mq_member_{id}");
+    let owner = format!("mq_objowner_{id}");
+    for statement in [
+        format!("CREATE ROLE {nologin} NOLOGIN"),
+        format!("CREATE ROLE {group} LOGIN"),
+        format!("CREATE ROLE {member} LOGIN"),
+        format!("GRANT {group} TO {member}"),
+        format!("CREATE ROLE {owner} LOGIN"),
+        "CREATE TABLE owned_by_another (id int)".to_string(),
+        format!("ALTER TABLE owned_by_another OWNER TO {owner}"),
+    ] {
+        sqlx::query(sqlx::AssertSqlSafe(statement))
+            .execute(&t.pool)
+            .await
+            .unwrap();
+    }
+    for (other, why) in [
+        (nologin.as_str(), "may not log in"),
+        (group.as_str(), "members other than this login"),
+        (member.as_str(), "memberships of its own"),
+        (owner.as_str(), "the owner of objects in the schema public"),
+        ("pg_monitor", "a name PostgreSQL keeps"),
+    ] {
+        let kept = portal_role::keep(&t.pool, &portal_config(other)).await;
+        assert!(
+            matches!(&kept, Kept::Warning(w) if w.contains(why)),
+            "{other}: {kept:?}"
+        );
+        assert!(
+            role_state(&t.pool, other)
+                .await
+                .iter()
+                .all(|line| line.starts_with("role ")),
+            "{other} got a grant"
+        );
+    }
+
+    // A login that may not create roles: the missing role is one warning naming the script. The
+    // start goes on without it.
+    let plain = format!("mq_login_{}", uuid_like());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE ROLE {plain} LOGIN")))
+        .execute(&t.pool)
+        .await
+        .unwrap();
+    give_password(&t.pool, &plain, LOGIN_PASSWORD).await;
+    let as_plain = sign_in(&t.name, &plain, LOGIN_PASSWORD).await;
+    let missing = format!("mq_face_{}", uuid_like());
+    let kept = portal_role::keep(&as_plain, &portal_config(&missing)).await;
+    let Kept::Warning(warning) = &kept else {
+        panic!("{kept:?}");
+    };
+    for part in ["deploy/requests-role.sql", "CREATEROLE", missing.as_str()] {
+        assert!(warning.contains(part), "{part}: {warning}");
+    }
+    assert!(!warning.contains(&password));
+    assert!(!role_exists(&t.pool, &missing).await);
+    as_plain.close().await;
+
+    face.close().await;
+    let admin = t.admin.clone();
+    t.drop_db().await;
+    drop_roles(
+        &admin,
+        &[
+            role.as_str(),
+            strong.as_str(),
+            plain.as_str(),
+            nologin.as_str(),
+            member.as_str(),
+            group.as_str(),
+            owner.as_str(),
+        ],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn an_existing_portal_role_needs_no_createrole() {
+    // As on a shared database server. The database belongs to a login without CREATEROLE. That
+    // login applies the migrations and signs in over TCP with a password. The portal's role was
+    // made by hand with the script as the server's superuser, its password set as psql's
+    // \password sets it. The login keeps the role: its grants again, no warning, its password
+    // as it is.
+    let Some((t, tenant, superuser)) = owned_db("tenant", false).await else {
+        return;
+    };
+    let role = format!("mq_face_{}", uuid_like());
+    sqlx::raw_sql(sqlx::AssertSqlSafe(portal_role::script_for(&role)))
+        .execute(&superuser)
+        .await
+        .expect("deploy/requests-role.sql applies by hand");
+    give_password(&superuser, &role, &portal_password()).await;
+    let before = role_state(&superuser, &role).await;
+    assert!(
+        before
+            .iter()
+            .any(|line| line.starts_with("rel face_discover ")),
+        "{before:#?}"
+    );
+    let config = portal_config(&role);
+    let granted = Kept::Granted {
+        role: role.clone(),
+        password_set: false,
+    };
+    assert_eq!(portal_role::keep(&t.pool, &config).await, granted);
+    assert_eq!(role_state(&superuser, &role).await, before);
+    // The grants are the owner's to give: a lost one is back at the next start.
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "REVOKE SELECT ON face_discover FROM {role}"
+    )))
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(portal_role::keep(&t.pool, &config).await, granted);
+    assert_eq!(role_state(&superuser, &role).await, before);
+    let face = sign_in(&t.name, &role, &portal_password()).await;
+    assert!(
+        singularr::requests::store::face_discover(&face)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let e = sqlx::query("SELECT 1 FROM copies LIMIT 1")
+        .execute(&face)
+        .await
+        .unwrap_err();
+    assert!(denied(&e), "{e}");
+    face.close().await;
+
+    // Its password changed by hand: the configured one does not sign in, and this login may not
+    // set it. One warning names psql's \password. Its grants stay as they were.
+    give_password(&superuser, &role, "a-password-set-elsewhere").await;
+    let kept = portal_role::keep(&t.pool, &config).await;
+    assert!(
+        matches!(&kept, Kept::Warning(w) if w.contains("\\password") && w.contains("may not change")),
+        "{kept:?}"
+    );
+    let grants = |state: Vec<String>| -> Vec<String> {
+        state
+            .into_iter()
+            .filter(|line| !line.starts_with("role "))
+            .collect()
+    };
+    assert_eq!(
+        grants(role_state(&superuser, &role).await),
+        grants(before.clone())
+    );
+
+    // A missing role: one warning naming the script.
+    let missing = format!("mq_face_{}", uuid_like());
+    let kept = portal_role::keep(&t.pool, &portal_config(&missing)).await;
+    assert!(
+        matches!(&kept, Kept::Warning(w) if w.contains("deploy/requests-role.sql") && w.contains("CREATEROLE")),
+        "{kept:?}"
+    );
+    assert!(!role_exists(&superuser, &missing).await);
+
+    // The database's owner is no portal role.
+    let kept = portal_role::keep(&superuser, &portal_config(&tenant)).await;
+    assert!(
+        matches!(&kept, Kept::Warning(w) if w.contains("the owner of this database")),
+        "{kept:?}"
+    );
+
+    superuser.close().await;
+    let admin = t.admin.clone();
+    t.drop_db().await;
+    drop_roles(&admin, &[role.as_str(), tenant.as_str()]).await;
+}
+
+#[tokio::test]
+async fn a_portal_role_with_another_password_gets_the_configured_one() {
+    // The database's owner may create roles. It made the portal's role at the first start. Then
+    // the role's password changed outside Singularr. The next start sets the configured one
+    // (password_set). The start after changes nothing. The portal signs in with SCRAM-SHA-256.
+    let Some((t, owner, superuser)) = owned_db("creator", true).await else {
+        return;
+    };
+    let role = format!("mq_face_{}", uuid_like());
+    let config = portal_config(&role);
+    assert_eq!(
+        portal_role::keep(&t.pool, &config).await,
+        Kept::Created { role: role.clone() }
+    );
+    give_password(&superuser, &role, "a-password-set-elsewhere").await;
+    assert!(refused(&t.name, &role, &portal_password()).await);
+    assert_eq!(
+        portal_role::keep(&t.pool, &config).await,
+        Kept::Granted {
+            role: role.clone(),
+            password_set: true
+        }
+    );
+    let stored = role_state(&superuser, &role).await;
+    assert_eq!(
+        portal_role::keep(&t.pool, &config).await,
+        Kept::Granted {
+            role: role.clone(),
+            password_set: false
+        }
+    );
+    assert_eq!(role_state(&superuser, &role).await, stored);
+    let face = sign_in(&t.name, &role, &portal_password()).await;
+    assert!(
+        singularr::requests::store::face_discover(&face)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    face.close().await;
+    assert!(refused(&t.name, &role, "a-password-set-elsewhere").await);
+
+    superuser.close().await;
+    let admin = t.admin.clone();
+    t.drop_db().await;
+    drop_roles(&admin, &[role.as_str(), owner.as_str()]).await;
 }
 
 #[tokio::test]

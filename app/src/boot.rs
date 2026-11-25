@@ -136,6 +136,11 @@ async fn serve_owner() -> Result<(), String> {
         .await
         .map_err(|e| format!("the migrations could not be applied: {e}"))?;
     tracing::info!("database migrations are applied");
+    // The portal's role, when a portal password is set (requests::role). A refusal is one
+    // warning. The start goes on.
+    singularr::requests::role::keep(&pool, &config.portal_role)
+        .await
+        .log();
     let journal = Journal::new();
     let pruned = singularr::api::state::prune_unconfigured(&pool, &journal, &config)
         .await

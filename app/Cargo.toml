@@ -21,7 +21,7 @@ chrono = { version = "0.4", features = ["serde"] }
 axum = { version = "0.8", features = ["macros"], optional = true }
 # Compressed answers (gzip, brotli), negotiated by Accept-Encoding: the API and the web client.
 tower-http = { version = "0.7", features = ["compression-gzip", "compression-br"], optional = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time", "net"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time", "net", "process"], optional = true }
 sqlx = { version = "0.9", features = ["postgres", "runtime-tokio", "tls-rustls-ring", "chrono", "migrate", "json"], optional = true }
 reqwest = { version = "0.13", features = ["json"], optional = true }
 async-trait = { version = "0.1", optional = true }
@@ -34,6 +34,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 sha2 = { version = "0.11", optional = true }
 hex = { version = "0.4", optional = true }
 subtle = { version = "2.6", optional = true }
+# The portal role's password as a SCRAM-SHA-256 verifier (requests::role): HMAC and SASLprep as
+# sqlx's own SCRAM sign-in uses them. The system's random source as uuid uses it. The lock file
+# holds all three already.
+hmac = { version = "0.13", optional = true }
+stringprep = { version = "0.1", optional = true }
+getrandom = { version = "0.4", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
 utoipa = { version = "6", features = ["axum_extras", "chrono"], optional = true }
 axum-prometheus = { version = "0.10", optional = true }
@@ -74,6 +80,9 @@ ssr = [
     "dep:sha2",
     "dep:hex",
     "dep:subtle",
+    "dep:hmac",
+    "dep:stringprep",
+    "dep:getrandom",
     "dep:uuid",
     "dep:utoipa",
     "dep:axum-prometheus",

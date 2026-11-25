@@ -11,6 +11,8 @@ them unset.
 |---|---|---|
 | `DATABASE_URL` | required | the PostgreSQL database (PostgreSQL 18 is the tested version). Migrations are built in and run at start |
 | `SINGULARR_DB_MAX_CONNECTIONS` | 10 | pool size |
+| `SINGULARR_REQUESTS_DB_PASSWORD` | unset | the password of the portal's database role, letters and digits only: the compose file puts it into the portal's database address as it is (`openssl rand -hex 32`). Set, each start creates the role when it is missing and gives it the grants of `deploy/requests-role.sql` again. The password reaches PostgreSQL as a SCRAM-SHA-256 verifier. No statement holds the password itself. Creating the role needs CREATEROLE (the compose file's database user has it). Without it the start logs one warning naming the script and goes on. Unset, the role is left as it is |
+| `SINGULARR_REQUESTS_DB_ROLE` | `singularr_requests` | the portal role's name: lowercase letters, digits and `_`. The compose file uses it in the portal's database address too. An existing role is taken only when it looks like a portal role: it logs in, holds no power and no membership, has no member but Singularr's login, and owns neither the database nor anything in the schema `public`. Otherwise the start logs one warning and leaves it alone |
 | `SINGULARR_LISTEN` | `0.0.0.0:3000` | the address the server listens on |
 | `SINGULARR_FACE` | `owner` | `requests` starts Singularr Requests, the viewer portal (below) |
 | `SINGULARR_WORKSPACE_NAME`, `SINGULARR_PORTAL_NAME` | `Singularr`, `Singularr Requests` | the names shown in the workspace and the portal |
@@ -18,9 +20,16 @@ them unset.
 | `SINGULARR_REQUESTS_PUBLIC_URL` | unset | the portal's public address, linked from the workspace |
 | `SINGULARR_SIGN_OUT_URL` | unset | the target of the workspace's Sign out (the sign-in proxy's sign-out address) |
 | `SINGULARR_INSTANCE` | unset | an instance file (`singularr.toml`) with workspace names and integrations beyond the environment's (below) |
-| `SINGULARR_DATA_DIR` | `/data` | the folder Singularr writes to: the location database it downloads (Statistics, below). The compose file mounts the volume `data` there. The image creates `/data` owned by uid 10001: a new volume starts out writable |
+| `SINGULARR_DATA_DIR` | `/data` | the folder Singularr writes to: the location database it downloads (Statistics, below) and the media tools' scratch files (`scratch`). The compose file mounts the volume `data` there. The image creates `/data` owned by uid 10001: a new volume starts out writable |
 | `RUST_LOG` | `info` | log filter |
 | `TZ` | `UTC` | time zone of the container |
+
+The image's health check is the binary's own: `singularrd health` asks `/readyz` at
+`SINGULARR_LISTEN`. It exits 0 when the server is ready, else 1. Singularr is ready when the database
+answers and the migrations are applied. Singularr Requests (`SINGULARR_FACE=requests`) is ready when
+its database role can read its views. The call goes straight to the listen address: a proxy set in
+the environment (`HTTP_PROXY`, `ALL_PROXY`) does not carry it. The image holds no curl.
+`docker exec <container> /app/singularrd health` asks the same.
 
 ## Sign-in
 
@@ -125,7 +134,8 @@ IP geolocation by [DB-IP](https://db-ip.com), licensed under
 | `SINGULARR_TMDB_TOKEN` | unset | a TMDB API read token |
 | `SINGULARR_TVDB_KEY` | unset | a TVDB v4 API key |
 | `SINGULARR_WATCH_REGION` | `US` | the region of release dates, certifications and where to watch |
-| `SINGULARR_SEARCH_URL`, `SINGULARR_SEARCH_KEY` | unset | a Meilisearch for search, used when both are set. Otherwise search is built in (PostgreSQL, typo tolerant with the `pg_trgm` extension) |
+| `SINGULARR_SEARCH_URL`, `SINGULARR_SEARCH_KEY` | unset | a Meilisearch for search, used when both are set. The compose file sets both to its `meilisearch` service and `MEILI_MASTER_KEY` unless `.env` sets them. Otherwise search is built in (PostgreSQL, typo tolerant with the `pg_trgm` extension). When Meilisearch does not answer, the built-in search does and `GET /api/v1/search/status` reports `provider: postgresql` with `state: warn`. Singularr waits for the compose file's Meilisearch to be healthy and starts without it when it never is |
+| `MEILI_MASTER_KEY` | required by the compose file | the master key of the compose file's Meilisearch, at least 16 characters (`openssl rand -hex 32`). The compose file passes it to Meilisearch and to Singularr. Its volume `search` holds the index. The next index pass rebuilds the index when the volume is lost |
 | `SINGULARR_SEARCH_PREFIX` | `singularr_` | the start of every Meilisearch index name |
 | `SINGULARR_PLEX_WEB_URL` | `https://app.plex.tv/desktop` | Plex's web app, for a title's Plex link. Jellyfin and Emby titles open in the server's own web app (`JELLYFIN_WEB_URL`, `EMBY_WEB_URL`) |
 
@@ -181,7 +191,7 @@ variable whose name ends `_API_KEY`, `_TOKEN` or `_PASS` (every integration secr
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `SINGULARR_REQUESTS_DATABASE_URL` | required | the login of the role `singularr_requests` (create it with `deploy/requests-role.sql`) |
+| `SINGULARR_REQUESTS_DATABASE_URL` | required | the login of the role `singularr_requests`. Singularr creates the role when `SINGULARR_REQUESTS_DB_PASSWORD` is set (above). The compose file builds this address from that password. Without it, run `deploy/requests-role.sql` as a role that may create roles and give the role its password with psql's `\password singularr_requests` |
 | `SINGULARR_REQUESTS_SESSION_SECRET` | required | at least 32 characters. Signs the Plex sign-in cookie |
 | `SINGULARR_REQUESTS_PUBLIC_URL` | required | the portal's own address. Plex returns the sign-in to it |
 | `SINGULARR_TMDB_TOKEN` | unset | for search and title pages |

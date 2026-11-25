@@ -1,0 +1,142 @@
+name: FFmpeg corresponding source
+
+# The corresponding source of the ffmpeg and ffprobe in the images: FFmpeg n9.0.2-39-g7adfbe40dc in
+# FFmpeg-Builds' LGPL static build, for linux64 (linux/amd64) and linuxarm64 (linux/arm64). Run by
+# hand, once per build. It makes one release, ffmpeg-source-n9.0.2-39-g7adfbe40dc. A second run adds
+# to that release. No other release is touched.
+#
+# The release holds every stage FFmpeg-Builds' lgpl variant enables on either target, each fetched
+# by its own download step at its pin. FFmpeg at its commit and FFmpeg-Builds itself (its scripts
+# and patches) come with them. MANIFEST.txt names each archive's origin, revision, SHA-256 and license. SHA256SUMS checks them.
+# ffmpeg-NOTICES.txt holds the license files of every library the build links. The repository's
+# third_party/ffmpeg/NOTICES.txt is a copy of it.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ffmpeg-source
+  cancel-in-progress: false
+
+env:
+  FFMPEG_VERSION: n9.0.2-39-g7adfbe40dc
+  FFMPEG_COMMIT: 7adfbe40dcde598f93a6963d2f7b22cd75202ccc
+  FFBUILDS_COMMIT: 5031c6f1082414e53688d39e521849905071070d
+  FFBUILDS_RELEASE: autobuild-2026-10-31-12-59
+  VARIANT: lgpl
+  ADDIN: "9.0"
+  TARGETS: linux64 linuxarm64
+  # FFmpeg-Builds' base image, where its download step runs: git, svn, cargo and its helpers.
+  BASE_IMAGE: ghcr.io/ffmpeg-builds/ffmpeg-builds/base@sha256:eeab273e4e259ba9c1d30663b2a49dce7a0ea02ecbcbad9f0bc476c6ce80149e
+  TAG: ffmpeg-source-n9.0.2-39-g7adfbe40dc
+
+jobs:
+  source:
+    name: corresponding source release
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: FFmpeg-Builds at its commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: FFmpeg-Builds/FFmpeg-Builds
+          ref: ${{ env.FFBUILDS_COMMIT }}
+          path: ffbuilds
+          persist-credentials: false
+      - name: The stages the lgpl variant enables on either target
+        run: |
+          # Each stage script's own ffbuild_enabled, asked as FFmpeg-Builds' generate.sh asks it:
+          # util/vars.sh for the target, the variant and the version addin first.
+          set -euo pipefail
+          cd ffbuilds
+          for target in $TARGETS; do
+            bash -c 'source util/vars.sh "$1" "$2" "$3" >/dev/null
+              for s in scripts.d/*.sh scripts.d/*/*.sh; do
+                if ( source "$s" && ffbuild_enabled ) >/dev/null 2>&1; then echo "$s"; fi
+              done' _ "$target" "$VARIANT" "$ADDIN"
+          done | sort -u > ../enabled.txt
+          echo "$(wc -l < ../enabled.txt) stages"
+          cat ../enabled.txt
+      - name: Each stage's source at its pin, fetched by its own download step
+        run: |
+          # third_party/ffmpeg/dl_stage.sh in the base image, as FFmpeg-Builds' download.sh runs a
+          # stage's ffbuild_dockerdl: one tar.xz per stage, its commands beside it.
+          set -euo pipefail
+          mkdir -p out
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp \
+            -v "$PWD/ffbuilds/scripts.d:/scripts.d:ro" \
+            -v "$PWD/ffbuilds/util/dl_functions.sh:/dl_functions.sh:ro" \
+            -v "$PWD/third_party/ffmpeg/dl_stage.sh:/dl_stage.sh:ro" \
+            -v "$PWD/enabled.txt:/enabled.txt:ro" \
+            -v "$PWD/out:/out" \
+            "$BASE_IMAGE" bash -c 'set -e
+              while read -r s; do
+                name="${s#scripts.d/}"; name="${name%.sh}"; name="${name//\//-}"
+                bash /dl_stage.sh "/$s" "/out/$name.tar.xz"
+              done < /enabled.txt'
+      - name: FFmpeg at its commit, and FFmpeg-Builds
+        run: |
+          set -euo pipefail
+          git init -q ffmpeg
+          git -C ffmpeg fetch -q --depth 1 https://github.com/FFmpeg/FFmpeg.git "$FFMPEG_COMMIT"
+          git -C ffmpeg archive --format=tar FETCH_HEAD | xz -T0 > "out/ffmpeg-$FFMPEG_VERSION.tar.xz"
+          git -C ffbuilds archive --format=tar HEAD | xz -T0 > "out/FFmpeg-Builds-$FFBUILDS_COMMIT.tar.xz"
+      - name: The build's two archives, for its configure lines
+        run: |
+          # The release's archives, checked against their SHA-256. The configuration in each one's
+          # ffprobe names the libraries that build links.
+          set -euo pipefail
+          mkdir -p builds
+          for pair in \
+            linux64:6046d6731b26f58887e953561551d254a6eec9fbca4100dfeab56e19af8328d5 \
+            linuxarm64:3d1f66827a73ce5a446312bc4924234dc1515726d3743e2df35c0177e1f82128; do
+            target="${pair%%:*}"
+            sum="${pair#*:}"
+            name="ffmpeg-$FFMPEG_VERSION-$target-$VARIANT-$ADDIN.tar.xz"
+            curl -fsSL --retry 3 -o "builds/$name" \
+              "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/$FFBUILDS_RELEASE/$name"
+            echo "$sum  builds/$name" | sha256sum -c -
+          done
+      - name: MANIFEST.txt, ffmpeg-NOTICES.txt and SHA256SUMS
+        run: |
+          set -euo pipefail
+          python3 -I third_party/ffmpeg/sources.py ffbuilds enabled.txt builds out
+          cd out
+          sha256sum -- *.tar.xz MANIFEST.txt ffmpeg-NOTICES.txt > SHA256SUMS
+          ls -la
+          # A release asset stays under 2 GB.
+          big="$(find . -maxdepth 1 -type f -size +1900M)"
+          if [ -n "$big" ]; then echo "an asset of 1.9 GB or more: $big"; exit 1; fi
+      - name: The release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          {
+            echo "The corresponding source of FFmpeg $FFMPEG_VERSION as FFmpeg-Builds builds it: its LGPL static"
+            echo "build (variant $VARIANT, version addin $ADDIN) for linux64 and linuxarm64, FFmpeg-Builds commit"
+            echo "$FFBUILDS_COMMIT, release $FFBUILDS_RELEASE."
+            echo ""
+            echo "It covers /usr/local/bin/ffmpeg and /usr/local/bin/ffprobe in the Singularr images of this"
+            echo "repository (ghcr.io/silenthooligan/singularr, linux/amd64 and linux/arm64) that carry this build."
+            echo "Their /usr/local/share/licenses/ffmpeg/SOURCE.txt names this release."
+            echo ""
+            echo "- ffmpeg-$FFMPEG_VERSION.tar.xz: FFmpeg at commit $FFMPEG_COMMIT."
+            echo "- FFmpeg-Builds-$FFBUILDS_COMMIT.tar.xz: the scripts and patches that built it."
+            echo "- One tar.xz per stage the variant enables on either target, fetched by the stage's own download step."
+            echo "- MANIFEST.txt: each archive's origin, revision, SHA-256 and license. SHA256SUMS: the checksums."
+            echo "- ffmpeg-NOTICES.txt: the license files of every library the build links."
+          } > notes.md
+          files=(out/*.tar.xz out/MANIFEST.txt out/ffmpeg-NOTICES.txt out/SHA256SUMS)
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "${files[@]}"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --latest=false \
+              --title "FFmpeg $FFMPEG_VERSION corresponding source" --notes-file notes.md "${files[@]}"
+          fi
