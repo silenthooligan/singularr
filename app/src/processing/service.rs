@@ -1913,7 +1913,12 @@ mod tests {
             .filter_map(|u| u.split_once("/history.json?limit="))
             .map(|(_, limit)| limit.to_string())
             .collect();
-        assert_eq!(limits, ["2000", "2000", "60", "60", "2000"]);
+        // Each pass's read went three times: a read that gets a 503 is sent again.
+        let asked: Vec<&str> = ["2000", "2000", "60", "60", "2000"]
+            .into_iter()
+            .flat_map(|limit| [limit; 3])
+            .collect();
+        assert_eq!(limits, asked);
         // Nothing but GET was sent.
         assert!(recorded.methods_seen().iter().all(|m| *m == Method::Get));
         // The setting that says how often a service is read names how long a whole read

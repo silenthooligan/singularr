@@ -10,7 +10,9 @@ use singularr::core::{db, media, store, units};
 use singularr::engines::Protocol;
 use singularr::engines::service::{EngineSet, allowlist};
 use singularr::metadata::service::ProviderSet;
+use singularr::plays::locations;
 use singularr::policy;
+use singularr_sdk::manifest::Manifest;
 use std::path::Path;
 use std::process::ExitCode;
 use std::time::Instant;
@@ -41,7 +43,7 @@ impl Report {
     }
 }
 
-/// Where a download client's address and sign-in are set, as its source names them:
+/// Where an integration's address and sign-in are set, as its source names them:
 /// `QBIT_URL, QBIT_USER and QBIT_PASS`.
 fn sign_in_vars(i: &Integration) -> String {
     let user = i.kind.takes_user().then(|| {
@@ -51,9 +53,28 @@ fn sign_in_vars(i: &Integration) -> String {
             format!("the `user` of integration {}", i.id)
         }
     });
-    match user {
-        Some(user) => format!("{}, {user} and {}", i.url_var, i.secret_var),
-        None => format!("{} and {}", i.url_var, i.secret_var),
+    needs(
+        i.kind.manifest(),
+        &i.url_var,
+        user.as_deref(),
+        &i.secret_var,
+    )
+}
+
+/// What an integration of a type needs set, as its manifest states it: the address, the user
+/// name of a type that signs in with one, and the secret unless the type runs without one.
+fn needs(m: &Manifest, url: &str, user: Option<&str>, secret: &str) -> String {
+    let mut vars = vec![url];
+    if m.takes_user {
+        vars.extend(user);
+    }
+    if m.takes_user || !m.secret.optional {
+        vars.push(secret);
+    }
+    match vars.split_last() {
+        Some((last, [])) => last.to_string(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+        None => String::new(),
     }
 }
 
@@ -194,16 +215,9 @@ pub async fn run() -> ExitCode {
         };
     let engines = EngineSet::from_config(&config, &outbound);
     for slot in engines.slots.iter().filter(|s| !s.configured) {
-        let var = slot.id.to_uppercase();
-        let client = config
-            .integration(&slot.id)
-            .filter(|i| i.kind.client().is_some());
-        let hint = if let Some(i) = client {
-            format!("Set {}", sign_in_vars(i))
-        } else if slot.kind == "hush" || slot.kind == "tdarr" {
-            format!("Set {var}_URL")
-        } else {
-            format!("Set {var}_URL and {var}_API_KEY")
+        let hint = match config.integration(&slot.id) {
+            Some(i) => format!("Set {}", sign_in_vars(i)),
+            None => format!("Set {}_URL", slot.id.to_uppercase()),
         };
         report.line(Level::Warn, &slot.id, "Not configured", Some(&hint));
     }
@@ -277,6 +291,56 @@ pub async fn run() -> ExitCode {
         }
     }
 
+    for server in &engines.media_servers {
+        let started = Instant::now();
+        match server.identity().await {
+            Ok(identity) => report.line(
+                Level::Ok,
+                server.id(),
+                &format!(
+                    "{}{}, {} ms: {}",
+                    server.kind(),
+                    identity
+                        .version
+                        .map(|v| format!(" {v}"))
+                        .unwrap_or_default(),
+                    started.elapsed().as_millis(),
+                    identity.name
+                ),
+                None,
+            ),
+            Err(e) => report.line(
+                Level::Fail,
+                server.id(),
+                &e.to_string(),
+                Some("401: wrong token or key; no answer: wrong address or network path"),
+            ),
+        }
+    }
+
+    if let Some(history) = &engines.play_history {
+        let started = Instant::now();
+        match history.status().await {
+            Ok(info) => report.line(
+                Level::Ok,
+                history.id(),
+                &format!(
+                    "{} {}, {} ms",
+                    info.app.unwrap_or_else(|| "Tautulli".to_string()),
+                    info.version.unwrap_or_default(),
+                    started.elapsed().as_millis()
+                ),
+                None,
+            ),
+            Err(e) => report.line(
+                Level::Fail,
+                history.id(),
+                &e.to_string(),
+                Some("A refusal: wrong API key; no answer: wrong address or network path"),
+            ),
+        }
+    }
+
     for processor in &engines.processors {
         let started = Instant::now();
         match processor.status().await {
@@ -324,6 +388,25 @@ pub async fn run() -> ExitCode {
                 Some("Mount it read-only, readable by uid 10001"),
             ),
         }
+    }
+
+    // The data folder: the one folder the server writes to (the location database, the media
+    // tools' scratch files). The probe is the location loop's own: a file written, then removed.
+    // The server runs without it. A folder that takes no file is a warning.
+    let data = Path::new(&config.geoip.data_dir);
+    match locations::writable(data) {
+        Ok(()) => report.line(
+            Level::Ok,
+            "Data folder",
+            &format!("{}, writable", data.display()),
+            None,
+        ),
+        Err(e) => report.line(
+            Level::Warn,
+            "Data folder",
+            &format!("{} takes no file: {e}", data.display()),
+            Some("Mount a volume at SINGULARR_DATA_DIR, writable by uid 10001"),
+        ),
     }
 
     // The media tools and the folder of their scratch files (core::media). Nothing needs them
@@ -375,5 +458,83 @@ pub async fn run() -> ExitCode {
     } else {
         println!("doctor: all checks passed");
         ExitCode::SUCCESS
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use singularr_sdk::manifest::{CountWords, Group, Kind, Maturity, PassSpec, SecretSpec};
+
+    /// A type no build lists, stated as a manifest alone.
+    static SAMPLE: Manifest = Manifest {
+        type_id: "sample",
+        name: "Sample",
+        label: "Sample Server",
+        kinds: &[Kind::PlayHistory],
+        group: Group::Server,
+        role: "plays",
+        description: "Plays and users",
+        reads: &["Plays", "Users"],
+        env_prefixes: &["SAMPLE"],
+        secret: SecretSpec {
+            key: "token",
+            label: "Token",
+            env_suffix: "TOKEN",
+            optional: false,
+            help: None,
+        },
+        takes_user: true,
+        web_url: false,
+        default_address: "http://sample:8400",
+        max_instances: Some(1),
+        actions: &[],
+        passes: &[PassSpec {
+            field: "syncEvery",
+            label: "Sync interval",
+            setting: "jobs.plays.historyEvery",
+        }],
+        counts: &[CountWords {
+            key: "plays",
+            one: "play",
+            many: "plays",
+        }],
+        maturity: Maturity::Untested,
+        http: singularr_sdk::http::HttpProfile::DEFAULT,
+    };
+
+    /// The doctor names what a type needs from its manifest: a new type's line needs no other
+    /// edit. A type that runs without its secret and signs in with no user needs its address.
+    #[test]
+    fn the_doctor_names_what_a_type_s_manifest_says_it_needs() {
+        assert_eq!(
+            needs(&SAMPLE, "SAMPLE_URL", Some("SAMPLE_USER"), "SAMPLE_TOKEN"),
+            "SAMPLE_URL, SAMPLE_USER and SAMPLE_TOKEN"
+        );
+        let alone = Manifest {
+            takes_user: false,
+            secret: SecretSpec {
+                optional: true,
+                ..SAMPLE.secret
+            },
+            ..SAMPLE
+        };
+        assert_eq!(
+            needs(&alone, "SAMPLE_URL", None, "SAMPLE_TOKEN"),
+            "SAMPLE_URL"
+        );
+        let keyed = Manifest {
+            takes_user: false,
+            ..SAMPLE
+        };
+        assert_eq!(
+            needs(&keyed, "SAMPLE_URL", None, "SAMPLE_TOKEN"),
+            "SAMPLE_URL and SAMPLE_TOKEN"
+        );
+        let plex = singularr::core::config::IntegrationType::Plex.manifest();
+        assert_eq!(
+            needs(plex, "PLEX_URL", None, "PLEX_TOKEN"),
+            "PLEX_URL and PLEX_TOKEN"
+        );
     }
 }

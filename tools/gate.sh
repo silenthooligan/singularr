@@ -77,6 +77,9 @@ step "clippy (ssr, workspace, all targets)" \
   cargo clippy --locked --workspace --all-targets --no-default-features --features ssr -- -D warnings
 step "tests (ssr, workspace)" \
   cargo test --locked --workspace --no-default-features --features ssr
+# The SDK alone, with no feature: what a connector built on it compiles against.
+step "tests (singularr-sdk, no features)" \
+  cargo test --locked -p singularr-sdk
 if [ "$PG_STARTED" = 1 ]; then
   # Each database-backed test creates a database of its own (log_statement=ddl logs it). None
   # means they skipped themselves although a server was up: that is a failure, not a pass.

@@ -53,7 +53,8 @@ pub fn plays_are_read(config: &Config) -> bool {
 }
 
 /// Whether the data folder takes a file. It is made when it is missing, then written to once.
-fn writable(dir: &Path) -> std::io::Result<()> {
+/// The doctor runs the same probe.
+pub fn writable(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let probe = dir.join(".singularr-write-check");
     std::fs::write(&probe, b"")?;

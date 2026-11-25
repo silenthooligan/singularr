@@ -581,6 +581,15 @@ async fn history_loop(deps: PlaysDeps, server: Arc<dyn MediaServer>) {
         if let Err(e) = &outcome {
             tracing::warn!(server = %id, error = %e, "the history pass failed");
         }
+        // The pass is the server's like its other passes: its failure shows on the server.
+        let passed = outcome.map(|_| PassOk::new(started.elapsed(), json!({})));
+        if let Err(e) = deps
+            .engines
+            .report(&deps.pool, &deps.journal, &id, HISTORY, passed)
+            .await
+        {
+            tracing::error!(server = %id, error = %e, "the engine state could not be recorded");
+        }
         job.wait(history_every(&deps.settings)).await;
     }
 }

@@ -72,7 +72,6 @@ pub struct EngineSet {
     /// The location database the statistics place addresses with: the plays' loop of locations
     /// puts a file in use, the routes read it.
     pub geoip: GeoIp,
-    health: Mutex<HashMap<String, bool>>,
 }
 
 /// How long the releases a search found can be grabbed by their names here: the managers keep
@@ -238,6 +237,10 @@ pub fn allowlist(config: &Config) -> Result<Allowlist, OutboundError> {
     if config.geoip.may_download() {
         allow.allow_integration("db-ip", geoip::ORIGIN, geoip::calls())?;
     }
+    // Each integration is called by its type's profile.
+    for i in &config.integrations {
+        allow.set_profile(&i.id, i.kind.manifest().http);
+    }
     Ok(allow)
 }
 
@@ -354,7 +357,6 @@ impl EngineSet {
             access: AccessBook::default(),
             searches: Searches::default(),
             geoip: GeoIp::default(),
-            health: Mutex::new(HashMap::new()),
         }
     }
 
@@ -430,8 +432,49 @@ impl EngineSet {
         self.slots.iter().find(|s| s.id == id)
     }
 
-    /// Record how a call to an engine went. When the engine changes between reachable and
-    /// not, an `engine_up` or `engine_down` event is appended in the same transaction.
+    /// The passes the loops of this set report on, by integration: the names `lifecycle::sync`,
+    /// `lifecycle::server`, `requests::sync`, `processing` and `plays` give them. With the sync
+    /// off no loop runs.
+    pub fn passes(&self, sync: bool) -> Vec<(String, &'static str)> {
+        let mut out = Vec::new();
+        if !sync {
+            return out;
+        }
+        for arr in &self.arrs {
+            let id = arr.engine().id.clone();
+            out.extend(["titles", "queue", "history"].map(|p| (id.clone(), p)));
+        }
+        for client in &self.download_clients {
+            out.push((client.id().to_string(), "downloads"));
+        }
+        for server in &self.media_servers {
+            out.push((server.id().to_string(), "server"));
+            if server.keeps_history() {
+                out.push((server.id().to_string(), "plays"));
+            }
+        }
+        for site in &self.request_sites {
+            out.push((site.id().to_string(), "requests"));
+        }
+        for processor in &self.processors {
+            out.push((processor.id().to_string(), "processing"));
+        }
+        if let Some(history) = &self.play_history {
+            out.push((history.id().to_string(), "plays"));
+        }
+        out
+    }
+
+    /// Remove the pass rows of every pass this process does not run: at start, before the loops.
+    pub async fn forget_other_passes(&self, pool: &PgPool, sync: bool) -> Result<u64, sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        store::keep_passes(&mut conn, &self.passes(sync)).await
+    }
+
+    /// Record how one pass of an engine went. The engine is up while every pass of it is: one
+    /// failing pass keeps it down whatever the others say. When the engine changes between up
+    /// and down, an `engine_up` or `engine_down` event is appended in the same transaction. The
+    /// state before is read in that transaction. A restart is then no change.
     pub async fn report(
         &self,
         pool: &PgPool,
@@ -444,32 +487,33 @@ impl EngineSet {
             .slot(engine)
             .map(|s| (s.kind.clone(), s.library.clone()))
             .unwrap_or_else(|| (engine.to_string(), None));
-        let now_ok = outcome.is_ok();
-        observe::engine_up(engine, now_ok);
-        let known = self.health.lock().unwrap().get(engine).copied();
 
         let mut tx = journal.begin(pool).await?;
-        let before = match known {
-            Some(v) => Some(v),
-            None => store::was_ok(tx.conn(), engine).await?,
-        };
+        let before = store::was_ok(tx.conn(), engine).await?;
         match &outcome {
             Ok(ok) => {
+                let latency = i32::try_from(ok.took.as_millis()).unwrap_or(i32::MAX);
                 store::record_ok(
                     tx.conn(),
                     engine,
                     &kind,
                     library.as_deref(),
                     ok.version.as_deref(),
-                    i32::try_from(ok.took.as_millis()).unwrap_or(i32::MAX),
+                    latency,
                     &ok.counts,
                 )
-                .await?
+                .await?;
+                store::record_pass_ok(tx.conn(), engine, pass, latency).await?;
             }
             Err(error) => {
-                store::record_error(tx.conn(), engine, &kind, library.as_deref(), error).await?
+                store::record_error(tx.conn(), engine, &kind, library.as_deref(), error).await?;
+                store::record_pass_error(tx.conn(), engine, pass, error).await?;
             }
         }
+        let now_ok = store::was_ok(tx.conn(), engine)
+            .await?
+            .unwrap_or(outcome.is_ok());
+        // A turn comes from this pass: up only when it succeeded, down only when it failed.
         if before != Some(now_ok) {
             let (kind_of_event, body) = match &outcome {
                 Ok(ok) => (
@@ -491,10 +535,7 @@ impl EngineSet {
             .await?;
         }
         tx.commit().await?;
-        self.health
-            .lock()
-            .unwrap()
-            .insert(engine.to_string(), now_ok);
+        observe::engine_up(engine, now_ok);
         Ok(())
     }
 }
@@ -555,25 +596,6 @@ pub async fn statuses(pool: &PgPool, set: &EngineSet) -> AppResult<Vec<EngineSta
         .collect())
 }
 
-/// The integration types this version reads. The others are listed with their configuration
-/// and marked as not read yet.
-pub const READ_TYPES: [IntegrationType; 14] = [
-    IntegrationType::Plex,
-    IntegrationType::Jellyfin,
-    IntegrationType::Emby,
-    IntegrationType::Radarr,
-    IntegrationType::Sonarr,
-    IntegrationType::Qbittorrent,
-    IntegrationType::Transmission,
-    IntegrationType::Deluge,
-    IntegrationType::Sabnzbd,
-    IntegrationType::Nzbget,
-    IntegrationType::Tdarr,
-    IntegrationType::Hush,
-    IntegrationType::Seerr,
-    IntegrationType::Tautulli,
-];
-
 /// What a processing integration of this type is in the pipeline, configured or not: `bridge`
 /// or `worker`. `None` for a type that processes nothing.
 pub fn processing_role(kind: IntegrationType) -> Option<&'static str> {
@@ -608,7 +630,7 @@ pub fn integration_view(
 ) -> IntegrationView {
     let (state, detail) = if let Some(why) = i.missing() {
         ("warn", format!("Not configured: {why}"))
-    } else if !READ_TYPES.contains(&i.kind) {
+    } else if !i.kind.manifest().read() {
         ("warn", "Not supported".to_string())
     } else {
         match row {
@@ -636,35 +658,17 @@ pub fn integration_view(
     }
 }
 
-/// The counts an integration's line says, in the line's order, with their words for one and
-/// for many. The passes record more (`counts` keeps every one); the line names these alone.
-const COUNT_WORDS: &[(&str, &str, &str)] = &[
-    ("titles", "title", "titles"),
-    ("items", "item", "items"),
-    ("albums", "album", "albums"),
-    ("tracks", "track", "tracks"),
-    ("queue", "in queue", "in queue"),
-    ("grabs_known", "grab", "grabs"),
-    ("torrents", "torrent", "torrents"),
-    ("downloads", "download", "downloads"),
-    ("requests", "request", "requests"),
-    ("pending_on_site", "pending", "pending"),
-    ("runs", "run", "runs"),
-    ("runs_open", "open", "open"),
-    ("nodes", "node", "nodes"),
-    ("workers_busy", "busy", "busy"),
-    ("plays", "play", "plays"),
-];
-
 /// What the last passes counted, counts only (`docs/copy.md`): `4,470 titles, 3 in queue`.
+/// The numbers named are those the manifests give words for (`manifests::count_words`). The
+/// passes record more (`counts` keeps every one).
 fn counts_text(counts: &serde_json::Value) -> String {
-    let parts: Vec<String> = COUNT_WORDS
+    let parts: Vec<String> = super::manifests::count_words()
         .iter()
-        .filter_map(|(key, one, many)| {
+        .filter_map(|w| {
             counts
-                .get(key)
+                .get(w.key)
                 .and_then(serde_json::Value::as_i64)
-                .map(|n| units::counted(n, one, many))
+                .map(|n| units::counted(n, w.one, w.many))
         })
         .collect();
     if parts.is_empty() {
@@ -1502,5 +1506,47 @@ mod tests {
             &Outbound::new(allow, Duration::from_secs(5)).unwrap(),
         );
         assert!(set.download_clients.is_empty() && !set.slot("deluge").unwrap().configured);
+    }
+
+    /// Every adapter's calls, as the allowlist lists them with every type configured, hold a
+    /// command taken on GET to the GETs declared beside it.
+    #[test]
+    fn every_adapter_s_calls_pass_the_check_of_declared_calls() {
+        let env = BTreeMap::from([
+            ("DATABASE_URL", "postgres://x@127.0.0.1:1/x"),
+            ("RADARR_URL", "http://10.0.1.1:7878"),
+            ("RADARR_API_KEY", "a-key"),
+            ("SONARR_URL", "http://10.0.1.2:8989"),
+            ("SONARR_API_KEY", "a-key"),
+            ("QBIT_URL", "http://10.0.1.3:8080"),
+            ("TRANSMISSION_URL", "http://10.0.1.4:9091"),
+            ("DELUGE_URL", "http://10.0.1.5:8112"),
+            ("DELUGE_PASS", "a-password"),
+            ("SABNZBD_URL", "http://10.0.1.6:8080"),
+            ("SABNZBD_API_KEY", "a-key"),
+            ("NZBGET_URL", "http://10.0.1.7:6789"),
+            ("PLEX_URL", "http://10.0.1.8:32400"),
+            ("PLEX_TOKEN", "a-token"),
+            ("JELLYFIN_URL", "http://10.0.1.9:8096"),
+            ("JELLYFIN_API_KEY", "a-key"),
+            ("EMBY_URL", "http://10.0.1.10:8096"),
+            ("EMBY_API_KEY", "a-key"),
+            ("TAUTULLI_URL", "http://10.0.1.11:8181"),
+            ("TAUTULLI_API_KEY", "a-key"),
+            ("TDARR_URL", "http://10.0.1.12:8265"),
+            ("HUSH_URL", "http://10.0.1.13:8787"),
+            ("SEERR_URL", "http://10.0.1.14:5055"),
+            ("SEERR_API_KEY", "a-key"),
+        ]);
+        let config = Config::from(&env).unwrap();
+        let allow = allowlist(&config).unwrap();
+        let mut checked = 0;
+        for (address, rule) in allow.hosts() {
+            rule.check()
+                .unwrap_or_else(|e| panic!("{address} ({}): {e}", rule.label));
+            checked += 1;
+        }
+        // The three metadata providers and fourteen integrations at least.
+        assert!(checked >= 17, "{checked} hosts");
     }
 }

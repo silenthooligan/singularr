@@ -1,7 +1,7 @@
 //! SQL over the catalog's tables: `libraries`, `titles`, `title_engines`, `seasons`,
 //! `episodes`, `copies`, `title_editions`, `untracked_files` and `movie_folder_scan`.
 
-use super::ingest::{Assessment, EngineRef, FileFacts, TitleFacts};
+use super::ingest::{self, Assessment, EngineRef, FileFacts, TitleFacts};
 use super::model::{
     ArrReading, CatalogCounts, CopyEdition, CopyQuery, CopyView, DiffCounts, EngineFacts,
     FolderScanStatus, Library, Season, SingularrReading, TitleAbout, TitleQuery, TitleSummary,
@@ -1050,13 +1050,13 @@ pub async fn upsert_title(
              updated_at = now()
          RETURNING id, (xmax = 0) AS inserted",
     )
-    .bind(t.ext_key(engine))
+    .bind(ingest::ext_key(t, engine))
     .bind(t.kind.as_str())
     .bind(t.tmdb_id.filter(|n| *n > 0))
     .bind(t.tvdb_id.filter(|n| *n > 0))
     .bind(t.imdb_id.as_deref().filter(|s| !s.is_empty()))
     .bind(&t.title)
-    .bind(t.sort_key())
+    .bind(ingest::sort_key(t))
     .bind(t.year.filter(|y| *y > 0))
     .bind(&t.original_language)
     .bind(&t.poster_url)
@@ -1115,7 +1115,7 @@ pub async fn upsert_link(
     .bind(t.added_at)
     .bind(t.file_count)
     .bind(t.size_bytes)
-    .bind(t.facts_hash())
+    .bind(ingest::title_facts_hash(t))
     .bind(t.episode_count)
     .bind(t.total_episode_count)
     .bind(Json(&t.seasons))

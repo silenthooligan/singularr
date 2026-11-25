@@ -6,7 +6,8 @@
 # image),
 # hands out the web client at its clean addresses, and answers the API. The sync is switched off:
 # no engine is asked. It runs `singularrd health`. With an image it waits for Docker to report
-# the container healthy. With an image it also starts the
+# the container healthy. With an image the container has a read-only root and a new named
+# volume at /data. The doctor's write must land in that volume. With an image it also starts the
 # same image as Singularr Requests (SINGULARR_FACE=requests) on the role of
 # deploy/requests-role.sql. The full process creates that role at its start. Its password reaches
 # the database as a SCRAM verifier: no statement the database logs holds it. The check then sees
@@ -43,9 +44,13 @@ if [ -n "${SMOKE_IMAGE:-}" ]; then
   FACE_PASS="$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   APP="$ID-app"
   FACE="$ID-face"
+  # The data folder: a named volume made for this run, empty, mounted at /data as the compose
+  # files mount theirs. Docker gives a new volume the owner of the image's /data (uid 10001).
+  DATA="$ID-data"
   cleanup() {
     docker rm -f "$ID-curl" "$ID-face-curl" "$APP" "$FACE" "$ID-pg" "$ID-meili" >/dev/null 2>&1 || true
     docker network rm "$ID" >/dev/null 2>&1 || true
+    docker volume rm "$DATA" >/dev/null 2>&1 || true
   }
   # A curl beside a container, in its network: `docker exec <name> curl ...` reaches its 127.0.0.1.
   curl_beside() { # name of the curl container, the container whose network it shares
@@ -80,8 +85,11 @@ if [ -n "${SMOKE_IMAGE:-}" ]; then
   done
   [ "$ready" = 1 ] || { echo "Meilisearch did not come up in its container" >&2; exit 2; }
   # The image's health check runs every 2 s here. Docker then reports the state within the smoke
-  # run.
+  # run. The container runs as the compose files run it: a read-only root, a 64 MB tmpfs at /tmp
+  # and the data volume at /data.
+  docker volume create "$DATA" >/dev/null
   docker run -d --name "$APP" --network "$ID" --health-interval=2s \
+    --read-only --tmpfs /tmp:size=64m -v "$DATA:/data" \
     -e DATABASE_URL="postgres://singularr:$PASS@$ID-pg:5432/singularr" \
     -e SINGULARR_REQUESTS_DB_PASSWORD="$FACE_PASS" \
     -e SINGULARR_OWNER_EMAILS=owner@example.com -e SINGULARR_TRUSTED_PROXY_IPS=127.0.0.1 \
@@ -172,18 +180,28 @@ check "api parse" 200 '"quality":"Bluray-1080p"' "${OWNER[@]}" -H "content-type:
   -d '{"name":"Movie.2004.1080p.BluRay.x265-QxR"}' "$BASE/api/v1/releases/parse"
 check "event stream" 200 "event: connected" "${OWNER[@]}" --max-time 2 "$BASE/api/v1/events/stream"
 
-# The media tools (image mode): the doctor finds ffmpeg and ffprobe at /usr/local/bin. Its other
-# checks fail here (no engine answers). Only these two lines count.
+# The media tools and the data folder (image mode): the doctor finds ffmpeg and ffprobe at
+# /usr/local/bin and writes to the volume at /data on the read-only root. Its other checks fail
+# here (no engine answers). Only these lines count.
 if [ -n "${SMOKE_IMAGE:-}" ]; then
   doctor_out="$(docker exec "$APP" /app/singularrd doctor 2>&1 || true)"
-  for tool in ffmpeg ffprobe; do
-    line="$(grep -E "^OK +$tool: " <<<"$doctor_out" || true)"
+  for what in ffmpeg ffprobe "Data folder" "Scratch folder"; do
+    line="$(grep -E "^OK +$what: " <<<"$doctor_out" || true)"
     if [ -n "$line" ]; then
-      echo "ok    doctor, $tool: ${line#*: }"
+      echo "ok    doctor, $what: ${line#*: }"
     else
-      echo "FAIL  doctor, $tool: $(grep -E "^[A-Z]+ +$tool: " <<<"$doctor_out" || echo "no line")"; fail=1
+      echo "FAIL  doctor, $what: $(grep -E "^[A-Z]+ +$what: " <<<"$doctor_out" || echo "no line")"; fail=1
     fi
   done
+  # What the process wrote is in the volume: another container that mounts it read-only finds
+  # the scratch folder, owned by uid 10001.
+  owner="$(docker run --rm -v "$DATA:/data:ro" --entrypoint sh "$CURL_IMAGE" \
+    -c 'stat -c %u /data/scratch' 2>&1 || true)"
+  if [ "$owner" = 10001 ]; then
+    echo "ok    the data volume holds the scratch folder, owned by uid 10001"
+  else
+    echo "FAIL  the data volume's scratch folder: ${owner:-not found}"; fail=1
+  fi
 fi
 
 # The interface: the web client's static files at clean addresses, for anyone. They hold no

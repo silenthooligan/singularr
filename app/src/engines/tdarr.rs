@@ -150,6 +150,7 @@ fn whole() -> BodyRule {
 fn acts(calls: Calls) -> Calls {
     calls
         .act_with(
+            "limits",
             Method::Post,
             LIMIT_PATH,
             BodyRule::new()
@@ -159,6 +160,7 @@ fn acts(calls: Calls) -> Calls {
                 .one_of("/data/workerType", &WORKER_TYPES),
         )
         .act_with(
+            "pause",
             Method::Post,
             NODE_PATH,
             BodyRule::new()
@@ -168,6 +170,7 @@ fn acts(calls: Calls) -> Calls {
                 .flag("/data/nodeUpdates/nodePaused"),
         )
         .act_with(
+            "cancel",
             Method::Post,
             CANCEL_PATH,
             BodyRule::new()
@@ -177,6 +180,7 @@ fn acts(calls: Calls) -> Calls {
                 .one_of("/data/cause", &[CANCEL_CAUSE]),
         )
         .act_with(
+            "requeue",
             Method::Post,
             REQUEUE_PATH,
             BodyRule::new()
@@ -186,6 +190,7 @@ fn acts(calls: Calls) -> Calls {
                 .one_of("/data/updatedObj/TranscodeDecisionMaker", &[QUEUED]),
         )
         .act_with(
+            "scan",
             Method::Post,
             SCAN_PATH,
             BodyRule::new()
@@ -196,6 +201,7 @@ fn acts(calls: Calls) -> Calls {
                 .text("/data/scanConfig/arrayOrPath"),
         )
         .act_with(
+            "watch",
             Method::Post,
             WATCH_PATH,
             BodyRule::new()
@@ -206,6 +212,7 @@ fn acts(calls: Calls) -> Calls {
                 .flag("/data/status"),
         )
         .act_with(
+            "flow",
             Method::Post,
             RECORDS_PATH,
             BodyRule::new()

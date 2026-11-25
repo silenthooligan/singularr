@@ -162,8 +162,9 @@ pub async fn check_health(listen: &str, timeout: Duration) -> Result<(), String>
     let base = url.trim_end_matches("/readyz");
     let out =
         Outbound::direct("singularrd", base, "/readyz", timeout).map_err(|e| e.to_string())?;
+    // A time limit of its own: the probe is sent once, within the image's health check.
     let res = out
-        .send(OutRequest::get(&url))
+        .send(OutRequest::get(&url).timeout(timeout))
         .await
         .map_err(|e| e.to_string())?;
     if res.status == 200 {

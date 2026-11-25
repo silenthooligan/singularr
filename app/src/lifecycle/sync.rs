@@ -2,8 +2,8 @@
 //!
 //! The engines are shared production services, so the loops are slow by default, start
 //! with a random delay, read a show's files only when its file count changed (plus a full
-//! pass every few hours), and never stop on a failure: the failure is recorded in
-//! `engine_state`, a change between reachable and not goes to the journal, and the next
+//! pass every few hours), and never stop on a failure: the failure is recorded with its pass
+//! (`integration_health`), a change between up and down goes to the journal, and the next
 //! tick tries again.
 
 use super::downloads::{Claims, reconcile};

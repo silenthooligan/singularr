@@ -228,6 +228,18 @@ async fn serve_owner() -> Result<(), String> {
     for engine in &engines.slots {
         observe::engine_up(&engine.id, false);
     }
+    // The pass rows of a loop this process does not run would keep their integration down.
+    match engines
+        .forget_other_passes(&pool, config.sync.enabled)
+        .await
+    {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(
+            rows = n,
+            "pass rows of passes this process does not run removed"
+        ),
+        Err(e) => tracing::warn!(error = %e, "the pass rows could not be tidied"),
+    }
     // The gauges at /metrics are refreshed from the tables whether or not the sync runs.
     let gauges = sync::spawn_gauges(pool.clone());
     let sync = if config.sync.enabled {

@@ -18,24 +18,13 @@ use sqlx::PgPool;
 use std::collections::BTreeMap;
 use std::sync::{PoisonError, RwLock};
 
-/// One thing Singularr can do to a service beyond reading it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Action {
-    pub id: &'static str,
-    pub label: &'static str,
-}
+/// One thing Singularr can do to a service beyond reading it: the SDK's, at its old path.
+pub use singularr_sdk::manifest::Action;
 
-/// The actions the adapter of a type declares. None: Singularr can only read the type.
+/// The actions the adapter of a type declares, as its manifest lists them. None: Singularr can
+/// only read the type.
 pub fn actions_of(kind: IntegrationType) -> &'static [Action] {
-    if let Some(client) = kind.client() {
-        return super::clients::actions(client);
-    }
-    match kind {
-        IntegrationType::Hush => super::hush::ACTIONS,
-        IntegrationType::Tdarr => super::tdarr::ACTIONS,
-        IntegrationType::Radarr | IntegrationType::Sonarr => super::arr::ACTIONS,
-        _ => &[],
-    }
+    kind.manifest().actions
 }
 
 /// What Singularr may do with one integration, and where that comes from.
@@ -348,7 +337,11 @@ mod tests {
     fn listed(id: &str) -> Allowlist {
         let mut allow = Allowlist::default();
         allow
-            .allow_integration(id, BRIDGE, Calls::default().act(Method::Post, "/stage"))
+            .allow_integration(
+                id,
+                BRIDGE,
+                Calls::default().act("send", Method::Post, "/stage"),
+            )
             .unwrap();
         allow
     }

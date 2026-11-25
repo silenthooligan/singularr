@@ -4,30 +4,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use singularr_core::{ParsedRelease, Verdict};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "ssr", derive(utoipa::ToSchema))]
-#[serde(rename_all = "lowercase")]
-pub enum TitleKind {
-    Movie,
-    Show,
-}
-
-impl TitleKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            TitleKind::Movie => "movie",
-            TitleKind::Show => "show",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<TitleKind> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "movie" | "movies" => Some(TitleKind::Movie),
-            "show" | "shows" | "series" => Some(TitleKind::Show),
-            _ => None,
-        }
-    }
-}
+/// The kind of a title, what a title is, and one season as an engine reports it: the SDK's
+/// types at their old paths.
+pub use singularr_sdk::model::{EngineSeason, TitleAbout, TitleKind};
 
 /// A library: the set of files one media server plays from.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -97,64 +76,6 @@ pub struct TitleQuery {
     pub order: Option<String>,
     pub page: Option<u32>,
     pub per_page: Option<u32>,
-}
-
-/// What a title is, as the arrs describe it in their title lists. A field is absent until an
-/// engine gives it. In the API these fields sit next to the title's other fields.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "ssr", derive(utoipa::ToSchema, sqlx::FromRow))]
-pub struct TitleAbout {
-    pub overview: Option<String>,
-    #[serde(default)]
-    pub genres: Vec<String>,
-    pub runtime_minutes: Option<i32>,
-    /// The age rating: `PG-13`, `TV-MA`.
-    pub certification: Option<String>,
-    /// Movies: the studio.
-    pub studio: Option<String>,
-    /// Shows: the network.
-    pub network: Option<String>,
-    /// Movies: the collection the movie belongs to, by name.
-    pub collection: Option<String>,
-    /// Movies: that collection's TMDB id.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "ssr", sqlx(default))]
-    pub collection_tmdb_id: Option<i64>,
-    /// Movies: the title in its original language, when the manager gives one that differs.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(feature = "ssr", sqlx(default))]
-    pub original_title: Option<String>,
-    /// From 0 to 10, to one decimal. Movies: TMDB's rating. Shows: the rating Sonarr gives.
-    pub rating: Option<f64>,
-    /// Movies: IMDb's rating, from 0 to 10.
-    pub imdb_rating: Option<f64>,
-    /// A wide background image, next to `poster_url`.
-    pub fanart_url: Option<String>,
-    /// A banner image. Shows have one more often than movies.
-    pub banner_url: Option<String>,
-    /// Shows: when the first episode aired.
-    pub first_aired: Option<DateTime<Utc>>,
-    /// Shows: when the next episode airs. Absent when none is scheduled.
-    pub next_airing: Option<DateTime<Utc>>,
-    /// Movies: the theatrical release.
-    pub in_cinemas: Option<DateTime<Utc>>,
-    /// Movies: the digital release.
-    pub digital_release: Option<DateTime<Utc>>,
-}
-
-/// One season of a show as one engine reports it.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "ssr", derive(utoipa::ToSchema))]
-pub struct EngineSeason {
-    pub season_number: i32,
-    pub monitored: bool,
-    /// Episodes the engine counts toward completion: monitored and aired, or held.
-    pub episode_count: i32,
-    /// Every episode the engine knows of in the season, aired or not.
-    pub total_episode_count: i32,
-    /// Episodes with a file.
-    pub episode_file_count: i32,
-    pub size_bytes: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

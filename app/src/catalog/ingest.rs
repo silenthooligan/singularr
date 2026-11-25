@@ -3,133 +3,58 @@
 //! The catalog does not parse or score. It asks an [`Assess`] implementation, which the
 //! `releases` module provides, so the layer order holds and there is one way to assess a file.
 
-use super::model::{TitleAbout, TitleKind};
-use chrono::{DateTime, Utc};
+use super::model::TitleKind;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use singularr_core::{EditionRead, ParsedRelease, Verdict};
 
-/// The engine a snapshot came from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EngineRef {
-    pub id: String,
-    pub library: String,
-    pub kind: TitleKind,
+/// What an engine hands the catalog: the SDK's types at their old paths.
+pub use singularr_sdk::model::{EngineRef, FileFacts, SeasonFacts, TitleFacts};
+
+/// Who a sync of this engine writes as: `sync:<integration id>`.
+pub fn actor(engine: &EngineRef) -> String {
+    format!("sync:{}", engine.id)
 }
 
-impl EngineRef {
-    pub fn actor(&self) -> String {
-        format!("sync:{}", self.id)
+/// The identity shared by every engine that holds the title.
+pub fn ext_key(title: &TitleFacts, engine: &str) -> String {
+    let id = |v: Option<i64>| v.filter(|n| *n > 0);
+    match title.kind {
+        TitleKind::Movie => match (id(title.tmdb_id), title.imdb_id.as_deref()) {
+            (Some(tmdb), _) => format!("movie:tmdb:{tmdb}"),
+            (None, Some(imdb)) if !imdb.is_empty() => format!("movie:imdb:{imdb}"),
+            _ => format!("movie:{engine}:{}", title.engine_title_id),
+        },
+        TitleKind::Show => match id(title.tvdb_id) {
+            Some(tvdb) => format!("show:tvdb:{tvdb}"),
+            None => format!("show:{engine}:{}", title.engine_title_id),
+        },
     }
 }
 
-/// One season of a show as the engine reports it: the same shape the API returns.
-pub use super::model::EngineSeason as SeasonFacts;
-
-/// One title as an engine reports it.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct TitleFacts {
-    pub engine_title_id: i64,
-    pub kind: TitleKind,
-    pub title: String,
-    pub sort_title: Option<String>,
-    pub year: Option<i32>,
-    pub tmdb_id: Option<i64>,
-    pub tvdb_id: Option<i64>,
-    pub imdb_id: Option<String>,
-    pub original_language: Option<String>,
-    pub poster_url: Option<String>,
-    pub status: Option<String>,
-    pub path: Option<String>,
-    pub monitored: bool,
-    pub profile: Option<String>,
-    pub lane: Option<String>,
-    pub tags: Vec<String>,
-    pub added_at: Option<DateTime<Utc>>,
-    pub file_count: i32,
-    pub size_bytes: i64,
-    pub seasons: Vec<SeasonFacts>,
-    /// Shows: the engine's episode counts over the whole show (monitored and aired, or held;
-    /// and every episode it knows of). `file_count` is the number of episodes with a file.
-    pub episode_count: Option<i32>,
-    pub total_episode_count: Option<i32>,
-    /// The descriptive facts: overview, genres, runtime, rating, images, dates.
-    pub about: TitleAbout,
-    /// The title's files when the engine lists them with the title (movies). `None` when
-    /// files are read per title (shows).
-    #[serde(skip)]
-    pub files: Option<Vec<FileFacts>>,
+/// Changes when anything the catalog stores about the title changes.
+pub fn title_facts_hash(title: &TitleFacts) -> String {
+    hash_json(title)
 }
 
-impl TitleFacts {
-    /// The identity shared by every engine that holds the title.
-    pub fn ext_key(&self, engine: &str) -> String {
-        let id = |v: Option<i64>| v.filter(|n| *n > 0);
-        match self.kind {
-            TitleKind::Movie => match (id(self.tmdb_id), self.imdb_id.as_deref()) {
-                (Some(tmdb), _) => format!("movie:tmdb:{tmdb}"),
-                (None, Some(imdb)) if !imdb.is_empty() => format!("movie:imdb:{imdb}"),
-                _ => format!("movie:{engine}:{}", self.engine_title_id),
-            },
-            TitleKind::Show => match id(self.tvdb_id) {
-                Some(tvdb) => format!("show:tvdb:{tvdb}"),
-                None => format!("show:{engine}:{}", self.engine_title_id),
-            },
+pub fn sort_key(title: &TitleFacts) -> String {
+    let base = title
+        .sort_title
+        .as_deref()
+        .unwrap_or(&title.title)
+        .to_lowercase();
+    for article in ["the ", "a ", "an "] {
+        if let Some(rest) = base.strip_prefix(article) {
+            return rest.to_string();
         }
     }
-
-    /// Changes when anything the catalog stores about the title changes.
-    pub fn facts_hash(&self) -> String {
-        hash_json(self)
-    }
-
-    pub fn sort_key(&self) -> String {
-        let base = self
-            .sort_title
-            .as_deref()
-            .unwrap_or(&self.title)
-            .to_lowercase();
-        for article in ["the ", "a ", "an "] {
-            if let Some(rest) = base.strip_prefix(article) {
-                return rest.to_string();
-            }
-        }
-        base
-    }
+    base
 }
 
-/// One file as an engine reports it.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct FileFacts {
-    pub engine_file_id: i64,
-    pub season_number: Option<i32>,
-    /// Episodes the file holds, read from the library file name by the engine adapter.
-    pub episode_numbers: Vec<i32>,
-    pub episode_name: Option<String>,
-    pub relative_path: String,
-    pub scene_name: Option<String>,
-    pub original_path: Option<String>,
-    pub size_bytes: i64,
-    pub date_added: Option<DateTime<Utc>>,
-    pub arr_quality: Option<String>,
-    pub arr_group: Option<String>,
-    /// `None` when the engine records no edition at all (Sonarr).
-    pub arr_edition: Option<String>,
-    /// The arr's revision marks the file as a proper (a revision above 1) or a repack.
-    pub arr_proper: bool,
-    pub arr_repack: bool,
-    pub arr_custom_formats: Vec<String>,
-    pub arr_score: Option<i32>,
-    pub languages: Vec<String>,
-    pub media_info: Option<serde_json::Value>,
-}
-
-impl FileFacts {
-    /// Changes when the file, its lane or what its title brings to the assessment changes:
-    /// everything an assessment depends on, plus everything stored.
-    pub fn facts_hash(&self, title: &TitleContext<'_>) -> String {
-        hash_json(&(self, title.lane, title.tags, title.original_language))
-    }
+/// Changes when the file, its lane or what its title brings to the assessment changes:
+/// everything an assessment depends on, plus everything stored.
+pub fn file_facts_hash(file: &FileFacts, title: &TitleContext<'_>) -> String {
+    hash_json(&(file, title.lane, title.tags, title.original_language))
 }
 
 fn hash_json<T: Serialize>(value: &T) -> String {
@@ -212,6 +137,7 @@ pub trait Assess: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::model::TitleAbout;
 
     pub fn title(id: i64, kind: TitleKind) -> TitleFacts {
         TitleFacts {
@@ -245,29 +171,33 @@ mod tests {
     #[test]
     fn titles_are_keyed_by_the_id_the_engines_share() {
         let mut t = title(7, TitleKind::Movie);
-        assert_eq!(t.ext_key("radarr"), "movie:tmdb:603");
-        assert_eq!(t.ext_key("radarr-4k"), "movie:tmdb:603");
+        assert_eq!(ext_key(&t, "radarr"), "movie:tmdb:603");
+        assert_eq!(ext_key(&t, "radarr-4k"), "movie:tmdb:603");
         t.tmdb_id = Some(0);
-        assert_eq!(t.ext_key("radarr"), "movie:imdb:tt0133093");
+        assert_eq!(ext_key(&t, "radarr"), "movie:imdb:tt0133093");
         t.imdb_id = None;
-        assert_eq!(t.ext_key("radarr"), "movie:radarr:7");
+        assert_eq!(ext_key(&t, "radarr"), "movie:radarr:7");
         let mut s = title(3, TitleKind::Show);
         s.tvdb_id = Some(81189);
-        assert_eq!(s.ext_key("sonarr"), "show:tvdb:81189");
+        assert_eq!(ext_key(&s, "sonarr"), "show:tvdb:81189");
         s.tvdb_id = None;
-        assert_eq!(s.ext_key("sonarr-4k"), "show:sonarr-4k:3");
+        assert_eq!(ext_key(&s, "sonarr-4k"), "show:sonarr-4k:3");
     }
 
     #[test]
     fn the_hash_follows_the_facts_and_articles_do_not_sort() {
         let a = title(7, TitleKind::Movie);
         let mut b = a.clone();
-        assert_eq!(a.facts_hash(), b.facts_hash());
+        assert_eq!(title_facts_hash(&a), title_facts_hash(&b));
         b.tags.push("open-matte".to_string());
-        assert_ne!(a.facts_hash(), b.facts_hash());
+        assert_ne!(title_facts_hash(&a), title_facts_hash(&b));
         let mut c = a.clone();
         c.about.rating = Some(8.7);
-        assert_ne!(a.facts_hash(), c.facts_hash(), "a new rating is a new fact");
-        assert_eq!(a.sort_key(), "matrix");
+        assert_ne!(
+            title_facts_hash(&a),
+            title_facts_hash(&c),
+            "a new rating is a new fact"
+        );
+        assert_eq!(sort_key(&a), "matrix");
     }
 }

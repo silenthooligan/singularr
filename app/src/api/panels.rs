@@ -8,7 +8,6 @@ use crate::catalog::store::LibraryHoldings;
 use crate::core::config::{Config, Integration, IntegrationType};
 use crate::core::jobs::{Check, Job};
 use crate::core::model::Scope;
-use crate::engines::access::actions_of;
 use crate::engines::model::{ActionView, IntegrationView};
 use crate::engines::store::EngineStateRow;
 use crate::lifecycle::server::plain_video;
@@ -17,6 +16,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use singularr_core::Policy;
+use singularr_sdk::manifest::{Group, Manifest};
 use std::collections::BTreeMap;
 
 // Integrations -----------------------------------------------------------------------------------
@@ -190,147 +190,38 @@ pub struct Started {
 
 /// The groups of integration types, in the page's order.
 pub fn groups() -> Vec<IntegrationGroup> {
-    [
-        ("server", "Media server", "Libraries, sessions and music"),
-        ("managers", "Managers", "Movie and show managers"),
-        ("downloads", "Download clients", "Release downloads"),
-        ("indexers", "Indexers", "Release search"),
-        ("processing", "Processing", "Flows for imported files"),
-        (
-            "requests",
-            "Request sources",
-            "Requests made outside the portal",
-        ),
-        (
-            "metadata",
-            "Metadata providers",
-            "Titles, people, artwork, ratings and episode order",
-        ),
-    ]
-    .into_iter()
-    .map(|(id, label, description)| IntegrationGroup {
-        id: id.to_string(),
-        label: label.to_string(),
-        description: description.to_string(),
-    })
-    .collect()
+    Group::ALL
+        .into_iter()
+        .map(|g| IntegrationGroup {
+            id: g.id().to_string(),
+            label: g.label().to_string(),
+            description: g.description().to_string(),
+        })
+        .collect()
 }
 
 /// The group of an integration type.
 pub fn group_of(kind: IntegrationType) -> &'static str {
-    match kind {
-        IntegrationType::Plex | IntegrationType::Jellyfin | IntegrationType::Emby => "server",
-        IntegrationType::Radarr | IntegrationType::Sonarr => "managers",
-        IntegrationType::Qbittorrent
-        | IntegrationType::Transmission
-        | IntegrationType::Deluge
-        | IntegrationType::Sabnzbd
-        | IntegrationType::Nzbget => "downloads",
-        IntegrationType::Prowlarr => "indexers",
-        IntegrationType::Tdarr | IntegrationType::Hush => "processing",
-        IntegrationType::Seerr => "requests",
-        IntegrationType::Tautulli => "server",
-    }
+    kind.manifest().group.id()
 }
 
 /// What Singularr reads from an integration of this type: what its adapter asks for.
 pub fn reads(kind: IntegrationType) -> Vec<String> {
-    let words: &[&str] = match kind {
-        IntegrationType::Radarr => &[
-            "Movies, files and custom formats",
-            "Quality profiles and tags",
-            "Queue",
-            "Grab history",
-            "Release name parsing",
-        ],
-        IntegrationType::Sonarr => &[
-            "Series, seasons and episode files",
-            "Quality profiles and tags",
-            "Queue",
-            "Grab history",
-            "Release name parsing",
-        ],
-        IntegrationType::Qbittorrent | IntegrationType::Transmission | IntegrationType::Deluge => {
-            &[
-                "Torrent state, progress and folder",
-                "Speeds, seeds, peers and ratio",
-                "Category and tracker",
-            ]
-        }
-        IntegrationType::Sabnzbd => &[
-            "Queue: state, progress, speed and time left",
-            "History: completed, failed and in post-processing",
-            "Category and folder",
-        ],
-        IntegrationType::Nzbget => &[
-            "Queue: state, progress, speed and time left",
-            "History: completed, failed and deleted",
-            "Category and folder",
-        ],
-        IntegrationType::Seerr => &[
-            "Requests and status",
-            "Requester display names",
-            "Title lookups",
-            "Discover lists",
-        ],
-        IntegrationType::Plex => &[
-            "Libraries and folders",
-            "Movies and shows with ratings, plays and editions",
-            "Artists, albums and tracks",
-            "Now playing",
-            "Artwork",
-        ],
-        IntegrationType::Jellyfin | IntegrationType::Emby => &[
-            "Libraries and folders",
-            "Movies and shows with ratings and plays",
-            "Artists, albums and tracks",
-            "Now playing",
-            "Users",
-            "Artwork",
-        ],
-        IntegrationType::Tdarr => &[
-            "Version",
-            "Nodes, worker limits and queue lengths",
-            "Active workers",
-            "Libraries and flows",
-            "Statistics",
-            "File status of open runs",
-        ],
-        IntegrationType::Hush => &[
-            "Runs: flow, trigger, state, source, output and result",
-            "Run events",
-            "Ledger and watcher status",
-            "Flow options for a file",
-        ],
-        IntegrationType::Prowlarr => &[],
-        IntegrationType::Tautulli => &[
-            "Play history with durations, devices and delivery",
-            "Users",
-            "Version",
-        ],
-    };
-    words.iter().map(|w| w.to_string()).collect()
+    kind.manifest()
+        .reads
+        .iter()
+        .map(|w| w.to_string())
+        .collect()
 }
 
 /// The field key of a type's secret: `apiKey`, `token`, `password`.
 pub fn secret_key(kind: IntegrationType) -> &'static str {
-    match kind {
-        IntegrationType::Plex => "token",
-        IntegrationType::Qbittorrent
-        | IntegrationType::Transmission
-        | IntegrationType::Deluge
-        | IntegrationType::Nzbget => "password",
-        _ => "apiKey",
-    }
+    kind.manifest().secret.key
 }
 
 /// The label of a type's secret: `Token`, `Password`, `API key`.
 pub fn secret_label(kind: IntegrationType) -> &'static str {
-    match secret_key(kind) {
-        "token" => "Token",
-        "password" => "Password",
-        _ => "API key",
-    }
+    kind.manifest().secret.label
 }
 
 fn type_field(
@@ -353,120 +244,12 @@ fn type_field(
 
 /// Every type this version knows, with the metadata providers, as data.
 pub fn kinds() -> Vec<IntegrationKind> {
-    let mut out: Vec<IntegrationKind> = IntegrationType::ALL
-        .into_iter()
-        .map(|k| {
-            let secret = secret_label(k);
-            // The host and the port each program listens on unless it is told otherwise. The
-            // bridge has no port of its own to name.
-            let host = match k {
-                IntegrationType::Plex => "plex:32400",
-                IntegrationType::Jellyfin => "jellyfin:8096",
-                IntegrationType::Emby => "emby:8096",
-                IntegrationType::Radarr => "radarr:7878",
-                IntegrationType::Sonarr => "sonarr:8989",
-                IntegrationType::Qbittorrent => "qbittorrent:8080",
-                IntegrationType::Transmission => "transmission:9091",
-                IntegrationType::Deluge => "deluge:8112",
-                IntegrationType::Sabnzbd => "sabnzbd:8080",
-                IntegrationType::Nzbget => "nzbget:6789",
-                IntegrationType::Prowlarr => "prowlarr:9696",
-                IntegrationType::Tdarr => "tdarr:8265",
-                IntegrationType::Hush => "hush",
-                IntegrationType::Seerr => "seerr:5055",
-                IntegrationType::Tautulli => "tautulli:8181",
-            };
-            let placeholder = format!("http://{host}");
-            let mut fields = vec![type_field(
-                "address",
-                "Address",
-                "url",
-                Some(placeholder.as_str()),
-                "As reached from the server",
-                "connection",
-            )];
-            if k.takes_user() {
-                fields.push(type_field(
-                    "username",
-                    "Username",
-                    "text",
-                    None,
-                    "Empty for a client that needs no sign-in",
-                    "connection",
-                ));
-            }
-            fields.push(type_field(
-                secret_key(k),
-                secret,
-                "secret",
-                None,
-                if k == IntegrationType::Hush {
-                    "Needed only when the service requires a key"
-                } else {
-                    "Read from an environment variable"
-                },
-                "connection",
-            ));
-            let read = reads(k);
-            if !read.is_empty() {
-                fields.push(type_field(
-                    "syncEvery",
-                    "Sync interval",
-                    "duration",
-                    None,
-                    "Set in the environment, per integration type",
-                    "schedule",
-                ));
-            }
-            IntegrationKind {
-                kind: k.as_str().to_string(),
-                label: match k {
-                    IntegrationType::Plex => "Plex Media Server".to_string(),
-                    other => other.label().to_string(),
-                },
-                group: group_of(k).to_string(),
-                description: match k {
-                    IntegrationType::Plex => {
-                        "Libraries, ratings, plays, editions, music and sessions"
-                    }
-                    IntegrationType::Jellyfin | IntegrationType::Emby => {
-                        "Libraries, ratings, plays, music and sessions"
-                    }
-                    IntegrationType::Radarr => "Movies, files, editions, queue and history",
-                    IntegrationType::Sonarr => "Shows, episodes, files, queue and history",
-                    IntegrationType::Qbittorrent
-                    | IntegrationType::Transmission
-                    | IntegrationType::Deluge => "Torrents, progress and unassigned downloads",
-                    IntegrationType::Sabnzbd | IntegrationType::Nzbget => {
-                        "Usenet downloads, progress and unassigned downloads"
-                    }
-                    IntegrationType::Prowlarr => "Indexers",
-                    IntegrationType::Tdarr => {
-                        "Worker nodes, queues, active workers, libraries and flows"
-                    }
-                    IntegrationType::Hush => "Processing runs, their results and imports",
-                    IntegrationType::Seerr => "Requests made in Seerr",
-                    IntegrationType::Tautulli => {
-                        "Play history with durations, devices and delivery"
-                    }
-                }
-                .to_string(),
-                // Every download client is read, any number of each type.
-                max: match k {
-                    IntegrationType::Plex
-                    | IntegrationType::Jellyfin
-                    | IntegrationType::Emby
-                    | IntegrationType::Seerr
-                    | IntegrationType::Tautulli => Some(1),
-                    _ => None,
-                },
-                available: !read.is_empty(),
-                reads: read,
-                writes: actions_of(k).iter().map(|a| a.label.to_string()).collect(),
-                fields,
-            }
-        })
-        .collect();
+    kinds_in(&crate::engines::manifests::ALL)
+}
+
+/// These types, each as its manifest states it, then the metadata providers.
+pub fn kinds_in(types: &[&Manifest]) -> Vec<IntegrationKind> {
+    let mut out: Vec<IntegrationKind> = types.iter().map(|m| kind_of(m)).collect();
     for (id, label, description, reads, field, secret) in [
         (
             "tmdb",
@@ -510,6 +293,57 @@ pub fn kinds() -> Vec<IntegrationKind> {
         });
     }
     out
+}
+
+/// One type's entry, from its manifest.
+fn kind_of(m: &Manifest) -> IntegrationKind {
+    let mut fields = vec![type_field(
+        "address",
+        "Address",
+        "url",
+        Some(m.default_address),
+        "As reached from the server",
+        "connection",
+    )];
+    if m.takes_user {
+        fields.push(type_field(
+            "username",
+            "Username",
+            "text",
+            None,
+            "Empty for a client that needs no sign-in",
+            "connection",
+        ));
+    }
+    fields.push(type_field(
+        m.secret.key,
+        m.secret.label,
+        "secret",
+        None,
+        m.secret.help.unwrap_or("Read from an environment variable"),
+        "connection",
+    ));
+    if m.read() {
+        fields.push(type_field(
+            "syncEvery",
+            "Sync interval",
+            "duration",
+            None,
+            "Set in the environment, per integration type",
+            "schedule",
+        ));
+    }
+    IntegrationKind {
+        kind: m.type_id.to_string(),
+        label: m.label.to_string(),
+        group: m.group.id().to_string(),
+        description: m.description.to_string(),
+        max: m.max_instances.map(u32::from),
+        available: m.read(),
+        reads: m.reads.iter().map(|r| r.to_string()).collect(),
+        writes: m.actions.iter().map(|a| a.label.to_string()).collect(),
+        fields,
+    }
 }
 
 /// An address without a user name or password in it.

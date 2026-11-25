@@ -35,7 +35,8 @@ use crate::catalog::ingest::{EngineRef, FileFacts, SeasonFacts, TitleFacts};
 use crate::catalog::model::{TitleAbout, TitleKind};
 use crate::core::config::{ArrConfig, ArrKind};
 use crate::core::outbound::{
-    Body, BodyRule, Calls, Method, OutRequest, OutResponse, Outbound, encode_component, expect_ok,
+    Body, BodyRule, Calls, Method, OutRequest, OutResponse, Outbound, QueryValue, encode_component,
+    expect_ok,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
@@ -375,26 +376,8 @@ fn calendar_query(start: NaiveDate, end: NaiveDate, extra: &str) -> String {
     )
 }
 
-/// A field that is missing or `null` reads as its default. The arrs send `null` where a
-/// list is empty in some answers (a movie's `customFormats` in the movie list).
-pub(super) fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: Default + Deserialize<'de>,
-{
-    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
-}
-
-/// A descriptive field, read leniently: a value of an unexpected shape is no value. What a
-/// title is called or rated must never fail the listing that carries its files.
-pub(super) fn lenient<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: DeserializeOwned,
-{
-    let value = serde_json::Value::deserialize(deserializer)?;
-    Ok(serde_json::from_value(value).ok())
-}
+/// The lenient readers: the SDK's, at their old paths.
+pub(super) use singularr_sdk::read::{lenient, null_as_default};
 
 // What the arrs send. Every field is optional or defaulted: a field an arr version does not
 // send must not fail the whole listing.
@@ -1249,14 +1232,18 @@ pub fn calls(kind: ArrKind) -> Calls {
     let calls = searches
         .into_iter()
         .fold(
-            Calls::default().act_with(Method::Post, RELEASE_PATH, grab),
-            |calls, rule| calls.act_with(Method::Post, COMMAND_PATH, rule),
+            Calls::default().act_with("grab", Method::Post, RELEASE_PATH, grab),
+            |calls, rule| calls.act_with("search", Method::Post, COMMAND_PATH, rule),
         )
-        .act_with(Method::Post, COMMAND_PATH, import)
+        .act_with("import", Method::Post, COMMAND_PATH, import)
         .act_query(
+            "remove",
             Method::Delete,
             QUEUE_ITEM_PATH,
-            &[("removeFromClient", FLAGS), ("blocklist", FLAGS)],
+            &[
+                ("removeFromClient", QueryValue::OneOf(FLAGS)),
+                ("blocklist", QueryValue::OneOf(FLAGS)),
+            ],
         );
     let titles: &[&str] = match kind {
         ArrKind::Radarr => &NEVER_RADARR,

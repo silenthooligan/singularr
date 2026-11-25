@@ -9,48 +9,9 @@ use singularr_core::ParsedRelease;
 /// Plex alone, so every Seerr integration takes requests for it.
 pub const SITE: &str = "plex";
 
-/// The outside lists Seerr serves on Discover, from TMDB.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[cfg_attr(feature = "ssr", derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum DiscoverList {
-    Trending,
-    PopularMovies,
-    PopularShows,
-    UpcomingMovies,
-}
-
-impl DiscoverList {
-    pub const ALL: [DiscoverList; 4] = [
-        DiscoverList::Trending,
-        DiscoverList::PopularMovies,
-        DiscoverList::PopularShows,
-        DiscoverList::UpcomingMovies,
-    ];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            DiscoverList::Trending => "trending",
-            DiscoverList::PopularMovies => "popular_movies",
-            DiscoverList::PopularShows => "popular_shows",
-            DiscoverList::UpcomingMovies => "upcoming_movies",
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            DiscoverList::Trending => "Trending",
-            DiscoverList::PopularMovies => "Popular movies",
-            DiscoverList::PopularShows => "Popular shows",
-            DiscoverList::UpcomingMovies => "Upcoming",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<DiscoverList> {
-        let s = s.trim().to_ascii_lowercase().replace('-', "_");
-        DiscoverList::ALL.into_iter().find(|l| l.as_str() == s)
-    }
-}
+/// The outside lists Seerr serves on Discover, and what an arr's own parser makes of a name: the
+/// SDK's types at their old paths.
+pub use singularr_sdk::model::{ArrParse, DiscoverList};
 
 /// One engine and how its last sync went.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -146,26 +107,6 @@ pub struct Health {
     pub policy_hash: String,
     pub policy_source: String,
     pub engines: Vec<EngineStatus>,
-}
-
-/// What an arr's own parser makes of a release name.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "ssr", derive(utoipa::ToSchema))]
-pub struct ArrParse {
-    pub title: Option<String>,
-    pub year: Option<i32>,
-    pub season: Option<i32>,
-    pub episodes: Vec<i32>,
-    pub quality: Option<String>,
-    pub group: Option<String>,
-    pub edition: Option<String>,
-    pub languages: Vec<String>,
-    pub custom_formats: Vec<String>,
-    /// The custom format score. An arr scores a bare name against its formats; the score a
-    /// file gets in a profile can differ.
-    pub score: Option<i32>,
-    /// The arr matched the name to a title it manages.
-    pub matched_title: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

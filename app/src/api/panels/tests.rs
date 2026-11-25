@@ -496,3 +496,36 @@ fn the_groups_and_types_of_the_integrations_are_pinned() {
     let ids: Vec<String> = groups().into_iter().map(|g| g.id).collect();
     assert!(kinds().iter().all(|k| ids.contains(&k.group)));
 }
+
+/// A manifest is all a new type needs to be listed: its entry comes from it, beside the others.
+/// The types of this version are the pinned list.
+#[test]
+fn a_new_manifest_is_listed_with_no_other_edit() {
+    use crate::engines::manifests::{ALL, tests::SAMPLE};
+    let mut types: Vec<&Manifest> = ALL.to_vec();
+    types.push(&SAMPLE);
+    let listed = kinds_in(&types);
+    // The metadata providers follow the types.
+    assert_eq!(listed.len(), ALL.len() + 1 + 2);
+    let sample = listed.iter().find(|k| k.kind == "sample").unwrap();
+    assert_eq!(
+        (
+            sample.label.as_str(),
+            sample.group.as_str(),
+            sample.max,
+            sample.available
+        ),
+        ("Sample Server", "server", Some(1), true)
+    );
+    let keys: Vec<&str> = sample.fields.iter().map(|f| f.key.as_str()).collect();
+    assert_eq!(keys, ["address", "username", "token", "syncEvery"]);
+    assert_eq!(
+        sample.fields[0].placeholder.as_deref(),
+        Some("http://sample:8400")
+    );
+    assert_eq!(sample.reads, ["Plays", "Users"]);
+    assert_eq!(
+        serde_json::to_value(kinds_in(&ALL)).unwrap(),
+        serde_json::to_value(kinds()).unwrap()
+    );
+}

@@ -866,6 +866,25 @@ mod tests {
         );
     }
 
+    /// The OpenAPI document as `/api/v1/openapi.json` serves it, byte for byte: its SHA-256 and
+    /// its length are pinned in `tests/fixtures/openapi.sha256`. A move of types between crates
+    /// leaves it as it was. A change to the API changes the pin. The failure names the new one.
+    #[test]
+    fn the_openapi_document_is_the_pinned_one() {
+        use sha2::{Digest, Sha256};
+        let text = openapi().to_json().unwrap();
+        let found = format!(
+            "{}  {}",
+            hex::encode(Sha256::digest(text.as_bytes())),
+            text.len()
+        );
+        let pinned = include_str!("../../tests/fixtures/openapi.sha256").trim();
+        assert_eq!(
+            found, pinned,
+            "the OpenAPI document is not the pinned one. Its pin now: {found}"
+        );
+    }
+
     #[test]
     fn the_reference_page_loads_nothing_from_another_host() {
         let page = include_str!("docs.html");

@@ -13,6 +13,8 @@ path = "src/main.rs"
 
 [dependencies]
 singularr-core = { workspace = true }
+# The way out's types and rules, and the recorded transport the tests send through (`testkit`).
+singularr-sdk = { workspace = true, features = ["testkit"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
@@ -93,4 +95,6 @@ ssr = [
     "dep:rustls-native-certs",
     "dep:maxminddb",
     "dep:flate2",
+    "singularr-sdk/openapi",
+    "singularr-sdk/sqlx",
 ]

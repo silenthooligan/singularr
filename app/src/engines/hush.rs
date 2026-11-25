@@ -54,7 +54,7 @@ pub const ACTIONS: &[Action] = &[Action {
 
 /// The calls beyond GET the adapter makes: no read, and the one act, staging a file.
 pub fn calls() -> Calls {
-    Calls::default().act(Method::Post, STAGE_PATH)
+    Calls::default().act("send", Method::Post, STAGE_PATH)
 }
 /// The most jobs the history route gives in one answer.
 pub const HISTORY_MAX: u32 = 2000;

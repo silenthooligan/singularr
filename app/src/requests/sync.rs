@@ -166,6 +166,8 @@ async fn look_up(
                 )
                 .await
             }
+            // The site's calls pause after repeated failures: the rest waits for the next pass.
+            Err(EngineError::Outbound(OutboundError::CircuitOpen { .. })) => break,
             Err(EngineError::Outbound(OutboundError::Transport { .. })) => {
                 // The site stopped answering: the rest waits for the next pass.
                 unreachable += 1;

@@ -4,7 +4,7 @@
 //! One task per engine calls into here, so an engine's rows have a single writer. That lets
 //! the comparison and the assessments (the slow part) run before the transaction opens.
 
-use super::ingest::{Assess, Assessment, EngineRef, FileFacts, TitleContext, TitleFacts};
+use super::ingest::{self, Assess, Assessment, EngineRef, FileFacts, TitleContext, TitleFacts};
 use super::store::{self, CopyKey, CopyRow, CopyWrite, LinkRow};
 use crate::core::journal::{Journal, JournalTx, NewEvent, event};
 use serde_json::{Value, json};
@@ -131,7 +131,10 @@ fn plan_files(
     title: &TitleContext<'_>,
     assess: &dyn Assess,
 ) -> Vec<Planned> {
-    let hashes: Vec<String> = files.iter().map(|f| f.facts_hash(title)).collect();
+    let hashes: Vec<String> = files
+        .iter()
+        .map(|f| ingest::file_facts_hash(f, title))
+        .collect();
     let keys: Vec<(i64, &str, Option<i32>, &[i32])> = files
         .iter()
         .zip(&hashes)
@@ -239,7 +242,7 @@ async fn write_files(
     events: &mut Vec<NewEvent>,
     report: &mut ApplyReport,
 ) -> Result<(), sqlx::Error> {
-    let actor = engine.actor();
+    let actor = ingest::actor(engine);
     let touched = !plan.is_empty();
     for planned in plan {
         let lane = t.lane.as_deref();
@@ -454,7 +457,7 @@ pub async fn apply_titles(
             let existing = by_title.remove(&facts.engine_title_id).unwrap_or_default();
             let title_changed = link
                 .as_ref()
-                .is_none_or(|l| l.facts_hash != facts.facts_hash());
+                .is_none_or(|l| l.facts_hash != ingest::title_facts_hash(&facts));
             let files = match facts.files.take() {
                 Some(files) => plan_files(
                     &existing,
@@ -494,7 +497,7 @@ pub async fn apply_titles(
         return Ok(report);
     }
 
-    let actor = engine.actor();
+    let actor = ingest::actor(engine);
     let mut events: Vec<NewEvent> = Vec::new();
     let mut tx = journal.begin(pool).await?;
     store::ensure_library(tx.conn(), &engine.library, engine.kind.as_str()).await?;

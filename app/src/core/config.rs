@@ -17,6 +17,7 @@
 //! Left out, it is what the owner saved in the interface, else `read`.
 
 use super::outbound::Access;
+use singularr_sdk::manifest::Kind;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::time::Duration;
@@ -24,7 +25,8 @@ use std::time::Duration;
 /// The value `.env` ships with for every secret.
 pub const PLACEHOLDER: &str = "CHANGEME";
 
-/// The kinds of integration this version knows.
+/// The kinds of integration this version knows. Each has a manifest
+/// (`engines::manifests`): the methods below read their facts from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IntegrationType {
     Plex,
@@ -68,23 +70,7 @@ impl IntegrationType {
     ];
 
     pub fn as_str(self) -> &'static str {
-        match self {
-            IntegrationType::Plex => "plex",
-            IntegrationType::Jellyfin => "jellyfin",
-            IntegrationType::Emby => "emby",
-            IntegrationType::Radarr => "radarr",
-            IntegrationType::Sonarr => "sonarr",
-            IntegrationType::Qbittorrent => "qbittorrent",
-            IntegrationType::Transmission => "transmission",
-            IntegrationType::Deluge => "deluge",
-            IntegrationType::Sabnzbd => "sabnzbd",
-            IntegrationType::Nzbget => "nzbget",
-            IntegrationType::Prowlarr => "prowlarr",
-            IntegrationType::Tdarr => "tdarr",
-            IntegrationType::Hush => "hush",
-            IntegrationType::Seerr => "seerr",
-            IntegrationType::Tautulli => "tautulli",
-        }
+        self.manifest().type_id
     }
 
     pub fn parse(text: &str) -> Option<IntegrationType> {
@@ -96,100 +82,39 @@ impl IntegrationType {
     }
 
     /// The product name, the display name an integration takes when it is given none.
+    // The manifest's `label` is the type as Settings lists it (Plex Media Server). This one is
+    // its `name` (Plex).
+    #[allow(clippy::misnamed_getters)]
     pub fn label(self) -> &'static str {
-        match self {
-            IntegrationType::Plex => "Plex",
-            IntegrationType::Jellyfin => "Jellyfin",
-            IntegrationType::Emby => "Emby",
-            IntegrationType::Radarr => "Radarr",
-            IntegrationType::Sonarr => "Sonarr",
-            IntegrationType::Qbittorrent => "qBittorrent",
-            IntegrationType::Transmission => "Transmission",
-            IntegrationType::Deluge => "Deluge",
-            IntegrationType::Sabnzbd => "SABnzbd",
-            IntegrationType::Nzbget => "NZBGet",
-            IntegrationType::Prowlarr => "Prowlarr",
-            IntegrationType::Tdarr => "Tdarr",
-            IntegrationType::Hush => "HUSH",
-            IntegrationType::Seerr => "Seerr",
-            IntegrationType::Tautulli => "Tautulli",
-        }
+        self.manifest().name
     }
 
     /// What an integration of this type does, unless its entry says otherwise.
     pub fn default_role(self) -> &'static str {
-        match self {
-            IntegrationType::Plex | IntegrationType::Jellyfin | IntegrationType::Emby => {
-                "media server"
-            }
-            IntegrationType::Radarr => "movies",
-            IntegrationType::Sonarr => "shows",
-            IntegrationType::Qbittorrent
-            | IntegrationType::Transmission
-            | IntegrationType::Deluge
-            | IntegrationType::Sabnzbd
-            | IntegrationType::Nzbget => "downloads",
-            IntegrationType::Prowlarr => "indexers",
-            IntegrationType::Tdarr | IntegrationType::Hush => "processing",
-            IntegrationType::Seerr => "requests",
-            IntegrationType::Tautulli => "plays",
-        }
+        self.manifest().role
     }
 
     /// The variable prefixes of the environment form, the product's own name first.
     /// `PLEXSEERR` is the older name of `SEERR` and keeps working.
     pub fn env_prefixes(self) -> &'static [&'static str] {
-        match self {
-            IntegrationType::Plex => &["PLEX"],
-            IntegrationType::Jellyfin => &["JELLYFIN"],
-            IntegrationType::Emby => &["EMBY"],
-            IntegrationType::Radarr => &["RADARR"],
-            IntegrationType::Sonarr => &["SONARR"],
-            IntegrationType::Qbittorrent => &["QBIT"],
-            IntegrationType::Transmission => &["TRANSMISSION"],
-            IntegrationType::Deluge => &["DELUGE"],
-            IntegrationType::Sabnzbd => &["SABNZBD"],
-            IntegrationType::Nzbget => &["NZBGET"],
-            IntegrationType::Prowlarr => &["PROWLARR"],
-            IntegrationType::Tdarr => &["TDARR"],
-            IntegrationType::Hush => &["HUSH"],
-            IntegrationType::Seerr => &["SEERR", "PLEXSEERR"],
-            IntegrationType::Tautulli => &["TAUTULLI"],
-        }
+        self.manifest().env_prefixes
     }
 
     /// The end of the secret's variable name: `PLEX_TOKEN`, `QBIT_PASS`, `RADARR_API_KEY`.
     pub fn secret_suffix(self) -> &'static str {
-        match self {
-            IntegrationType::Plex => "TOKEN",
-            IntegrationType::Qbittorrent
-            | IntegrationType::Transmission
-            | IntegrationType::Deluge
-            | IntegrationType::Nzbget => "PASS",
-            _ => "API_KEY",
-        }
+        self.manifest().secret.env_suffix
     }
 
     /// qBittorrent can trust its subnet, Transmission and NZBGet can run without a password, and
     /// Tdarr and the HUSH bridge without a key, so for them an address alone is a usable
     /// integration.
     pub fn secret_optional(self) -> bool {
-        matches!(
-            self,
-            IntegrationType::Qbittorrent
-                | IntegrationType::Transmission
-                | IntegrationType::Nzbget
-                | IntegrationType::Tdarr
-                | IntegrationType::Hush
-        )
+        self.manifest().secret.optional
     }
 
     /// The types that sign in with a user name beside their password.
     pub fn takes_user(self) -> bool {
-        matches!(
-            self,
-            IntegrationType::Qbittorrent | IntegrationType::Transmission | IntegrationType::Nzbget
-        )
+        self.manifest().takes_user
     }
 
     /// The download client of this type, for a type that is one.
@@ -202,7 +127,7 @@ impl IntegrationType {
     /// The types that process files after their import: a worker (Tdarr) and a bridge in
     /// front of one (HUSH).
     pub fn processes(self) -> bool {
-        matches!(self, IntegrationType::Tdarr | IntegrationType::Hush)
+        self.manifest().fills(Kind::Processor)
     }
 
     /// The media server types: the servers that hold the libraries and play them.
@@ -213,7 +138,7 @@ impl IntegrationType {
     /// The types whose items open in the server's own web app, at an address of its own when one
     /// is set (`<PREFIX>_WEB_URL`, the instance file's `web_url`): Jellyfin and Emby. A Plex item opens in Plex's web app (`SINGULARR_PLEX_WEB_URL`).
     pub fn has_web_app(self) -> bool {
-        matches!(self, IntegrationType::Jellyfin | IntegrationType::Emby)
+        self.manifest().web_url
     }
 }
 

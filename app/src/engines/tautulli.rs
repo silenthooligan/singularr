@@ -267,6 +267,19 @@ impl Tautulli {
                 status,
             },
             OutboundError::Decode(m) => OutboundError::Decode(s(m)),
+            OutboundError::CircuitOpen {
+                integration,
+                seconds,
+                cause,
+            } => OutboundError::CircuitOpen {
+                integration,
+                seconds,
+                cause: s(cause),
+            },
+            OutboundError::TooLarge { host, limit } => OutboundError::TooLarge {
+                host: s(host),
+                limit,
+            },
         })
     }
 

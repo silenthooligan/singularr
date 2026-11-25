@@ -2420,7 +2420,8 @@ async fn engine_state_follows_the_passes_and_journals_the_turns() {
     )
     .await
     .unwrap();
-    set.report(&t.pool, &journal, "radarr", "titles", ok())
+    // The queue pass that failed recovers: the engine is up again.
+    set.report(&t.pool, &journal, "radarr", "queue", ok())
         .await
         .unwrap();
     assert_eq!(
@@ -2467,6 +2468,170 @@ async fn engine_state_follows_the_passes_and_journals_the_turns() {
         .unwrap();
     assert_eq!(core_store::latest_event_id(&t.pool).await.unwrap(), last);
     t.drop_db().await;
+}
+
+/// An integration is down while any pass of it fails, with that pass's error: a later pass that
+/// succeeds hides nothing. One `engine_down`, and no `engine_up` until the failing pass recovers.
+#[tokio::test]
+async fn an_integration_is_down_while_any_pass_of_it_fails() {
+    let Some(t) = TestDb::new("health_by_pass").await else {
+        return;
+    };
+    let journal = Journal::new();
+    let st = state_with(&t.pool, journal.clone(), &[("RADARR_API_KEY", "a-key")]);
+    let owner = Caller::Owner {
+        email: "owner@example.com".into(),
+    };
+    let token = auth::create_key(
+        &t.pool,
+        &journal,
+        &owner,
+        &NewApiKey {
+            name: "reader".into(),
+            scopes: vec![Scope::Read],
+        },
+    )
+    .await
+    .unwrap();
+    let read = format!("Bearer {}", token.secret);
+    let app = routes::router(st.clone());
+    let before = core_store::latest_event_id(&t.pool).await.unwrap();
+    const DOWN: &str = "192.0.2.61 answered 503 for /api/v3/movie";
+    st.engines
+        .report(&t.pool, &journal, "radarr", "titles", Err(DOWN.into()))
+        .await
+        .unwrap();
+    let queue = || {
+        Ok(PassOk::new(
+            Duration::from_millis(9),
+            serde_json::json!({ "queue": 2 }),
+        ))
+    };
+    st.engines
+        .report(&t.pool, &journal, "radarr", "queue", queue())
+        .await
+        .unwrap();
+
+    let shown = listed_integration(&app, &read, "radarr").await;
+    assert_eq!(
+        (shown["state"].as_str(), shown["detail"].as_str()),
+        (Some("down"), Some(DOWN))
+    );
+    let status = statuses(&t.pool, &st.engines).await.unwrap();
+    let row = status.iter().find(|s| s.engine == "radarr").unwrap();
+    assert!(!row.ok);
+    assert_eq!((row.last_error.as_deref(), row.failures), (Some(DOWN), 1));
+    assert_eq!(kinds(&t.pool, before).await, vec!["engine_down"]);
+
+    // Another good queue pass changes nothing. The titles pass that recovers turns it up.
+    st.engines
+        .report(&t.pool, &journal, "radarr", "queue", queue())
+        .await
+        .unwrap();
+    assert_eq!(kinds(&t.pool, before).await, vec!["engine_down"]);
+    assert_eq!(
+        listed_integration(&app, &read, "radarr").await["state"],
+        "down"
+    );
+    st.engines
+        .report(&t.pool, &journal, "radarr", "titles", queue())
+        .await
+        .unwrap();
+    assert_eq!(
+        kinds(&t.pool, before).await,
+        vec!["engine_down", "engine_up"]
+    );
+    assert_eq!(
+        listed_integration(&app, &read, "radarr").await["state"],
+        "ok"
+    );
+    let status = statuses(&t.pool, &st.engines).await.unwrap();
+    let row = status.iter().find(|s| s.engine == "radarr").unwrap();
+    assert!(row.ok);
+    assert_eq!((row.last_error.clone(), row.failures), (None, 0));
+    t.drop_db().await;
+}
+
+/// A pass this process does not run is forgotten at start: its failing row would keep its
+/// integration down for good. While a pass fails, the integration's last success is that pass's.
+#[tokio::test]
+async fn a_pass_this_process_does_not_run_is_forgotten_at_start() {
+    let Some(t) = TestDb::new("stale_pass").await else {
+        return;
+    };
+    let journal = Journal::new();
+    let st = state_with(&t.pool, journal.clone(), &[("RADARR_API_KEY", "a-key")]);
+    let passes = st.engines.passes(true);
+    for pass in ["titles", "queue", "history"] {
+        assert!(passes.contains(&("radarr".to_string(), pass)), "{passes:?}");
+    }
+    assert!(
+        st.engines.passes(false).is_empty(),
+        "with the sync off no loop runs"
+    );
+    let ok = || {
+        Ok(PassOk::new(
+            Duration::from_millis(5),
+            serde_json::json!({ "titles": 1 }),
+        ))
+    };
+    st.engines
+        .report(&t.pool, &journal, "radarr", "titles", ok())
+        .await
+        .unwrap();
+    st.engines
+        .report(
+            &t.pool,
+            &journal,
+            "radarr",
+            "retired",
+            Err("gone for good".into()),
+        )
+        .await
+        .unwrap();
+    let radarr = |all: Vec<_>| {
+        all.into_iter()
+            .find(|s: &singularr::engines::model::EngineStatus| s.engine == "radarr")
+            .unwrap()
+    };
+    let down = radarr(statuses(&t.pool, &st.engines).await.unwrap());
+    assert!(!down.ok);
+    assert_eq!(down.last_error.as_deref(), Some("gone for good"));
+    assert_eq!(down.last_ok_at, None, "the failing pass never succeeded");
+
+    // At start the row of the pass no loop runs goes. The titles pass alone is left.
+    assert_eq!(
+        st.engines.forget_other_passes(&t.pool, true).await.unwrap(),
+        1
+    );
+    let up = radarr(statuses(&t.pool, &st.engines).await.unwrap());
+    assert!(up.ok && up.last_error.is_none(), "{up:?}");
+    assert!(up.last_ok_at.is_some());
+    t.drop_db().await;
+}
+
+/// One integration as `GET /api/v1/integrations` lists it.
+async fn listed_integration(
+    app: &axum::Router,
+    authorization: &str,
+    id: &str,
+) -> serde_json::Value {
+    let (status, _, listed) = call(
+        app,
+        "GET",
+        "/api/v1/integrations",
+        &[("authorization", authorization)],
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    listed["integrations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["id"] == id)
+        .cloned()
+        .unwrap_or_else(|| panic!("no integration {id} in {listed}"))
 }
 
 fn state(pool: &PgPool, journal: Journal) -> AppState {

@@ -44,8 +44,9 @@ tests need PostgreSQL 18 (`tools/gate.sh` starts a throwaway one).
 | Area | Directory |
 |---|---|
 | Release parsing, the policy and its evaluation (no I/O) | `crates/singularr-core/` |
+| The connector SDK: the way out's types, the declared calls, the rules, the kinds of engine and their items (no I/O) | `crates/singularr-sdk/` |
 | Server core: configuration, the journal, the outbound allowlist | `app/src/core/` |
-| Adapters, one per service | `app/src/engines/` |
+| Adapters, one per service, and one manifest per type (`manifests.rs`) | `app/src/engines/` |
 | Routes under `/api/v1` | `app/src/api/` |
 | Search, grab and import through the managers | `app/src/acquire/` |
 | Web client (plain JS and CSS, no build step) | `web/` |

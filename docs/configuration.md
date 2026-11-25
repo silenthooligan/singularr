@@ -20,7 +20,7 @@ them unset.
 | `SINGULARR_REQUESTS_PUBLIC_URL` | unset | the portal's public address, linked from the workspace |
 | `SINGULARR_SIGN_OUT_URL` | unset | the target of the workspace's Sign out (the sign-in proxy's sign-out address) |
 | `SINGULARR_INSTANCE` | unset | an instance file (`singularr.toml`) with workspace names and integrations beyond the environment's (below) |
-| `SINGULARR_DATA_DIR` | `/data` | the folder Singularr writes to: the location database it downloads (Statistics, below) and the media tools' scratch files (`scratch`). The compose file mounts the volume `data` there. The image creates `/data` owned by uid 10001: a new volume starts out writable |
+| `SINGULARR_DATA_DIR` | `/data` | the folder Singularr writes to: the location database it downloads (Statistics, below) and the media tools' scratch files (`scratch`). The compose file mounts the volume `data` there. The image creates `/data` owned by uid 10001: a new volume starts out writable. `singularrd doctor` writes a file there and removes it (`Data folder`) |
 | `RUST_LOG` | `info` | log filter |
 | `TZ` | `UTC` | time zone of the container |
 

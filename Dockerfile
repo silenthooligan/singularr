@@ -1,6 +1,5 @@
 # Singularr: one binary (singularrd, Axum), the rules and the web client. The build context is the
-# repository root, because the server crate (app/) and the pure crate (crates/singularr-core) share a
-# workspace:
+# repository root, because the server crate (app/) and the crates under crates/ share a workspace:
 #   docker build -t singularr .
 #
 # Stages:

@@ -19,7 +19,7 @@ use super::routes::{ApiJson, ApiPath};
 use super::state::AppState;
 use crate::catalog::store as catalog_store;
 use crate::core::auth::{self, Caller};
-use crate::core::config::{Integration, IntegrationType};
+use crate::core::config::Integration;
 use crate::core::db;
 use crate::core::error::{AppError, AppResult};
 use crate::core::jobs::{self, Check, RunNow};
@@ -43,6 +43,7 @@ use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use chrono::Utc;
 use serde_json::json;
+use singularr_sdk::manifest::{Kind, Manifest};
 use utoipa::OpenApi;
 
 type ApiResult<T> = Result<Json<T>, AppError>;
@@ -235,30 +236,10 @@ fn own_field(id: &str, name: &str, label: &str, kind: &str, part: &str) -> Field
     }
 }
 
-/// How often an integration of a type is read: its jobs' passes, the main one first, with
-/// the setting that holds each interval.
-fn schedule(kind: IntegrationType) -> &'static [(&'static str, &'static str, &'static str)] {
-    match kind {
-        IntegrationType::Radarr | IntegrationType::Sonarr => &[
-            ("syncEvery", "Sync interval", "jobs.titles"),
-            ("queueEvery", "Queue sync interval", "jobs.queue"),
-            ("historyEvery", "Grab history sync interval", "jobs.history"),
-        ],
-        IntegrationType::Qbittorrent
-        | IntegrationType::Transmission
-        | IntegrationType::Deluge
-        | IntegrationType::Sabnzbd
-        | IntegrationType::Nzbget => &[("syncEvery", "Sync interval", "jobs.downloads")],
-        IntegrationType::Plex | IntegrationType::Jellyfin | IntegrationType::Emby => {
-            &[("syncEvery", "Sync interval", "jobs.server")]
-        }
-        IntegrationType::Seerr => &[("syncEvery", "Sync interval", "jobs.requests")],
-        IntegrationType::Tdarr | IntegrationType::Hush => {
-            &[("syncEvery", "Sync interval", "jobs.processing.syncEvery")]
-        }
-        IntegrationType::Prowlarr => &[],
-        IntegrationType::Tautulli => &[("syncEvery", "Read it every", "jobs.plays.historyEvery")],
-    }
+/// Which kind a Test of an integration of this type asks: the main one of a type that is read.
+/// `None`: the type is listed and not read.
+pub fn test_route(m: &Manifest) -> Option<Kind> {
+    m.kinds.first().copied().filter(|_| m.read())
 }
 
 /// An integration's configuration as fields: its name, address and secret (set or not) where
@@ -321,10 +302,12 @@ fn integration_fields(state: &AppState, caller: &Caller, i: &Integration) -> Vec
         );
         out.insert(2, fixed(user, i.user.is_some(), Some(user_var)));
     }
-    for (name, label, setting) in schedule(i.kind) {
-        if let Some(mut f) = state.settings.field(setting, caller) {
-            f.key = format!("integrations.{}.{name}", i.id);
-            f.label = label.to_string();
+    // How often it is read: its passes, the main one first, with the setting that holds each
+    // interval.
+    for pass in i.kind.manifest().passes {
+        if let Some(mut f) = state.settings.field(pass.setting, caller) {
+            f.key = format!("integrations.{}.{}", i.id, pass.field);
+            f.label = pass.label.to_string();
             f.part = Some("schedule".to_string());
             out.push(f);
         }
@@ -546,8 +529,8 @@ async fn integration_test(
                 return Ok(refused(&format!("Not configured: {why}")));
             }
             let label = i.kind.label();
-            match i.kind {
-                IntegrationType::Radarr | IntegrationType::Sonarr => match state.engines.arr(&id) {
+            match test_route(i.kind.manifest()) {
+                Some(Kind::Manager) => match state.engines.arr(&id) {
                     Some(engine) => engine
                         .status()
                         .await
@@ -562,11 +545,7 @@ async fn integration_test(
                         .map_err(|e| e.to_string()),
                     None => Err("Not configured".to_string()),
                 },
-                IntegrationType::Qbittorrent
-                | IntegrationType::Transmission
-                | IntegrationType::Deluge
-                | IntegrationType::Sabnzbd
-                | IntegrationType::Nzbget => match state.engines.download_client(&id) {
+                Some(Kind::DownloadClient) => match state.engines.download_client(&id) {
                     Some(client) => client
                         .downloads()
                         .await
@@ -581,15 +560,15 @@ async fn integration_test(
                         .map_err(|e| e.to_string()),
                     None => Err("Not configured".to_string()),
                 },
-                IntegrationType::Seerr => {
+                Some(Kind::RequestSource) => {
                     match state.engines.request_sites.iter().find(|s| s.id() == id) {
                         Some(site) => site
                             .status()
                             .await
                             .map(|info| {
                                 let detail = match &info.version {
-                                    Some(v) => format!("Seerr {v}"),
-                                    None => "Seerr".to_string(),
+                                    Some(v) => format!("{label} {v}"),
+                                    None => label.to_string(),
                                 };
                                 (info.version, detail)
                             })
@@ -597,49 +576,46 @@ async fn integration_test(
                         None => Err("Only the first request source is used".to_string()),
                     }
                 }
-                IntegrationType::Plex | IntegrationType::Jellyfin | IntegrationType::Emby => {
-                    match state.engines.media_server_of(&id) {
-                        Some(server) => server
-                            .identity()
-                            .await
-                            .map(|s| (s.version, s.name))
-                            .map_err(|e| e.to_string()),
-                        None => Err("Not read: first of its type only".to_string()),
-                    }
-                }
-                IntegrationType::Tdarr | IntegrationType::Hush => {
-                    match state.engines.processor(&id) {
-                        Some(processor) => processor
-                            .status()
-                            .await
-                            .map(|s| {
-                                let detail = match &s.version {
-                                    Some(v) => format!("{label} {v}: {}", s.detail),
-                                    None => format!("{label}: {}", s.detail),
-                                };
-                                (s.version, detail)
-                            })
-                            .map_err(|e| e.to_string()),
-                        None => Err("Not configured".to_string()),
-                    }
-                }
-                IntegrationType::Prowlarr => {
-                    return Ok(refused("Not supported"));
-                }
-                IntegrationType::Tautulli => match &state.engines.play_history {
+                Some(Kind::MediaServer) => match state.engines.media_server_of(&id) {
+                    Some(server) => server
+                        .identity()
+                        .await
+                        .map(|s| (s.version, s.name))
+                        .map_err(|e| e.to_string()),
+                    None => Err("Not read: first of its type only".to_string()),
+                },
+                Some(Kind::Processor) => match state.engines.processor(&id) {
+                    Some(processor) => processor
+                        .status()
+                        .await
+                        .map(|s| {
+                            let detail = match &s.version {
+                                Some(v) => format!("{label} {v}: {}", s.detail),
+                                None => format!("{label}: {}", s.detail),
+                            };
+                            (s.version, detail)
+                        })
+                        .map_err(|e| e.to_string()),
+                    None => Err("Not configured".to_string()),
+                },
+                Some(Kind::PlayHistory) => match &state.engines.play_history {
                     Some(history) if history.id() == id => history
                         .status()
                         .await
                         .map(|info| {
                             let detail = match &info.version {
-                                Some(v) => format!("Tautulli {v}"),
-                                None => "Tautulli".to_string(),
+                                Some(v) => format!("{label} {v}"),
+                                None => label.to_string(),
                             };
                             (info.version, detail)
                         })
                         .map_err(|e| e.to_string()),
-                    _ => Err("Only the first Tautulli is used".to_string()),
+                    _ => Err(format!("Only the first {label} is used")),
                 },
+                // A type that is listed and not read, and a kind no type of this version fills.
+                _ => {
+                    return Ok(refused("Not supported"));
+                }
             }
         }
         None if id == "tmdb" => {
@@ -1225,6 +1201,24 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
 
 #[cfg(test)]
 mod tests {
+    /// The Test of an integration asks the main kind of its type, as its manifest states it: a
+    /// new type needs no other edit. A type that is listed and not read is not asked.
+    #[test]
+    fn the_test_asks_the_kind_a_manifest_states() {
+        use super::{Kind, Manifest, test_route};
+        use crate::engines::manifests::{PLEX, PROWLARR, TAUTULLI, tests::SAMPLE};
+        assert_eq!(test_route(&SAMPLE), Some(Kind::PlayHistory));
+        assert_eq!(test_route(&TAUTULLI), Some(Kind::PlayHistory));
+        assert_eq!(test_route(&PLEX), Some(Kind::MediaServer));
+        assert_eq!(test_route(&PROWLARR), None);
+        let unread = Manifest {
+            reads: &[],
+            passes: &[],
+            ..SAMPLE
+        };
+        assert_eq!(test_route(&unread), None);
+    }
+
     #[test]
     fn the_openapi_document_lists_the_configuration_routes() {
         let doc = serde_json::to_value(super::super::routes::openapi()).unwrap();

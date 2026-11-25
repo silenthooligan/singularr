@@ -4,7 +4,8 @@
 //!
 //! The registry is the process's own, like its metrics: one set of loops per process. What it
 //! knows (the last run, its result and how long it took) is since the process started; the
-//! integrations' lasting state is `engine_state`. Each run of an integration's job is also a
+//! integrations' lasting state is `integration_health` (one row per pass) and `engine_state`
+//! (what the passes found). Each run of an integration's job is also a
 //! check of that integration, kept with the tests made from the Settings page
 //! ([`Jobs::record_check`]), the last few per integration.
 

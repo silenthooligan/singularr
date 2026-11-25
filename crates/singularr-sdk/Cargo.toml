@@ -1,0 +1,27 @@
+[package]
+name = "singularr-sdk"
+description = "Singularr's connector SDK: the way-out types, the calls a connector declares and the pure check every call passes. No HTTP client, no database."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+url = "2"
+# The derives the app's API and stores need on the shared types (`openapi`, `sqlx`).
+utoipa = { version = "6", features = ["chrono"], optional = true }
+sqlx = { version = "0.9", default-features = false, features = ["derive", "chrono"], optional = true }
+
+[features]
+# The recorded transport (`testkit`): answers from a table, every call kept. The app's tests and
+# its database tests use it.
+testkit = []
+# utoipa::ToSchema on the shared types: the app's OpenAPI document names them.
+openapi = ["dep:utoipa"]
+# sqlx::FromRow on the shared types the app's stores read rows into.
+sqlx = ["dep:sqlx"]
