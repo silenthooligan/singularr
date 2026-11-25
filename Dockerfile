@@ -58,9 +58,11 @@ RUN --mount=type=cache,id=singularr-cargo-registry,target=/usr/local/cargo/regis
     bash tools/gate.sh
 
 FROM ${RUNTIME_IMAGE} AS runtime
-# CA certificates for the outbound calls (TLS is rustls) and curl for the health check. The server
-# runs as uid 10001, never as root.
+# CA certificates for the outbound calls (TLS is rustls) and curl for the health check. Debian's
+# security updates are applied at build time. The image then includes every fix released after its
+# base image. The server runs as uid 10001, never as root.
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 singularr \
