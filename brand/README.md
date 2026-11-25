@@ -34,11 +34,10 @@ filaments and outline the lettering. Compact SVGs contain paths throughout.
 Use the supplied wordmark artwork for the name. Set interface copy in DM Sans and identifiers such as
 S02E03 in IBM Plex Mono. The font license notices accompany their files in [Type](./Type).
 
-## Voice
+## Interface text
 
-The campaign line is **Escape container sprawl.** In the product, name the action and its scope. Use
-**Request this episode** on the viewer button and **You requested Signal Coast, season 2, episode 3** on
-confirmation. Keep service names and file details in the owner workspace.
+Interface text follows [docs/copy.md](../docs/copy.md). Labels name the action and its scope. Service
+names and file details appear only in the owner workspace.
 
 ## Assets
 

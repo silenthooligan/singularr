@@ -158,7 +158,7 @@ pub fn signin_shared(public_url: &str) -> String {
 <meta property="og:image" content="{0}/brand/share-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Singularr: escape container sprawl">
+<meta property="og:image:alt" content="Singularr Requests">
 <meta name="twitter:card" content="summary_large_image">
 </head>"#,
         esc(public_url.trim_end_matches('/'))

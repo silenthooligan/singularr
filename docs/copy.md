@@ -1,6 +1,6 @@
 # Interface copy
 
-Rules for every string a person sees in Singularr: the web client, and anything the server sends for display (setting labels, check names, job lines, attention items, problem titles). The interface is a product for a worldwide audience. It uses the standard terms of its field and says as little as possible. It never explains itself, narrates, or addresses the reader in prose.
+Rules for every string a person sees in Singularr: the web client and anything the server sends for display (setting labels, check names, job lines, attention items, problem titles). The interface is a product for a worldwide audience. It uses the standard terms of its field and says as little as possible. It never explains itself, narrates, or addresses the reader in prose.
 
 ## Rules
 

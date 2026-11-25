@@ -2,4 +2,4 @@ blank_issues_enabled: true
 contact_links:
   - name: Report a security problem
     url: https://github.com/silenthooligan/singularr/security/advisories/new
-    about: Please report security problems privately, not as a public issue.
+    about: Report security problems privately through a security advisory.

@@ -1,31 +1,29 @@
 # Contributing to Singularr
 
-Singularr is one workspace over a Plex library and the services around it. A change should make the
-library easier to understand, or a service easier to manage, without making any of them less safe.
+Singularr is a self-hosted media library manager. It is built to replace Radarr, Sonarr, Seerr,
+Tautulli, Bazarr, Maintainerr and Cleanuparr with one application. The [roadmap](docs/roadmap.md) lists
+the work. The [project board](https://github.com/users/silenthooligan/projects/2) tracks it. Issues
+labeled help wanted are open to anyone. Open an issue or a
+[discussion](https://github.com/silenthooligan/singularr/discussions) before a large change.
 
-Singularr is a work in progress, built in the open: the [roadmap](docs/roadmap.md) is the plan, and
-every part of it is open to help. Before a large change, open an issue or a
-[discussion](https://github.com/silenthooligan/singularr/discussions) so we can agree on its shape first.
+## Open work
 
-## Where help is wanted
-
-- **Adapters.** Every kind of service plugs in through one layer with an adapter per service. Media
-  servers and players (Jellyfin, Emby, Kodi), download clients (Transmission, Deluge, SABnzbd, NZBGet),
-  indexers (Prowlarr, Jackett, Torznab and Newznab directly) and transcoders are each a self-contained
-  piece of work once their layer is in place; the roadmap says which layers are.
-- **Native jobs.** Search and grab through your indexers and download client, import and renaming,
-  subtitles, retention rules, download cleanup, built-in sign-in and a first-run setup.
-- **Your setup.** Run the beta beside your current stack and report what it gets wrong: a release it
-  scores oddly, a file it misreads, a page that is slow or unclear.
-- **Docs and words.** Guides for other servers and proxies, and interface text that follows
+- **Adapters:** media servers and players (Jellyfin, Emby, Kodi), download clients (Transmission,
+  Deluge, SABnzbd, NZBGet), indexers (Prowlarr, Jackett, Torznab and Newznab) and transcoders. The
+  roadmap shows which layers exist.
+- **Native jobs:** search and grab through indexers and download clients, import and renaming,
+  subtitles, retention, download cleanup, built-in sign-in and first-run setup.
+- **Testing:** run the beta beside an existing setup and report what it gets wrong: a release scored
+  oddly, a misread file, a slow or unclear page.
+- **Docs:** guides for other media servers and proxies. Interface text that follows
   [docs/copy.md](docs/copy.md).
 
-## Report a problem
+## Bug reports
 
-Open an [issue](https://github.com/silenthooligan/singularr/issues/new/choose). Include the version
-(Settings, System), which integrations you use, what you did and what happened. For a failed request,
-include the status, the problem's `code` and the time. Check logs for keys, tokens and addresses
-before posting. Report security problems through the [private process](SECURITY.md).
+Open an [issue](https://github.com/silenthooligan/singularr/issues/new/choose) with the version
+(Settings, System), the integrations in use, the steps taken and the result. Include the status, the
+problem's `code` and the time of a failed request. Remove keys, tokens and addresses from logs before
+posting. Report security problems privately ([SECURITY.md](SECURITY.md)).
 
 ## Development setup
 
@@ -38,30 +36,29 @@ docker buildx build --target check --output type=cacheonly .   # fmt, clippy, ev
 docker build -t singularr .                                     # the image
 ```
 
-Outside Docker you need the nightly toolchain that `rust-toolchain.toml` names and, for the
-database-backed tests, PostgreSQL 18 (`tools/gate.sh` starts a throwaway one).
+A build outside Docker needs the nightly toolchain named in `rust-toolchain.toml`. The database-backed
+tests need PostgreSQL 18 (`tools/gate.sh` starts a throwaway one).
 
-## Find the code
+## Code map
 
 | Area | Directory |
 |---|---|
 | Release parsing, the policy and its evaluation (no I/O) | `crates/singularr-core/` |
-| The server: configuration, the journal, the outbound allowlist | `app/src/core/` |
-| One adapter per service (Plex, the managers, Tdarr, Seerr, Tautulli) | `app/src/engines/` |
-| The routes under `/api/v1` | `app/src/api/` |
+| Server core: configuration, the journal, the outbound allowlist | `app/src/core/` |
+| Adapters, one per service | `app/src/engines/` |
+| Routes under `/api/v1` | `app/src/api/` |
 | Search, grab and import through the managers | `app/src/acquire/` |
-| The web client (plain JS and CSS, no build step) | `web/` |
-| The default policy and the editions | `rules/` |
+| Web client (plain JS and CSS, no build step) | `web/` |
+| Default policy and editions | `rules/` |
 
-## How changes are made
+## Conventions
 
-- **Every call to a service is declared.** An adapter lists what it may send (`Calls` in
-  `app/src/core/outbound.rs`); a new call comes with a test that it passes in its declared form and is
-  refused in any other.
-- **Words follow [docs/copy.md](docs/copy.md):** labels, not sentences, and the interface never
+- **Outbound calls:** each adapter lists the calls it may send (`Calls` in `app/src/core/outbound.rs`).
+  A new call needs a test that passes it in its declared form and refuses it in any other form.
+- **Interface text:** follows [docs/copy.md](docs/copy.md). Controls have labels. The interface never
   addresses the person.
-- **A new route passes the blocker lists:** `python3 tools/blockcheck.py`.
-- **Tests come with the change**, against recorded answers in `app/tests/fixtures`: no test calls a
+- **Routes:** a new route must pass the blocker lists (`python3 tools/blockcheck.py`).
+- **Tests:** every change needs tests against recorded answers in `app/tests/fixtures`. No test calls a
   real service.
 
-Open a pull request against `main`. Small, focused changes are easiest to review.
+Open pull requests against `main`. Keep each one small and focused.

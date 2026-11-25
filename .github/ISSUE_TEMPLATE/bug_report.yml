@@ -14,13 +14,13 @@ body:
     id: integrations
     attributes:
       label: Integrations
-      description: Which services Singularr reads, and which may act.
-      placeholder: Plex, Radarr (act), Sonarr, qBittorrent
+      description: The services in use. Mark the ones with write access.
+      placeholder: Plex, Radarr (write), Sonarr, qBittorrent
   - type: textarea
     id: what
     attributes:
       label: What happened
-      description: What you did, what you expected, and what happened instead. For a failed request, the status, the problem's code and the time.
+      description: What you did, what you expected and what happened. Include the status, the problem's code and the time of a failed request.
     validations:
       required: true
   - type: textarea

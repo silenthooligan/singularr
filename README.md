@@ -1,17 +1,14 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./brand/Compact/Singularr%20-%20dark.svg">
-    <img alt="Singularr" width="390" src="./brand/Compact/Singularr%20-%20light.svg">
-  </picture>
+  <img alt="Singularr: self-hosted media library management for any media server and download client. Beta 0.1, work in progress." src="./brand/Campaign/Singularr%20launch%20card.png">
 </p>
 
-<p align="center"><strong>Escape container sprawl.</strong></p>
-<p align="center">One self-hosted app for your whole media library, whatever server plays it.</p>
 <p align="center">
 <a href="#install">Install</a> ·
-<a href="docs/configuration.md">Configure</a> ·
-<a href="#how-it-stays-safe">Security</a> ·
-<a href="docs/roadmap.md">Roadmap</a>
+<a href="docs/configuration.md">Configuration</a> ·
+<a href="docs/roadmap.md">Roadmap</a> ·
+<a href="https://github.com/users/silenthooligan/projects/2">Project board</a> ·
+<a href="CONTRIBUTING.md">Contributing</a> ·
+<a href="https://singularr.org">singularr.org</a>
 </p>
 <p align="center">
 <a href="https://github.com/silenthooligan/singularr/releases"><img src="https://img.shields.io/github/v/release/silenthooligan/singularr?include_prereleases&label=beta" alt="Latest beta"></a>
@@ -21,133 +18,127 @@
 <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/contributions-welcome-5B3D92" alt="Contributions welcome"></a>
 </p>
 
-![A luminous violet event horizon beside the words “Escape container sprawl.”](./brand/Campaign/Singularr%20launch%20card.png)
+Singularr is a self-hosted media library manager. It is built to replace the separate apps that manage
+a library today: Radarr, Sonarr, Seerr, Tautulli, Bazarr, Maintainerr and Cleanuparr. One application
+covers the library, the quality rules and the interface. Each release verdict lists the rules behind it.
 
-Singularr runs a media library from end to end in one app. It finds and downloads movies and shows,
-imports and names them, keeps their editions and subtitles, takes requests from the people who watch,
-records what they play, and clears out what is no longer wanted. It replaces the stack of
-single-purpose apps a library usually needs (Radarr, Sonarr, Seerr, Tautulli, Bazarr, Maintainerr,
-Cleanuparr) with one library, one set of rules and one interface, and it explains every decision it
-makes.
+Singularr connects to services by kind: media servers, download clients, indexers and transcoders.
+Each kind has one layer. Each service has an adapter on its layer. Version 0.1 works with Plex,
+qBittorrent and Tdarr. Adapters for Jellyfin, Emby, Kodi, Transmission, Deluge, SABnzbd and NZBGet are
+next.
 
-Singularr brings the engine and the integrations; the services are yours to choose. Media servers and
-players, download clients, indexers and transcoders each plug in through one layer per kind, with an
-adapter per service, and Singularr drives them through their APIs. 0.1 speaks Plex, qBittorrent,
-Prowlarr and Tdarr; Jellyfin, Emby, Kodi, Transmission, Deluge, SABnzbd and NZBGet come next
-([roadmap](docs/roadmap.md)).
+## Status
 
-## A work in progress, built in the open
+Singularr 0.1 is a beta and a work in progress. Version 0.1 still searches, grabs and
+imports through Radarr and Sonarr. Seerr still fulfills requests. Singularr scores every release
+itself and drives those apps through their APIs. It takes over each of those jobs in turn. Run 0.1
+beside an existing setup and retire each app when Singularr takes over its job.
 
-Singularr is not finished, and it says so. The intent is above: one app in place of the stack, for
-whichever services you run. The [roadmap](docs/roadmap.md) shows what is live, what is next and what
-is planned, job by job and service by service.
+The [roadmap](docs/roadmap.md) lists what works today and what comes next. The
+[project board](https://github.com/users/silenthooligan/projects/2) tracks each item. A release before
+1.0 may change settings or behavior. The [changelog](CHANGELOG.md) lists the changes.
 
-**Contributions are welcome.** Each kind of service plugs in through one layer, so support for another
-media server or download client is a self-contained adapter, and every job on the roadmap is open:
-native search and import, subtitles, retention, download cleanup, built-in sign-in. Testing on your
-own setup and telling us what broke helps as much as code. Start with [CONTRIBUTING.md](CONTRIBUTING.md),
-or bring an idea to [Discussions](https://github.com/silenthooligan/singularr/discussions).
+## Contributing
 
-> **Beta (0.x).** Singularr manages a real library every day. In 0.1 it still hands some jobs to the
-> apps it replaces: Radarr and Sonarr search, grab and import (Singularr drives them and judges every
-> release), Seerr carries out requests, and Plex is the media server. Each job moves into Singularr in
-> turn ([roadmap](docs/roadmap.md)), so you can run 0.1 beside your current setup and retire each app
-> as its job lands. Until 1.0 a release may change settings or behavior; the [changelog](CHANGELOG.md)
-> says what changed.
+Contributions are welcome. An adapter for another media server or download client is self-contained
+work. Every job on the roadmap is open: native search and import, subtitles, retention, download
+cleanup and built-in sign-in. Bug reports from other setups are welcome too.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers setup and conventions. Use
+[Discussions](https://github.com/silenthooligan/singularr/discussions) for ideas and questions.
 
-## One library, two views
+## Workspace and portal
 
-**Singularr** is the workspace for the people who run the library. Movies and shows have their own
-views. Every title shows its files, editions and copies, and the activity queue names the title,
-edition or episode, the service responsible and its current state.
+**Singularr** is the workspace for the people who run the library. Movies and shows have separate
+views. Each title lists its files, editions and copies. The activity queue shows each item's title,
+edition or episode, the service handling it and its state.
 
-**Singularr Requests** is the portal for viewers. They sign in with their media server account (Plex
-in 0.1), find a movie or show and
-choose exactly what they want, down to a single episode: a request for *Signal Coast* S02E03 names one
-episode when the owner reviews it.
+**Singularr Requests** is the portal for viewers. Viewers sign in with their media server account (Plex
+in 0.1) and request a movie, a season or a single episode.
 
-## What it does
+## Features
 
-- **Library.** Movies, shows, music and home videos from your media server's libraries, with editions as a first
-  class idea: a title can hold a theatrical cut and an open matte copy side by side.
-- **Activity.** The download queue with each item's stage and, when it is stuck, why; the managers'
-  history; and the wanted list (missing, and below the profile's cutoff).
-- **Search and grab.** An interactive search through Radarr and Sonarr that sets Singularr's own verdict
-  and score beside the manager's for every release. Grab, import a download the manager refused, or
-  remove and blocklist it.
-- **Quality profiles.** Profiles built from grouped lists of release groups and traits instead of a
-  hundred separate rules, a lab to test release names against them, and naming previews that follow
-  the managers' own conventions.
-- **Requests.** Requests from the portal or from Seerr, with a season limit per viewer and the owner's
-  review.
-- **Processing.** Tdarr's flows, workers and libraries, and rules that decide which files go to which
-  flow, watched before they are trusted.
-- **Statistics.** Who played what, where and how it was delivered, from the media server, with an
-  import from Tautulli.
-- **Notifications.** Slack, Discord, email, webhooks and more, chosen per event.
-- **Journal.** Every change and decision, with who or what made it.
-- **API.** Everything the interface does is in `/api/v1`, described by OpenAPI at
+- **Library:** movies, shows, music and home videos. Editions of one title (a theatrical cut and an
+  open matte copy) appear side by side.
+- **Activity:** the download queue with each item's stage and the reason an item is stuck; the
+  managers' history; the wanted list (missing titles and titles below the profile's cutoff).
+- **Search and grab:** interactive search through Radarr and Sonarr. Each release shows Singularr's
+  verdict and score next to the manager's. Grab a release, import a download the manager refused, or
+  remove a download and blocklist it.
+- **Quality profiles:** profiles built from grouped lists of release groups and traits. A lab tests
+  release names. Naming previews follow the managers' conventions.
+- **Requests:** requests from the portal and from Seerr in one list. Each viewer may have a limited
+  number of seasons of a show at a time.
+- **Processing:** Tdarr's flows, workers and libraries, and rules that pick the files for a flow.
+- **Statistics:** plays by person, device and delivery method. Tautulli's history imports into
+  Statistics.
+- **Calendar:** episodes and movies by air and release date.
+- **Notifications:** a choice of channels per event: Slack, Discord, email, webhooks, ntfy, Telegram,
+  Pushover and Gotify.
+- **Journal:** every change and decision and the person or job behind it.
+- **API:** every action in the interface is available under `/api/v1`. The OpenAPI description is at
   `/api/v1/openapi.json`.
 
 ## Install
 
-You need Docker with Compose, a media server (Plex in 0.1), a download client (qBittorrent in 0.1),
-Radarr or Sonarr (until Singularr's own search and import land), and a reverse proxy that signs people in (oauth2-proxy, Authelia, Authentik
-or similar). PostgreSQL comes with the compose file.
+Requirements: Docker with Compose, a media server (Plex in 0.1), a download client (qBittorrent in 0.1),
+Radarr or Sonarr (until native search and import), and a reverse proxy that signs people in
+(oauth2-proxy, Authelia, Authentik or similar). PostgreSQL is part of the compose file.
 
 ```bash
 git clone https://github.com/silenthooligan/singularr.git
 cd singularr
-cp .env.example .env    # the database password, the owner, the sign-in proxy and the integrations
+cp .env.example .env    # database password, owner, sign-in proxy, integrations
 docker compose up -d
 ```
 
-Compose pulls the beta image from `ghcr.io/silenthooligan/singularr`; `docker compose up -d --build`
-builds it from this checkout instead. Then point your proxy at port 7300.
+Compose pulls the beta image from `ghcr.io/silenthooligan/singularr`. `docker compose up -d --build`
+builds from the checkout instead. Point the proxy at port 7300.
 [docs/configuration.md](docs/configuration.md) describes every setting.
 
 ### Sign-in
 
-Singularr does not sign people in itself yet (it is on the [roadmap](docs/roadmap.md)). Your proxy
-signs the owner in and passes the address in `X-Auth-Request-Email`, together with a shared secret in
-`X-Edge-Token`. Singularr honors those headers only from the addresses in `SINGULARR_TRUSTED_PROXY_IPS`
-when the secret matches `SINGULARR_EDGE_TOKEN`, and only for an address listed in
-`SINGULARR_OWNER_EMAILS`. With no trusted proxy configured, no identity header is trusted at all.
+Built-in sign-in is on the roadmap. Until then, a reverse proxy signs the owner in and passes the
+owner's address in `X-Auth-Request-Email`. Singularr accepts that header only when:
 
-Programs use API keys instead (Settings, API), each with its own scopes.
+- the request comes from an address in `SINGULARR_TRUSTED_PROXY_IPS`;
+- `X-Edge-Token` matches `SINGULARR_EDGE_TOKEN` (when that is set);
+- the address is in `SINGULARR_OWNER_EMAILS`.
 
-## How it stays safe
+Singularr trusts no identity header while `SINGULARR_TRUSTED_PROXY_IPS` is empty. Programs use API keys
+from Settings, API. Each key has its own scopes.
 
-- **Read first.** Every integration starts read only. You allow one to act in Settings, Integrations,
-  and the screen lists what that allows.
-- **Declared calls only.** Each adapter lists the exact calls it may send to its service. Anything
-  else is refused before it leaves Singularr, whatever the access says: deleting files, shutting a
-  service down, changing its settings or profiles.
-- **Your clicks.** Searches, grabs, imports and removals happen when you ask for them, never from a
-  background job.
-- **The portal is separate.** Singularr Requests runs as its own process and database role, sees only
-  views made for it, and holds no integration secret.
+## Security
 
-Found a security problem? See [SECURITY.md](SECURITY.md).
+- Every integration starts with read access. The owner grants write access per integration in
+  Settings, Integrations. That page lists the actions write access allows.
+- Each adapter declares the exact calls it may send. Singularr refuses every other call before it is
+  sent. No adapter declares a call that deletes or edits a title or its files, shuts down or restarts
+  a service, or changes a service's settings or quality profiles.
+- Searches, grabs, imports and removals run only when the owner starts them. No background job starts
+  them.
+- Singularr Requests runs as its own process with its own database role. It reads only the views made
+  for it and has no integration secrets.
 
-## Develop
+Report security problems privately as described in [SECURITY.md](SECURITY.md).
 
-The gate that CI runs: formatting, clippy with warnings as errors, and every test, the database-backed
-ones against a throwaway PostgreSQL 18.
+## Development
+
+CI runs formatting, clippy with warnings as errors, and every test. Database-backed tests run against a
+throwaway PostgreSQL 18.
 
 ```bash
 docker buildx build --target check --output type=cacheonly .
 ```
 
-`python3 tools/blockcheck.py` checks that no common content blocker list (uBlock Origin, AdGuard and
-Brave's defaults) blocks one of the client's own requests. See [CONTRIBUTING.md](CONTRIBUTING.md).
+`python3 tools/blockcheck.py` checks that the default lists of uBlock Origin, AdGuard and Brave block
+none of the client's own requests. [CONTRIBUTING.md](CONTRIBUTING.md) has the rest.
 
-## Identity
+## Brand
 
-The name is **Singularr**, with two final r's, and the viewer portal is **Singularr Requests**. Logos,
-icons, colors and type are in [brand/](brand/README.md).
+The application is **Singularr**. The viewer portal is **Singularr Requests**. Logos, icons, colors and
+type are in [brand/](brand/README.md).
 
 ## License
 
-Singularr is open source under [Apache 2.0](LICENSE). The interface fonts, DM Sans and IBM Plex Mono,
-are under the SIL Open Font License; see [NOTICE](NOTICE).
+Apache 2.0 ([LICENSE](LICENSE)). The interface fonts, DM Sans and IBM Plex Mono, are licensed under the
+SIL Open Font License ([NOTICE](NOTICE)).

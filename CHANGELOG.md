@@ -1,24 +1,23 @@
 # Changelog
 
-Singularr follows semantic versioning. Until 1.0 every release is a beta: a minor version may change
-settings or behavior, and its section here says how.
+Versions follow semantic versioning. Releases before 1.0 are betas. A minor release before 1.0 may
+change settings or behavior.
 
 ## 0.1.0 (beta)
 
-The first public release.
+First public release.
 
-- **Workspace.** Library views for movies, shows, music and home videos from your Plex sections, with
-  editions and copies; title pages with files, cast and crew; a calendar of what airs and releases.
-- **Activity.** The download queue with each item's stage and the reason it is stuck, the managers'
-  history and the wanted list, each tab read on its own.
-- **Search and grab.** Interactive search through Radarr and Sonarr with Singularr's verdict and score
-  beside the manager's; grab a release, import a download the manager refused, remove and blocklist.
-- **Quality profiles.** Profiles built from grouped lists of release groups and traits, a release lab,
-  and naming previews that follow the managers' own conventions.
-- **Singularr Requests.** The viewer portal: Plex sign-in, and requests down to a single episode.
-- **Processing.** Tdarr's flows, workers and libraries, and rules that decide which files go to a flow.
-- **Statistics.** Plays from Plex, with an import from Tautulli.
-- **Notifications.** Slack, Discord, email, webhooks and more, per event.
-- **Journal.** Every change and decision, with who or what made it.
-- **Access.** Every integration is read only until the owner allows it to act, and each adapter sends
-  only the calls it declares.
+- Library: movies, shows, music and home videos; editions and copies; title pages with files, cast and
+  crew; calendar of air and release dates.
+- Activity: download queue with stage and stuck reason; manager history; wanted list.
+- Search and grab through Radarr and Sonarr: Singularr verdict and score beside the manager's; grab;
+  import a refused download; remove and blocklist.
+- Quality profiles: grouped lists of release groups and traits; release lab; naming previews in the
+  managers' conventions.
+- Singularr Requests: viewer portal; Plex sign-in; requests down to a single episode.
+- Processing: Tdarr flows, workers and libraries; rules that pick files for a flow.
+- Statistics: plays from Plex; Tautulli import.
+- Notifications per event: Slack, Discord, email, webhooks, ntfy, Telegram, Pushover, Gotify.
+- Journal: every change and decision with its actor.
+- Access: integrations read only until write access is granted; each adapter sends only its declared
+  calls.
