@@ -35,7 +35,8 @@ itself and drives those apps through their APIs. It takes over each of those job
 beside an existing setup and retire each app when Singularr takes over its job.
 
 The [roadmap](docs/roadmap.md) lists what works today and what comes next. The
-[project board](https://github.com/users/silenthooligan/projects/2) tracks each item. A release before
+[project board](https://github.com/users/silenthooligan/projects/2) tracks each item. The work is grouped
+in two [milestones](https://github.com/silenthooligan/singularr/milestones): MVP, then Product launch. A release before
 1.0 may change settings or behavior. The [changelog](CHANGELOG.md) lists the changes.
 
 ## Contributing

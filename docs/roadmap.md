@@ -3,6 +3,16 @@
 Singularr is built to manage a media library as one application in place of a set of single-purpose
 apps. It is designed for any media server (Plex, Jellyfin, Emby, Kodi) and any download client.
 
+## Milestones
+
+- **[MVP](https://github.com/silenthooligan/singularr/milestone/1):** Singularr runs a library without
+  Radarr, Sonarr and Seerr. Native search, grab and import, requests fulfilled by Singularr, its own
+  catalog, built-in sign-in and first-run setup, and viewer sign-in on every supported media server. A
+  new install needs no sign-in proxy.
+- **[Product launch](https://github.com/silenthooligan/singularr/milestone/2):** every job on the roadmap
+  is native: subtitles, retention, download cleanup, collections and gaps. Kodi as a player and a light
+  theme.
+
 ## Principles
 
 - **Built in:** logic over the library. Profiles and naming, requests, statistics, subtitles,
