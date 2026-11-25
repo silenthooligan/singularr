@@ -3,6 +3,15 @@
 Versions follow semantic versioning. Releases before 1.0 are betas. A minor release before 1.0 may
 change settings or behavior.
 
+## 0.1.2 (beta)
+
+- Statistics: Overview, History, Users, Libraries, Players, Graphs; shared filters (dates, kind, library, person, media server, player, app, platform, delivery); History sorts every column; a drawer per play.
+- Plays record media server and kind, player app and platform with versions, device id, client address, secure and relayed (Plex), bandwidth, source and sent codecs, channels and container, transcode reasons (Jellyfin, Emby).
+- Addresses kept by default (Settings, Jobs, Play history, Keep IP addresses); owner only; never logged. Turning the setting off removes them at once. The first full Tautulli read refills past plays' addresses.
+- Locations from DB-IP IP to City Lite, looked up on the server. Monthly download on by default (`SINGULARR_GEOIP_DOWNLOAD=off` turns it off); `SINGULARR_GEOIP_PATH` for an operator's file. Without a database: addresses only.
+- Settings: `SINGULARR_GEOIP_DOWNLOAD`, `SINGULARR_GEOIP_PATH`, `SINGULARR_DATA_DIR` (default `/data`). Compose: volume `data` at `/data`.
+- Migration 0021 (players and streams), backfilled from Tautulli history.
+
 ## 0.1.1 (beta)
 
 - Media server layer: Plex, Jellyfin and Emby behind one port; read only; plays recorded from each server's sessions. Emby untested against a real server.

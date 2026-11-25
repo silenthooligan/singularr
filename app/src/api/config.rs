@@ -114,6 +114,24 @@ async fn settings_patch(
     {
         super::profiles::apply_source(&state).await?;
     }
+    // The location database's download, turned on or off: its loop passes now.
+    if saved
+        .saved
+        .iter()
+        .any(|k| k == crate::plays::locations::DOWNLOAD)
+    {
+        crate::plays::locations::wake();
+    }
+    // Addresses turned off: the kept ones go now, not at the next housekeeping (which never
+    // runs with the sync off).
+    if saved
+        .saved
+        .iter()
+        .any(|k| k == crate::plays::model::KEEP_ADDRESSES)
+        && !crate::plays::service::keep_addresses(&state.settings)
+    {
+        crate::plays::store::forget_addresses(&state.pool).await?;
+    }
     Ok(Json(saved).into_response())
 }
 

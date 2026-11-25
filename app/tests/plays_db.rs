@@ -286,18 +286,59 @@ async fn the_server_history_and_tautulli_make_one_row_per_play() {
     // A play Tautulli alone knows: not finished, so the server never marked it played.
     let open = by_tautulli(&t.pool, 6680).await;
     assert_eq!((open.0, open.6.as_deref()), (None, Some("transcode")));
-    // No address is kept: the setting is off by default.
-    let kept: i64 = sqlx::query_scalar(
+    // Addresses are kept by default: each play Tautulli told of has its own, with its device and
+    // its connection. Every play is the Plex server's.
+    let kept: (i64, i64, i64) = sqlx::query_as(
+        "SELECT count(*) FILTER (WHERE address IS NOT NULL),
+                count(*) FILTER (WHERE device_id IS NOT NULL AND secure AND NOT relayed),
+                count(*) FILTER (WHERE server_kind = 'plex')
+         FROM plays",
+    )
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(kept, (40, 40, 53));
+    let one: (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT address, product FROM plays WHERE tautulli_id = 6679")
+            .fetch_one(&t.pool)
+            .await
+            .unwrap();
+    assert!(
+        one.0
+            .as_deref()
+            .is_some_and(|a| a.starts_with("198.51.100."))
+    );
+    assert!(one.1.is_some());
+    // The import run again adds nothing and changes nothing.
+    let again = plays::tautulli_pass(&deps, &history, true).await.unwrap();
+    assert_eq!(again.counts["new"], 0);
+    assert_eq!(count(&t.pool).await, 53);
+    // Turned off, the housekeeping forgets every address: the plays' own and those in the
+    // sources' records.
+    sqlx::query(
+        "INSERT INTO settings (scope, key, value, saved_by)
+         VALUES ('instance', 'jobs.plays.keepAddresses', 'false', 'test')",
+    )
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    deps.settings.reload(&t.pool).await.unwrap();
+    assert!(!plays::keep_addresses(&deps.settings));
+    plays::housekeeping(&deps).await.unwrap();
+    let left: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM plays WHERE address IS NOT NULL OR raw #> '{tautulli,ip_address}' IS NOT NULL",
     )
     .fetch_one(&t.pool)
     .await
     .unwrap();
-    assert_eq!(kept, 0);
-    // The import run again adds nothing and changes nothing.
-    let again = plays::tautulli_pass(&deps, &history, true).await.unwrap();
-    assert_eq!(again.counts["new"], 0);
-    assert_eq!(count(&t.pool).await, 53);
+    assert_eq!(left, 0);
+    // And a play read while it is off keeps none.
+    plays::tautulli_pass(&deps, &history, true).await.unwrap();
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM plays WHERE address IS NOT NULL")
+        .fetch_one(&t.pool)
+        .await
+        .unwrap();
+    assert_eq!(left, 0);
     // An ordinary pass reads the newest days only.
     plays::tautulli_pass(&deps, &history, false).await.unwrap();
     assert!(
@@ -327,10 +368,13 @@ fn session(state: &str, offset: i64) -> String {
         "User": {"id": "1", "title": "person-27"},
         "Player": {"title": "device-446", "state": state, "device": "SHIELD Android TV",
                    "platform": "Android", "product": "Plex for Android (TV)", "local": false,
+                   "version": "10.24.0.1234", "platformVersion": "11",
+                   "machineIdentifier": "device-446-id", "secure": true, "relayed": false,
                    "address": "10.0.0.9", "remotePublicAddress": "198.51.100.98"},
         "Session": {"id": "abc-123", "bandwidth": 20000, "location": "wan"},
         "Media": [{"videoResolution": "1080", "bitrate": 18000, "videoCodec": "h264",
-                   "audioCodec": "eac3", "selected": true}]
+                   "audioCodec": "eac3", "audioChannels": 6, "container": "mkv",
+                   "selected": true}]
     }]}})
     .to_string()
 }
@@ -390,8 +434,68 @@ async fn a_session_is_one_play_from_start_through_a_pause_to_its_end() {
             Some("direct play"),
             Some("1080p"),
             Some(false),
-            None,
+            Some("198.51.100.98".to_string()),
             false
+        )
+    );
+    // The player's app and platform with their versions, the device, the connection and the
+    // file. It played directly: the file is what was sent.
+    type Player = (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<bool>,
+        Option<bool>,
+        Option<i64>,
+    );
+    let player: Player = sqlx::query_as(
+        "SELECT server_kind, product_version, platform_version, device_id, secure, relayed,
+                bandwidth
+         FROM plays",
+    )
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        player,
+        (
+            Some("plex".to_string()),
+            Some("10.24.0.1234".to_string()),
+            Some("11".to_string()),
+            Some("device-446-id".to_string()),
+            Some(true),
+            Some(false),
+            Some(20000)
+        )
+    );
+    type File = (
+        Option<String>,
+        Option<String>,
+        Option<i32>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Vec<String>,
+    );
+    let file: File = sqlx::query_as(
+        "SELECT source_video_codec, source_audio_codec, source_audio_channels, source_container,
+                stream_video_codec, stream_container, transcode_reasons
+         FROM plays",
+    )
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        file,
+        (
+            Some("h264".to_string()),
+            Some("eac3".to_string()),
+            Some(6),
+            Some("mkv".to_string()),
+            Some("h264".to_string()),
+            Some("mkv".to_string()),
+            Vec::new()
         )
     );
     // The sessions route says how the stream is delivered, and what it takes.
@@ -427,14 +531,55 @@ async fn a_session_is_one_play_from_start_through_a_pause_to_its_end() {
     );
     let rows = read().await;
     assert_eq!((rows.len(), rows[0].5), (1, true));
-    // The session's own record is kept, without the player's addresses.
+    // The session's own record is kept whole, the player's addresses with it while the setting
+    // keeps them.
     let raw: serde_json::Value = sqlx::query_scalar("SELECT raw FROM plays")
         .fetch_one(&t.pool)
         .await
         .unwrap();
     assert_eq!(raw["live"]["Session"]["id"], "abc-123");
-    assert!(raw["live"]["Player"].get("address").is_none());
-    assert!(raw["live"]["Player"].get("remotePublicAddress").is_none());
+    assert_eq!(
+        raw["live"]["Player"]["remotePublicAddress"],
+        "198.51.100.98"
+    );
+    // The history shows it with its server, its player and its address. Without a location
+    // database a public address has no place.
+    let history = owner_get(&routes, "/api/v1/stats/plays").await;
+    let play = &history["plays"][0];
+    assert_eq!(
+        play["server"],
+        json!({"id": "plex", "kind": "plex", "name": "Plex"})
+    );
+    assert_eq!(
+        (
+            play["address"].clone(),
+            play["location"]["label"].clone(),
+            play["location"]["local"].clone()
+        ),
+        (json!("198.51.100.98"), Value::Null, json!(false))
+    );
+    assert_eq!(
+        (
+            play["productVersion"].clone(),
+            play["platformVersion"].clone(),
+            play["secure"].clone(),
+            play["relayed"].clone(),
+            play["bandwidth"].clone()
+        ),
+        (
+            json!("10.24.0.1234"),
+            json!("11"),
+            json!(true),
+            json!(false),
+            json!(20000)
+        )
+    );
+    assert_eq!(
+        play["delivery"]["source"],
+        json!({"resolution": "1080p", "bitrate": 18000, "videoCodec": "h264",
+               "audioCodec": "eac3", "audioChannels": 6, "container": "mkv"})
+    );
+    assert!(play["delivery"].get("reasons").is_none());
 
     // Tautulli tells of the same sitting later: still one play, with its times.
     let (start, stop): (i64, i64) = sqlx::query_as(
@@ -518,12 +663,22 @@ const OWNER: (&str, &str) = ("x-auth-request-email", "owner@example.com");
 
 /// The application state over a test database, its integrations answering from `recorded`.
 fn app(pool: &PgPool, journal: &Journal, recorded: &Arc<Recorded>) -> axum::Router {
+    app_with(pool, journal, recorded).0
+}
+
+/// [`app`], with its integrations: the location database they hold is the one the routes read.
+fn app_with(
+    pool: &PgPool,
+    journal: &Journal,
+    recorded: &Arc<Recorded>,
+) -> (axum::Router, Arc<EngineSet>) {
     let env = env(&[("SINGULARR_TMDB_TOKEN", "tmdb-token")]);
     let config = Config::from(&env).unwrap();
     let out = Outbound::with_transport(allowlist(&config).unwrap(), recorded.clone());
     let settings = Arc::new(Settings::new(&config, &env, None));
-    routes::router(AppState::new(Inner {
-        engines: Arc::new(EngineSet::from_config(&config, &out)),
+    let engines = Arc::new(EngineSet::from_config(&config, &out));
+    let router = routes::router(AppState::new(Inner {
+        engines: engines.clone(),
         metadata: Arc::new(ProviderSet::from_config(&config, &out).with_locale(settings.locale())),
         owners: singularr::core::identity::Allowlist::parse(&config.owner_emails),
         requests: Arc::new(Requests::new(&config.request_rules)),
@@ -542,7 +697,8 @@ fn app(pool: &PgPool, journal: &Journal, recorded: &Arc<Recorded>) -> axum::Rout
         pool: pool.clone(),
         journal: journal.clone(),
         policy: singularr::policy::PolicyCell::handle(ActivePolicy::builtin()),
-    }))
+    }));
+    (router, engines)
 }
 
 async fn get(app: &axum::Router, path: &str, headers: &[(&str, &str)]) -> (StatusCode, Value) {
@@ -553,6 +709,36 @@ async fn get(app: &axum::Router, path: &str, headers: &[(&str, &str)]) -> (Statu
     let res = app
         .clone()
         .oneshot(req.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = res.status();
+    let bytes = axum::body::to_bytes(res.into_body(), 8 * 1024 * 1024)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+/// A call as the owner with a JSON body: its status and its answer.
+async fn owner_send(
+    app: &axum::Router,
+    method: &str,
+    path: &str,
+    body: Value,
+) -> (StatusCode, Value) {
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .header(OWNER.0, OWNER.1)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
         .await
         .unwrap();
     let status = res.status();
@@ -960,6 +1146,10 @@ async fn statistics_are_the_owner_s_and_a_title_carries_its_plays() {
         "/api/v1/stats/plays",
         "/api/v1/stats/people",
         "/api/v1/stats/people/1",
+        "/api/v1/stats/libraries",
+        "/api/v1/stats/players",
+        "/api/v1/stats/graphs",
+        "/api/v1/stats/options",
     ] {
         let (status, body) = get(&app, path, &[("authorization", bearer.as_str())]).await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{path}: {body}");
@@ -1117,5 +1307,622 @@ async fn a_tautulli_play_links_through_the_plex_server() {
         .unwrap();
     plays::housekeeping(&deps).await.unwrap();
     assert_eq!(linked().await, expected);
+    t.drop_db().await;
+}
+
+/// A play of [`sitting`] with the address it came from and the app it played in, at a version.
+fn placed(mut r: PlayRecord, address: &str, product: &str, version: &str) -> PlayRecord {
+    r.address = Some(address.to_string());
+    r.product = Some(product.to_string());
+    r.product_version = Some(version.to_string());
+    r
+}
+
+/// Four plays from four places on two media servers: the history in the order of a column and
+/// by each filter, every address shown alone and then placed by a location database, and the
+/// libraries, the players, the graphs and what the filters choose from.
+#[tokio::test]
+async fn the_history_sorts_and_filters_and_each_address_is_placed() {
+    let Some(t) = TestDb::new("plays_places").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    let deps = make_deps(&t.pool, &recorded);
+    let today = Utc::now().date_naive();
+    let day = |days: i64| today - chrono::Duration::days(days);
+    let at = |days: i64, hour: u32| day(days).and_hms_opt(hour, 0, 0).unwrap().and_utc();
+    let movie_a = ("movie", "100", "Movie A");
+    let mut home = placed(
+        sitting(
+            41,
+            1,
+            "owner",
+            movie_a,
+            None,
+            at(1, 20),
+            120,
+            ("direct play", "lan", "Android", "TV"),
+        ),
+        "10.0.0.5",
+        "Plex for Android (TV)",
+        "10.1",
+    );
+    home.library_key = Some("1".to_string());
+    home.source_resolution = Some("1080p".to_string());
+    home.stream_resolution = Some("1080p".to_string());
+    let mut paris = placed(
+        sitting(
+            42,
+            2,
+            "friend",
+            movie_a,
+            None,
+            at(1, 21),
+            90,
+            ("transcode", "wan", "Roku", "Roku TV"),
+        ),
+        "203.0.113.7",
+        "Plex for Roku",
+        "8.1",
+    );
+    paris.library_key = Some("1".to_string());
+    paris.source_resolution = Some("1080p".to_string());
+    paris.stream_resolution = Some("720p".to_string());
+    paris.transcode_reasons = vec!["VideoBitrateNotSupported".to_string()];
+    let mut toronto = placed(
+        sitting(
+            43,
+            2,
+            "friend",
+            ("movie", "300", "Movie C"),
+            None,
+            at(3, 10),
+            45,
+            ("copy", "wan", "Roku", "Roku TV"),
+        ),
+        "198.51.100.20",
+        "Plex for Roku",
+        "8.0",
+    );
+    toronto.library_key = Some("2".to_string());
+    toronto.source_resolution = Some("4K".to_string());
+    toronto.stream_resolution = Some("4K".to_string());
+    let mut berlin = placed(
+        sitting(
+            44,
+            3,
+            "guest",
+            ("movie", "400", "Movie D"),
+            None,
+            at(5, 12),
+            60,
+            ("direct play", "wan", "iOS", "Phone"),
+        ),
+        "2001:db8::5",
+        "Jellyfin Mobile",
+        "2.0",
+    );
+    berlin.server = "jellyfin".to_string();
+    berlin.server_kind = Some("jellyfin".to_string());
+    let done = plays::absorb_all(&deps, vec![home, paris, toronto, berlin])
+        .await
+        .unwrap();
+    assert_eq!(done.new, 4);
+    sqlx::query(
+        "INSERT INTO libraries (id, name, kind, integration, section_key)
+         VALUES ('plex-1', 'Movies', 'movie', 'plex', '1')",
+    )
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    let (app, engines) = app_with(&t.pool, &deps.journal, &recorded);
+    let watched = |page: &Value| -> Vec<i64> {
+        page["plays"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["watchedSeconds"].as_i64().unwrap())
+            .collect()
+    };
+
+    // In the order of a column, a page at a time; ties go newest first.
+    let shortest = owner_get(&app, "/api/v1/stats/plays?sort=duration&dir=asc").await;
+    assert_eq!(watched(&shortest), vec![2700, 3600, 5400, 7200]);
+    assert_eq!(
+        (
+            shortest["page"].clone(),
+            shortest["total"].clone(),
+            shortest["next"].clone()
+        ),
+        (json!(1), json!(4), Value::Null)
+    );
+    let by_person = owner_get(&app, "/api/v1/stats/plays?sort=person&dir=asc").await;
+    let names: Vec<&str> = by_person["plays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["person"]["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["friend", "friend", "guest", "owner"]);
+    assert_eq!(watched(&by_person)[..2], [5400, 2700]);
+    // Newest first, a page follows the last play shown: a play that starts meanwhile moves no
+    // row from one page to the next.
+    let newest = owner_get(&app, "/api/v1/stats/plays?sort=date&dir=desc&limit=2").await;
+    assert_eq!(
+        (newest["page"].clone(), watched(&newest)),
+        (Value::Null, vec![5400, 7200])
+    );
+    let meanwhile = placed(
+        sitting(
+            45,
+            1,
+            "owner",
+            ("movie", "500", "Movie E"),
+            None,
+            Utc::now() - chrono::Duration::minutes(5),
+            1,
+            ("direct play", "lan", "Android", "TV"),
+        ),
+        "10.0.0.5",
+        "Plex for Android (TV)",
+        "10.1",
+    );
+    plays::absorb_all(&deps, vec![meanwhile]).await.unwrap();
+    let after = owner_get(
+        &app,
+        &format!(
+            "/api/v1/stats/plays?sort=date&dir=desc&limit=2&before={}",
+            newest["next"]
+        ),
+    )
+    .await;
+    assert_eq!(watched(&after), vec![2700, 3600]);
+    sqlx::query("DELETE FROM plays WHERE tautulli_id = 45")
+        .execute(&t.pool)
+        .await
+        .unwrap();
+    let second = owner_get(&app, "/api/v1/stats/plays?sort=date&limit=2&page=2").await;
+    assert_eq!(watched(&second), vec![2700, 3600]);
+    assert_eq!(second["page"], 2);
+    // Each filter, alone and together.
+    for (query, total) in [
+        ("server=plex".to_string(), 3),
+        ("server=jellyfin".to_string(), 1),
+        ("player=Roku%20TV".to_string(), 2),
+        ("product=Plex%20for%20Roku".to_string(), 2),
+        ("platform=iOS".to_string(), 1),
+        ("address=203.0.113.7".to_string(), 1),
+        (format!("from={}&to={}", day(3), day(1)), 3),
+        (format!("from={}", day(5)), 4),
+        (format!("to={}", day(4)), 1),
+        (format!("from={}&person=2&kind=movie", day(1)), 1),
+        ("sort=duration&server=plex".to_string(), 3),
+    ] {
+        let page = owner_get(&app, &format!("/api/v1/stats/plays?{query}")).await;
+        assert_eq!(page["total"], total, "{query}");
+        assert_eq!(
+            page["plays"].as_array().unwrap().len() as i64,
+            total,
+            "{query}"
+        );
+    }
+    for query in [
+        "sort=sideways".to_string(),
+        "sort=date&dir=up".to_string(),
+        format!("from={}&to={}", day(1), day(3)),
+    ] {
+        let (status, body) = get(&app, &format!("/api/v1/stats/plays?{query}"), &[OWNER]).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{query}: {body}");
+    }
+
+    // Without a location database an address is shown alone. A home address is the local
+    // network.
+    let people = owner_get(&app, "/api/v1/stats/people?days=all").await;
+    let person = |id: i64| {
+        people["people"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == id)
+            .cloned()
+            .unwrap_or_else(|| panic!("{id}: {people}"))
+    };
+    assert_eq!(person(1)["lastLocation"]["label"], "Local network");
+    assert_eq!(
+        (
+            person(2)["lastAddress"].clone(),
+            person(2)["lastLocation"]["label"].clone(),
+            person(2)["addresses"].clone()
+        ),
+        (json!("203.0.113.7"), Value::Null, json!(2))
+    );
+
+    // With one, each address is placed, on this machine.
+    let file = format!(
+        "{}/tests/fixtures/geoip/test-city.mmdb",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    engines.geoip.load(std::path::Path::new(&file)).unwrap();
+    let placed_now = owner_get(&app, "/api/v1/stats/plays?sort=duration&dir=asc").await;
+    let labels: Vec<Value> = placed_now["plays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["location"]["label"].clone())
+        .collect();
+    assert_eq!(
+        labels,
+        vec![
+            json!("Toronto, Ontario, Canada"),
+            json!("Berlin, Germany"),
+            json!("Paris, Île-de-France, France"),
+            json!("Local network")
+        ]
+    );
+    assert_eq!(placed_now["plays"][2]["location"]["countryCode"], "FR");
+    assert_eq!(
+        placed_now["plays"][1]["server"],
+        json!({"id": "jellyfin", "kind": "jellyfin", "name": "jellyfin"})
+    );
+    assert_eq!(placed_now["plays"][1]["productVersion"], "2.0");
+    let friend = owner_get(&app, "/api/v1/stats/people/2?days=all").await;
+    let who = &friend["person"];
+    assert_eq!(
+        (
+            who["addresses"].clone(),
+            who["lastAddress"].clone(),
+            who["lastLocation"]["label"].clone()
+        ),
+        (
+            json!(2),
+            json!("203.0.113.7"),
+            json!("Paris, Île-de-France, France")
+        )
+    );
+    assert_eq!(
+        (
+            who["lastPlayer"].clone(),
+            who["lastProduct"].clone(),
+            who["lastPlatform"].clone(),
+            who["lastTitle"].clone()
+        ),
+        (
+            json!("Roku TV"),
+            json!("Plex for Roku"),
+            json!("Roku"),
+            json!("Movie A")
+        )
+    );
+    assert_eq!(
+        who["lastServer"],
+        json!({"id": "plex", "kind": "plex", "name": "Plex"})
+    );
+    let places: Vec<(Value, Value, Value)> = friend["addresses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| {
+            (
+                a["address"].clone(),
+                a["location"]["label"].clone(),
+                a["player"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        places,
+        vec![
+            (
+                json!("203.0.113.7"),
+                json!("Paris, Île-de-France, France"),
+                json!("Roku TV")
+            ),
+            (
+                json!("198.51.100.20"),
+                json!("Toronto, Ontario, Canada"),
+                json!("Roku TV")
+            ),
+        ]
+    );
+    assert_eq!(
+        (
+            friend["products"][0]["name"].clone(),
+            friend["products"][0]["version"].clone(),
+            friend["products"][0]["plays"].clone()
+        ),
+        (json!("Plex for Roku"), json!("8.1"), json!(2))
+    );
+    assert_eq!(friend["devices"][0]["name"], "Roku TV");
+    assert_eq!(friend["platforms"][0]["name"], "Roku");
+    assert_eq!(
+        (
+            friend["hours"].as_array().unwrap().len(),
+            friend["weekdays"].as_array().unwrap().len()
+        ),
+        (24, 7)
+    );
+    assert_eq!(
+        (
+            friend["hours"][21]["plays"].clone(),
+            friend["hours"][10]["plays"].clone()
+        ),
+        (json!(1), json!(1))
+    );
+    let overview = owner_get(&app, "/api/v1/stats/overview?days=30").await;
+    assert_eq!(
+        overview["top"]["people"][0]["lastLocation"]["label"],
+        "Paris, Île-de-France, France"
+    );
+
+    // The libraries: a section the workspace knows by its name, another by its id.
+    let libraries = owner_get(&app, "/api/v1/stats/libraries?days=all").await;
+    let library = |id: &str| {
+        libraries["libraries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|l| l["id"] == id)
+            .cloned()
+            .unwrap_or_else(|| panic!("{id}: {libraries}"))
+    };
+    let movies = library("plex-1");
+    assert_eq!(
+        (
+            movies["name"].clone(),
+            movies["kind"].clone(),
+            movies["plays"].clone(),
+            movies["people"].clone(),
+            movies["hours"].clone(),
+            movies["lastTitle"].clone()
+        ),
+        (
+            json!("Movies"),
+            json!("movie"),
+            json!(2),
+            json!(2),
+            json!(3.5),
+            json!("Movie A")
+        )
+    );
+    assert_eq!(
+        movies["server"],
+        json!({"id": "plex", "kind": "plex", "name": "Plex"})
+    );
+    let other = library("plex-2");
+    assert_eq!(
+        (other["name"].clone(), other["plays"].clone()),
+        (json!("plex-2"), json!(1))
+    );
+
+    // The apps with their newest version, the platforms, the players.
+    let players = owner_get(&app, "/api/v1/stats/players?days=all").await;
+    assert_eq!(
+        (
+            players["products"][0]["name"].clone(),
+            players["products"][0]["version"].clone(),
+            players["products"][0]["platform"].clone(),
+            players["products"][0]["plays"].clone()
+        ),
+        (
+            json!("Plex for Roku"),
+            json!("8.1"),
+            json!("Roku"),
+            json!(2)
+        )
+    );
+    assert_eq!(players["products"].as_array().unwrap().len(), 3);
+    assert_eq!(
+        (
+            players["platforms"][0]["name"].clone(),
+            players["platforms"][0]["plays"].clone()
+        ),
+        (json!("Roku"), json!(2))
+    );
+    assert_eq!(
+        (
+            players["players"][0]["name"].clone(),
+            players["players"][0]["product"].clone()
+        ),
+        (json!("Roku TV"), json!("Plex for Roku"))
+    );
+
+    // The graphs.
+    let graphs = owner_get(&app, "/api/v1/stats/graphs?days=30").await;
+    let labelled = |list: &Value| -> Vec<(String, i64)> {
+        list.as_array()
+            .unwrap()
+            .iter()
+            .map(|l| {
+                (
+                    l["label"].as_str().unwrap().to_string(),
+                    l["plays"].as_i64().unwrap(),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(
+        labelled(&graphs["resolutions"]["source"]),
+        vec![("1080p".to_string(), 2), ("4K".to_string(), 1)]
+    );
+    assert_eq!(
+        labelled(&graphs["resolutions"]["stream"]),
+        vec![
+            ("1080p".to_string(), 1),
+            ("4K".to_string(), 1),
+            ("720p".to_string(), 1)
+        ]
+    );
+    assert_eq!(
+        labelled(&graphs["reasons"]),
+        vec![("VideoBitrateNotSupported".to_string(), 1)]
+    );
+    assert_eq!(graphs["reasons"][0]["hours"], 1.5);
+    assert_eq!(
+        graphs["delivery"],
+        json!({"directPlay": 2, "directStream": 1, "transcode": 1, "other": 0})
+    );
+    let servers: Vec<(Value, Value)> = graphs["servers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| (s["server"]["id"].clone(), s["plays"].clone()))
+        .collect();
+    assert_eq!(
+        servers,
+        vec![(json!("plex"), json!(3)), (json!("jellyfin"), json!(1))]
+    );
+    let streams: Vec<(String, i64)> = graphs["streams"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            (
+                s["at"].as_str().unwrap().to_string(),
+                s["streams"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        streams,
+        vec![
+            (day(5).to_string(), 1),
+            (day(3).to_string(), 1),
+            (day(1).to_string(), 2)
+        ]
+    );
+    assert_eq!(
+        (
+            graphs["hours"][20]["plays"].clone(),
+            graphs["hours"][21]["hours"].clone()
+        ),
+        (json!(1), json!(1.5))
+    );
+    assert_eq!(graphs["people"][0]["id"], 2);
+    assert_eq!(graphs["platforms"][0]["name"], "Roku");
+    assert_eq!(graphs["series"]["points"].as_array().unwrap().len(), 30);
+
+    // What the filters choose from, and the location database in use with its credit.
+    let options = owner_get(&app, "/api/v1/stats/options").await;
+    assert_eq!(
+        options["servers"],
+        json!([
+            {"id": "plex", "kind": "plex", "name": "Plex"},
+            {"id": "jellyfin", "kind": "jellyfin", "name": "jellyfin"}
+        ])
+    );
+    assert_eq!(options["people"][0], json!({"id": 2, "name": "friend"}));
+    assert_eq!(
+        (
+            options["players"][0].clone(),
+            options["products"][0].clone(),
+            options["platforms"][0].clone()
+        ),
+        (json!("Roku TV"), json!("Plex for Roku"), json!("Roku"))
+    );
+    assert_eq!(options["locations"]["database"], "test-city.mmdb");
+    assert!(options["locations"]["built"].is_string());
+    assert_eq!(
+        (
+            options["locations"]["credit"].clone(),
+            options["locations"]["url"].clone()
+        ),
+        (json!("IP geolocation by DB-IP"), json!("https://db-ip.com"))
+    );
+    let movies_library = options["libraries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|l| l["id"] == "plex-1")
+        .cloned();
+    assert_eq!(
+        movies_library,
+        Some(json!({"id": "plex-1", "name": "Movies"}))
+    );
+
+    // The location column in the order of the place, then the address.
+    let by_place = owner_get(&app, "/api/v1/stats/plays?sort=address&dir=asc").await;
+    let places: Vec<Value> = by_place["plays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["location"]["label"].clone())
+        .collect();
+    assert_eq!(
+        places,
+        vec![
+            json!("Berlin, Germany"),
+            json!("Local network"),
+            json!("Paris, Île-de-France, France"),
+            json!("Toronto, Ontario, Canada")
+        ]
+    );
+    assert_eq!(
+        (by_place["page"].clone(), by_place["total"].clone()),
+        (json!(1), json!(4))
+    );
+    let last_first = owner_get(
+        &app,
+        "/api/v1/stats/plays?sort=address&dir=desc&limit=1&page=2",
+    )
+    .await;
+    assert_eq!(
+        last_first["plays"][0]["location"]["label"],
+        "Paris, Île-de-France, France"
+    );
+
+    // Addresses turned off: the kept ones go at once, sync or no sync. While it is off no answer
+    // carries an address or a location, even one a play still holds.
+    let (status, saved) = owner_send(
+        &app,
+        "PATCH",
+        "/api/v1/settings",
+        json!({"values": {"jobs.plays.keepAddresses": false}}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM plays WHERE address IS NOT NULL")
+        .fetch_one(&t.pool)
+        .await
+        .unwrap();
+    assert_eq!(left, 0);
+    sqlx::query("UPDATE plays SET address = '203.0.113.7' WHERE tautulli_id = 42")
+        .execute(&t.pool)
+        .await
+        .unwrap();
+    let bare = owner_get(&app, "/api/v1/stats/plays").await;
+    for p in bare["plays"].as_array().unwrap() {
+        assert!(
+            p.get("address").is_none() && p.get("location").is_none(),
+            "{p}"
+        );
+    }
+    let friend = owner_get(&app, "/api/v1/stats/people/2?days=all").await;
+    assert_eq!(
+        (
+            friend["person"]["lastAddress"].clone(),
+            friend["person"]["lastLocation"].clone(),
+            friend["person"]["addresses"].clone()
+        ),
+        (Value::Null, Value::Null, json!(0))
+    );
+    assert!(friend["addresses"].as_array().unwrap().is_empty());
+    let people = owner_get(&app, "/api/v1/stats/people?days=all").await;
+    assert!(
+        people["people"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|p| p["lastAddress"].is_null() && p["lastLocation"].is_null()),
+        "{people}"
+    );
+    let overview = owner_get(&app, "/api/v1/stats/overview?days=30").await;
+    assert!(overview["top"]["people"][0]["lastAddress"].is_null());
+
+    // Nothing was asked of anyone to place an address.
+    assert!(
+        recorded.urls_seen().is_empty(),
+        "{:?}",
+        recorded.urls_seen()
+    );
     t.drop_db().await;
 }

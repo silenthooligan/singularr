@@ -370,6 +370,74 @@ fn source_of(item: &Value) -> (Option<String>, Option<i64>) {
     (height.and_then(height_word), bitrate)
 }
 
+/// A container as the servers name it. Their name of the MP4 family is the list of its
+/// members (`mov,mp4,m4a,3gp,3g2,mj2`), read as `mp4`.
+fn container_word(raw: &str) -> Option<String> {
+    let parts: Vec<&str> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect();
+    let word: &str = if parts.contains(&"mp4") {
+        "mp4"
+    } else {
+        parts.first().copied()?
+    };
+    Some(word.to_ascii_lowercase())
+}
+
+/// The audio track a play has: the stream at `index` (a session's `AudioStreamIndex`), else the
+/// file's default audio stream, else its first.
+fn audio_of(item: &Value, index: Option<i64>) -> Option<&Value> {
+    let audio = || streams(item).filter(|s| text(s, "Type").as_deref() == Some("Audio"));
+    index
+        .and_then(|i| audio().find(|s| int(s, "Index") == Some(i)))
+        .or_else(|| audio().find(|s| s.get("IsDefault").and_then(Value::as_bool) == Some(true)))
+        .or_else(|| audio().next())
+}
+
+/// What an item's file is beyond its resolution and bitrate: its video codec, the codec and
+/// channels of the audio track played (`audio_index`), and its container.
+fn file_of(
+    item: &Value,
+    audio_index: Option<i64>,
+) -> (Option<String>, Option<String>, Option<i32>, Option<String>) {
+    let source = list(item, "MediaSources").first().unwrap_or(&Value::Null);
+    let video = stream_of(item, "Video");
+    let audio = audio_of(item, audio_index);
+    (
+        video.and_then(|s| text(s, "Codec")),
+        audio.and_then(|s| text(s, "Codec")),
+        audio
+            .and_then(|s| int(s, "Channels"))
+            .filter(|c| *c > 0)
+            .and_then(|c| i32::try_from(c).ok()),
+        text(source, "Container")
+            .or_else(|| text(item, "Container"))
+            .and_then(|c| container_word(&c)),
+    )
+}
+
+/// Why the server transcodes, as its transcode record lists the reasons: a list, or the
+/// reasons written in one text.
+fn reasons(transcode: Option<&Value>) -> Vec<String> {
+    match transcode.and_then(|t| t.get("TranscodeReasons")) {
+        Some(Value::Array(all)) => all
+            .iter()
+            .filter_map(|r| r.as_str().map(str::trim))
+            .filter(|r| !r.is_empty())
+            .map(str::to_string)
+            .collect(),
+        Some(Value::String(s)) => s
+            .split(',')
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+            .map(str::to_string)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// Whether an item has pictures: a movie, an episode, a video.
 fn is_video(item: &Value) -> bool {
     text(item, "MediaType").as_deref() == Some("Video")
@@ -611,11 +679,19 @@ pub fn session(v: &Value) -> Option<ServerSession> {
     } else {
         source_resolution.clone()
     };
+    let (video_codec, audio_codec, audio_channels, container) =
+        file_of(item, int(play, "AudioStreamIndex"));
+    let sent = |key: &str| transcode.and_then(|t| text(t, key));
+    let sent_channels = transcode
+        .and_then(|t| int(t, "AudioChannels"))
+        .filter(|c| *c > 0)
+        .and_then(|c| i32::try_from(c).ok());
     let duration = ticks_ms(item, "RunTimeTicks");
     let offset = int(play, "PositionTicks")
         .filter(|t| *t >= 0)
         .map(|t| t / TICKS_PER_MS);
-    let address = text(v, "RemoteEndPoint");
+    // The address alone: without a port, an IPv4 address mapped into IPv6 as IPv4.
+    let address = text(v, "RemoteEndPoint").map(crate::core::geoip::address_text);
     let number = |key: &str| {
         episode
             .then(|| int(item, key))
@@ -659,7 +735,12 @@ pub fn session(v: &Value) -> Option<ServerSession> {
         device: text(v, "DeviceType"),
         platform: text(v, "DeviceType").or_else(|| text(v, "Client")),
         product: text(v, "Client"),
+        product_version: text(v, "ApplicationVersion"),
+        platform_version: None,
+        device_id: text(v, "DeviceId"),
         local: address.as_deref().and_then(is_home_address),
+        secure: None,
+        relayed: None,
         address,
         delivery: Delivery {
             video: video.map(str::to_string),
@@ -668,6 +749,17 @@ pub fn session(v: &Value) -> Option<ServerSession> {
             source_bitrate,
             stream_resolution,
             stream_bitrate,
+            stream_video_codec: sent("VideoCodec").or_else(|| video_codec.clone()),
+            stream_audio_codec: sent("AudioCodec").or_else(|| audio_codec.clone()),
+            stream_audio_channels: sent_channels.or(audio_channels),
+            stream_container: sent("Container")
+                .and_then(|c| container_word(&c))
+                .or_else(|| container.clone()),
+            source_video_codec: video_codec,
+            source_audio_codec: audio_codec,
+            source_audio_channels: audio_channels,
+            source_container: container,
+            transcode_reasons: reasons(transcode),
         },
         bandwidth: stream_bitrate,
         kind,
@@ -710,9 +802,14 @@ pub fn owner(v: &Value) -> Option<String> {
 pub fn item_media(v: &Value) -> Option<ItemMedia> {
     let item = records(v).first()?;
     let (resolution, bitrate) = source_of(item);
+    let (video_codec, audio_codec, audio_channels, container) = file_of(item, None);
     Some(ItemMedia {
         resolution,
         bitrate,
+        video_codec,
+        audio_codec,
+        audio_channels,
+        container,
     })
 }
 
@@ -1309,7 +1406,57 @@ mod tests {
                 source_bitrate: Some(2925),
                 stream_resolution: Some("720p".into()),
                 stream_bitrate: Some(2616),
+                source_video_codec: Some("h264".into()),
+                source_audio_codec: Some("aac".into()),
+                source_audio_channels: Some(2),
+                source_container: Some("mp4".into()),
+                stream_video_codec: Some("h264".into()),
+                stream_audio_codec: Some("aac".into()),
+                stream_audio_channels: Some(2),
+                stream_container: Some("ts".into()),
+                transcode_reasons: vec!["VideoBitrateNotSupported".into()],
             }
+        );
+        // The app with its version and the device's id; the servers say nothing of a secure or
+        // relayed connection.
+        assert_eq!(
+            (
+                s.product.as_deref(),
+                s.product_version.as_deref(),
+                s.device_id.as_deref(),
+                s.secure
+            ),
+            (
+                Some("Jellyfin Android TV"),
+                Some("0.18.11"),
+                Some("fixtures-device-4"),
+                None
+            )
+        );
+        assert_eq!(
+            container_word("mov,mp4,m4a,3gp,3g2,mj2").as_deref(),
+            Some("mp4")
+        );
+        assert_eq!(container_word("MKV").as_deref(), Some("mkv"));
+        // The audio track played: the stream at the session's index, not the first. Without an
+        // index, the file's default.
+        let item = serde_json::json!({"MediaStreams": [
+            {"Type": "Video", "Index": 0, "Codec": "hevc"},
+            {"Type": "Audio", "Index": 1, "Codec": "truehd", "Channels": 8},
+            {"Type": "Audio", "Index": 2, "Codec": "ac3", "Channels": 6, "IsDefault": true},
+            {"Type": "Audio", "Index": 3, "Codec": "aac", "Channels": 2}
+        ]});
+        assert_eq!(
+            (file_of(&item, Some(3)).1, file_of(&item, Some(3)).2),
+            (Some("aac".to_string()), Some(2))
+        );
+        assert_eq!(file_of(&item, None).1.as_deref(), Some("ac3"));
+        assert_eq!(file_of(&item, Some(9)).1.as_deref(), Some("ac3"));
+        assert_eq!(
+            reasons(Some(
+                &serde_json::json!({"TranscodeReasons": "AudioCodecNotSupported, ContainerNotSupported"})
+            )),
+            vec!["AudioCodecNotSupported", "ContainerNotSupported"]
         );
         assert_eq!((s.local, s.bandwidth), (Some(true), Some(2616)));
         assert_eq!(

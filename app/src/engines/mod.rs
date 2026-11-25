@@ -802,7 +802,8 @@ mod ports {
 
     /// How a stream reaches its player: for the video and the audio, `direct play`,
     /// `direct stream` (the container changes, nothing is encoded again) or `transcode`, and the
-    /// file's resolution and bitrate next to what is sent. Absent where the server does not say.
+    /// file next to what is sent: resolution, bitrate, codecs, audio channels and container.
+    /// Absent where the server does not say.
     #[derive(Debug, Clone, Default, PartialEq, Eq)]
     pub struct Delivery {
         pub video: Option<String>,
@@ -813,6 +814,18 @@ mod ports {
         pub source_bitrate: Option<i64>,
         pub stream_resolution: Option<String>,
         pub stream_bitrate: Option<i64>,
+        /// The file's video and audio codecs (`hevc`, `eac3`), audio channels and container.
+        pub source_video_codec: Option<String>,
+        pub source_audio_codec: Option<String>,
+        pub source_audio_channels: Option<i32>,
+        pub source_container: Option<String>,
+        /// What is sent: the same, after the server's transcode or change of container.
+        pub stream_video_codec: Option<String>,
+        pub stream_audio_codec: Option<String>,
+        pub stream_audio_channels: Option<i32>,
+        pub stream_container: Option<String>,
+        /// Why the server transcodes, in its own words (`ContainerNotSupported`), where it says.
+        pub transcode_reasons: Vec<String>,
     }
 
     /// Something playing now.
@@ -854,8 +867,17 @@ mod ports {
         pub device: Option<String>,
         pub platform: Option<String>,
         pub product: Option<String>,
+        /// The app's version and the platform's.
+        pub product_version: Option<String>,
+        pub platform_version: Option<String>,
+        /// The device's own id on the server: Plex's machine identifier, Jellyfin's device id.
+        pub device_id: Option<String>,
         /// The player is on the server's own network.
         pub local: Option<bool>,
+        /// The connection is encrypted.
+        pub secure: Option<bool>,
+        /// The server's vendor relays the connection (Plex).
+        pub relayed: Option<bool>,
         /// The player's address as the server sees it.
         pub address: Option<String>,
         pub delivery: Delivery,
@@ -925,12 +947,16 @@ mod ports {
         Some(word.to_string())
     }
 
-    /// The resolution and bitrate of an item's own file.
+    /// What an item's own file is: resolution, bitrate, codecs, audio channels and container.
     #[derive(Debug, Clone, Default, PartialEq, Eq)]
     pub struct ItemMedia {
         pub resolution: Option<String>,
         /// kbit/s.
         pub bitrate: Option<i64>,
+        pub video_codec: Option<String>,
+        pub audio_codec: Option<String>,
+        pub audio_channels: Option<i32>,
+        pub container: Option<String>,
     }
 
     /// One item of a plain video library (a movie section without a metadata agent).
@@ -1058,9 +1084,15 @@ mod ports {
         pub player: Option<String>,
         pub platform: Option<String>,
         pub product: Option<String>,
+        /// The device's own id on the media server.
+        pub device_id: Option<String>,
         pub address: Option<String>,
         /// On the server's own network.
         pub local: Option<bool>,
+        /// The connection was encrypted.
+        pub secure: Option<bool>,
+        /// The server's vendor relayed the connection.
+        pub relayed: Option<bool>,
         /// `direct play`, `direct stream` or `transcode`.
         pub decision: Option<String>,
         /// The play as the history gave it.

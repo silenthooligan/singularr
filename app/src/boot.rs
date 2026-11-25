@@ -274,6 +274,15 @@ async fn serve_owner() -> Result<(), String> {
     } else {
         Vec::new()
     };
+    // The location database the statistics place addresses with, whether or not the sync runs,
+    // once a media server or a play history gives plays to locate.
+    let locations = singularr::plays::locations::plays_are_read(&config).then(|| {
+        singularr::plays::locations::spawn(singularr::plays::locations::LocationDeps {
+            geoip: engines.geoip.clone(),
+            out: outbound.clone(),
+            settings: settings.clone(),
+        })
+    });
     // Plays: the media server's sessions and history, and Tautulli, with the sync.
     let play_loops = if config.sync.enabled {
         plays::spawn(PlaysDeps::new(
@@ -437,6 +446,9 @@ async fn serve_owner() -> Result<(), String> {
         }
         intents.abort();
         indexer.abort();
+        if let Some(locations) = &locations {
+            locations.abort();
+        }
         dispatcher.abort();
         gauges.abort();
         // Open event streams would hold the server open; give requests a moment, then go.

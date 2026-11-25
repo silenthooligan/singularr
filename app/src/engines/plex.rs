@@ -319,9 +319,45 @@ fn selected_media(v: &Value) -> &Value {
         .unwrap_or(&Value::Null)
 }
 
-/// How a session's video and audio reach the player, with the resolutions and bitrates. While
-/// the video is transcoded the session describes what is sent, so the file's own resolution is
-/// left for [`MediaServer::item_media`].
+/// An audio channel count as the server writes it: a number, or text holding one.
+fn channels(v: &Value, key: &str) -> Option<i32> {
+    int(v, key)
+        .filter(|n| *n > 0)
+        .and_then(|n| i32::try_from(n).ok())
+}
+
+/// The audio track a version plays: the selected audio stream (`streamType` 2) of its parts,
+/// else its first audio stream.
+fn audio_track(media: &Value) -> Option<&Value> {
+    let mut audio = list(media, "Part")
+        .iter()
+        .flat_map(|part| list(part, "Stream"))
+        .filter(|s| int(s, "streamType") == Some(2))
+        .peekable();
+    let first = audio.peek().copied();
+    audio.find(|s| flag(s, "selected") == Some(true)).or(first)
+}
+
+/// The audio codec and channels of a version: those of the track it plays, else the version's
+/// own (the first track's).
+fn audio_of(media: &Value) -> (Option<String>, Option<i32>) {
+    let track = audio_track(media);
+    (
+        track
+            .and_then(|t| text(t, "codec"))
+            .or_else(|| text(media, "audioCodec")),
+        track
+            .and_then(|t| channels(t, "channels"))
+            .or_else(|| channels(media, "audioChannels")),
+    )
+}
+
+/// How a session's video and audio reach the player, with the resolutions, bitrates, codecs,
+/// audio channels and containers. While the server transcodes or changes the container (a
+/// transcode session), the session describes what is sent. The file's own codecs then come from
+/// the transcode's record of its source where it keeps one. The rest of the file is left for
+/// [`MediaServer::item_media`]. The audio is the track played. Plex gives no reason for a
+/// transcode.
 pub fn delivery(v: &Value) -> Delivery {
     let media = selected_media(v);
     let transcode = v.get("TranscodeSession");
@@ -341,6 +377,12 @@ pub fn delivery(v: &Value) -> Delivery {
     let resolution = text(media, "videoResolution").and_then(|r| resolution_word(&r));
     let bitrate = int(media, "bitrate").filter(|b| *b > 0);
     let transcoded = video.as_deref() == Some("transcode");
+    // The session's version describes the file only when nothing is transcoded or repackaged.
+    let as_is = transcode.is_none();
+    let from_transcode = |key: &str| transcode.and_then(|t| text(t, key));
+    let media_video = text(media, "videoCodec");
+    let (media_audio, media_channels) = audio_of(media);
+    let media_container = text(media, "container");
     Delivery {
         stream_resolution: if transcoded {
             transcode
@@ -351,10 +393,37 @@ pub fn delivery(v: &Value) -> Delivery {
             resolution.clone()
         },
         stream_bitrate: bitrate,
-        source_resolution: if transcoded { None } else { resolution },
-        source_bitrate: if transcoded { None } else { bitrate },
+        source_resolution: resolution.filter(|_| as_is),
+        source_bitrate: bitrate.filter(|_| as_is),
+        source_video_codec: from_transcode("sourceVideoCodec")
+            .or_else(|| media_video.clone().filter(|_| as_is)),
+        source_audio_codec: from_transcode("sourceAudioCodec")
+            .or_else(|| media_audio.clone().filter(|_| as_is)),
+        source_audio_channels: media_channels.filter(|_| as_is),
+        source_container: media_container.clone().filter(|_| as_is),
+        stream_video_codec: from_transcode("videoCodec").or(media_video),
+        stream_audio_codec: from_transcode("audioCodec").or(media_audio),
+        stream_audio_channels: transcode
+            .and_then(|t| channels(t, "audioChannels"))
+            .or(media_channels),
+        stream_container: from_transcode("container").or(media_container),
+        transcode_reasons: Vec::new(),
         video,
         audio,
+    }
+}
+
+/// A flag as the server writes it: `true`, `1` or `"1"`.
+fn flag(v: &Value, key: &str) -> Option<bool> {
+    match v.get(key)? {
+        Value::Bool(b) => Some(*b),
+        Value::Number(n) => n.as_i64().map(|n| n != 0),
+        Value::String(s) => match s.trim() {
+            "1" => Some(true),
+            "0" => Some(false),
+            other => other.to_ascii_lowercase().parse::<bool>().ok(),
+        },
+        _ => None,
     }
 }
 
@@ -379,20 +448,15 @@ pub fn session(v: &Value) -> Option<ServerSession> {
     let user = v.get("User").unwrap_or(&Value::Null);
     let player = v.get("Player").unwrap_or(&Value::Null);
     let place = v.get("Session").unwrap_or(&Value::Null);
-    let local = player
-        .get("local")
-        .and_then(|l| match l {
-            Value::Bool(b) => Some(*b),
-            Value::Number(n) => n.as_i64().map(|n| n != 0),
-            Value::String(s) => Some(s == "1" || s.eq_ignore_ascii_case("true")),
-            _ => None,
-        })
+    let local = flag(player, "local")
         .or_else(|| text(place, "location").map(|l| l.eq_ignore_ascii_case("lan")));
+    // The address alone, in one form: an IPv4 address mapped into IPv6 as IPv4.
     let address = if local == Some(true) {
         text(player, "address")
     } else {
         text(player, "remotePublicAddress").or_else(|| text(player, "address"))
-    };
+    }
+    .map(crate::core::geoip::address_text);
     Some(ServerSession {
         server: String::new(),
         kind: text(v, "type").unwrap_or_default(),
@@ -419,7 +483,12 @@ pub fn session(v: &Value) -> Option<ServerSession> {
         device: text(player, "device"),
         platform: text(player, "platform"),
         product: text(player, "product"),
+        product_version: text(player, "version"),
+        platform_version: text(player, "platformVersion"),
+        device_id: text(player, "machineIdentifier"),
         local,
+        secure: flag(player, "secure"),
+        relayed: flag(player, "relayed"),
         address,
         delivery: delivery(v),
         bandwidth: int(place, "bandwidth").filter(|b| *b > 0),
@@ -512,13 +581,19 @@ pub fn devices(v: &Value) -> Vec<ServerDevice> {
         .collect()
 }
 
-/// The resolution and bitrate of an item's file, from its record.
+/// What an item's file is, from its record: resolution, bitrate, codecs, audio channels and
+/// container.
 pub fn item_media(v: &Value) -> Option<ItemMedia> {
     let item = metadata(v).first()?;
     let media = selected_media(item);
+    let (audio_codec, audio_channels) = audio_of(media);
     Some(ItemMedia {
         resolution: text(media, "videoResolution").and_then(|r| resolution_word(&r)),
         bitrate: int(media, "bitrate").filter(|b| *b > 0),
+        video_codec: text(media, "videoCodec"),
+        audio_codec,
+        audio_channels,
+        container: text(media, "container"),
     })
 }
 
@@ -1110,7 +1185,76 @@ mod tests {
                 source_bitrate: None,
                 stream_resolution: Some("720p".into()),
                 stream_bitrate: Some(8000),
+                stream_video_codec: Some("h264".into()),
+                stream_audio_codec: Some("aac".into()),
+                ..Delivery::default()
             }
+        );
+        // With a transcode session the file is left for the item's record, the audio copied or
+        // not: an audio-only transcode's session bitrate is what is sent.
+        let mut audio_only = v.clone();
+        audio_only["TranscodeSession"] =
+            serde_json::json!({"videoDecision": "copy", "audioDecision": "transcode"});
+        let a = session(&audio_only).unwrap().delivery;
+        assert_eq!(
+            (
+                a.source_resolution.as_deref(),
+                a.source_bitrate,
+                a.source_audio_codec.as_deref(),
+                a.stream_bitrate
+            ),
+            (None, None, None, Some(8000))
+        );
+        // The player's app and platform with their versions, its device id, and how it is
+        // connected; a transcode's own record names the file's codecs and what is sent.
+        let mut full = v.clone();
+        full["Player"]["version"] = serde_json::json!("8.26.2.29389");
+        full["Player"]["platformVersion"] = serde_json::json!("11");
+        full["Player"]["machineIdentifier"] = serde_json::json!("device-7");
+        full["Player"]["secure"] = serde_json::json!(true);
+        full["Player"]["relayed"] = serde_json::json!("0");
+        full["TranscodeSession"] = serde_json::json!({
+            "videoDecision": "transcode", "audioDecision": "transcode", "height": 720,
+            "sourceVideoCodec": "hevc", "sourceAudioCodec": "truehd", "videoCodec": "h264",
+            "audioCodec": "aac", "audioChannels": 2, "container": "mpegts"
+        });
+        let f = session(&full).unwrap();
+        assert_eq!(
+            (
+                f.product_version.as_deref(),
+                f.platform_version.as_deref(),
+                f.device_id.as_deref(),
+                f.secure,
+                f.relayed
+            ),
+            (
+                Some("8.26.2.29389"),
+                Some("11"),
+                Some("device-7"),
+                Some(true),
+                Some(false)
+            )
+        );
+        let d = &f.delivery;
+        assert_eq!(
+            (
+                d.source_video_codec.as_deref(),
+                d.source_audio_codec.as_deref(),
+                d.stream_video_codec.as_deref(),
+                d.stream_audio_codec.as_deref(),
+                d.stream_audio_channels,
+                d.stream_container.as_deref(),
+                d.source_container.as_deref()
+            ),
+            (
+                Some("hevc"),
+                Some("truehd"),
+                Some("h264"),
+                Some("aac"),
+                Some(2),
+                Some("mpegts"),
+                None
+            )
         );
         assert_eq!(
             (s.offset_ms, s.duration_ms),
@@ -1134,6 +1278,27 @@ mod tests {
             (d.local, d.address.as_deref()),
             (Some(false), Some("203.0.113.9"))
         );
+        // The address in one form, and the audio of the track played: the selected audio stream
+        // of the part, not the version's first.
+        let mut track = direct.clone();
+        track["Player"]["remotePublicAddress"] = serde_json::json!("::ffff:203.0.113.9");
+        track["Media"][0]["audioChannels"] = serde_json::json!(6);
+        track["Media"][0]["Part"] = serde_json::json!([{"Stream": [
+            {"streamType": 1, "codec": "h264"},
+            {"streamType": 2, "codec": "eac3", "channels": 6},
+            {"streamType": 2, "codec": "aac", "channels": 2, "selected": true},
+            {"streamType": 3, "codec": "srt", "selected": true}
+        ]}]);
+        let t = session(&track).unwrap();
+        assert_eq!(t.address.as_deref(), Some("203.0.113.9"));
+        assert_eq!(
+            (
+                t.delivery.source_audio_codec.as_deref(),
+                t.delivery.source_audio_channels,
+                t.delivery.stream_audio_channels
+            ),
+            (Some("aac"), Some(2), Some(2))
+        );
         // Without the session's id, its key stands in.
         let mut bare = direct.clone();
         bare.as_object_mut().unwrap().remove("Session");
@@ -1145,11 +1310,20 @@ mod tests {
         assert_eq!(resolution_word("480").as_deref(), Some("480p"));
         assert_eq!(resolution_word(" ").as_deref(), None);
         let item = item_media(&serde_json::json!({"MediaContainer": {"Metadata": [
-            {"Media": [{"videoResolution": "4k", "bitrate": 41000}]}]}}))
+        {"Media": [{"videoResolution": "4k", "bitrate": 41000, "audioCodec": "truehd",
+                    "audioChannels": 8, "Part": [{"Stream": [
+                        {"streamType": 2, "codec": "truehd", "channels": 8},
+                        {"streamType": 2, "codec": "ac3", "channels": 6, "selected": "1"}
+                    ]}]}]}]}}))
         .unwrap();
         assert_eq!(
-            (item.resolution.as_deref(), item.bitrate),
-            (Some("4K"), Some(41000))
+            (
+                item.resolution.as_deref(),
+                item.bitrate,
+                item.audio_codec.as_deref(),
+                item.audio_channels
+            ),
+            (Some("4K"), Some(41000), Some("ac3"), Some(6))
         );
     }
 

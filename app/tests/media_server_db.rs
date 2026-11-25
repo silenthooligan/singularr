@@ -348,13 +348,56 @@ async fn a_jellyfin_server_stands_in_for_plex_from_its_libraries_to_its_statisti
             true
         )
     );
-    // The player's address is not kept: not in the play, not in the session's record.
+    // The player's address is kept for the owner, in the play and in the session's record.
     let (address, raw): (Option<String>, Value) = sqlx::query_as("SELECT address, raw FROM plays")
         .fetch_one(&t.pool)
         .await
         .unwrap();
-    assert!(address.is_none() && raw["live"].get("RemoteEndPoint").is_none());
+    assert_eq!(address.as_deref(), Some("10.0.0.20"));
+    assert_eq!(raw["live"]["RemoteEndPoint"], "10.0.0.20");
     assert_eq!(raw["live"]["Client"], "Jellyfin Android TV");
+    // The server's kind, the app's version, the device, the file and what was sent of it, and
+    // why the server transcoded.
+    type Facts = (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<i32>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<i32>,
+        Option<String>,
+        Vec<String>,
+    );
+    let facts: Facts = sqlx::query_as(
+        "SELECT server_kind, product_version, device_id, source_video_codec, source_audio_codec,
+                source_audio_channels, source_container, stream_video_codec, stream_audio_codec,
+                stream_audio_channels, stream_container, transcode_reasons
+         FROM plays",
+    )
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        facts,
+        (
+            Some("jellyfin".to_string()),
+            Some("0.18.11".to_string()),
+            Some("fixtures-device-4".to_string()),
+            Some("h264".to_string()),
+            Some("aac".to_string()),
+            Some(2),
+            Some("mp4".to_string()),
+            Some("h264".to_string()),
+            Some("aac".to_string()),
+            Some(2),
+            Some("ts".to_string()),
+            vec!["VideoBitrateNotSupported".to_string()]
+        )
+    );
 
     // The pages read it as they read Plex: the workspace's libraries and server, the sessions,
     // and the statistics with this server as their source.
@@ -427,6 +470,55 @@ async fn a_jellyfin_server_stands_in_for_plex_from_its_libraries_to_its_statisti
         ),
         (json!(ADMIN_NUMBER), json!("admin"), json!(["live"]))
     );
+    // The history names the media server and the player, the address with its place (a home
+    // address is the local network, with or without a location database), and the stream.
+    assert_eq!(
+        play["server"],
+        json!({"id": "jellyfin", "kind": "jellyfin", "name": "Jellyfin"})
+    );
+    assert_eq!(
+        (
+            play["player"].clone(),
+            play["product"].clone(),
+            play["productVersion"].clone(),
+            play["deviceId"].clone()
+        ),
+        (
+            json!("Living Room"),
+            json!("Jellyfin Android TV"),
+            json!("0.18.11"),
+            json!("fixtures-device-4")
+        )
+    );
+    assert_eq!(play["address"], "10.0.0.20");
+    assert_eq!(
+        (
+            play["location"]["label"].clone(),
+            play["location"]["local"].clone()
+        ),
+        (json!("Local network"), json!(true))
+    );
+    assert_eq!(play["secure"], Value::Null);
+    assert_eq!(
+        play["delivery"]["reasons"],
+        json!(["VideoBitrateNotSupported"])
+    );
+    assert_eq!(
+        (
+            play["delivery"]["source"]["container"].clone(),
+            play["delivery"]["stream"]["container"].clone(),
+            play["delivery"]["stream"]["videoCodec"].clone()
+        ),
+        (json!("mp4"), json!("ts"), json!("h264"))
+    );
+    let options = owner_get(&app, "/api/v1/stats/options").await;
+    assert_eq!(
+        options["servers"],
+        json!([{"id": "jellyfin", "kind": "jellyfin", "name": "Jellyfin"}])
+    );
+    assert_eq!(options["products"], json!(["Jellyfin Android TV"]));
+    assert_eq!(options["locations"]["database"], Value::Null);
+    assert_eq!(options["locations"]["credit"], "IP geolocation by DB-IP");
 
     // An album's cover is made by the server that holds the album.
     recorded.answer_with(

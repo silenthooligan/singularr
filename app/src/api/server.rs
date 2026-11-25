@@ -8,7 +8,7 @@
 
 use super::routes::{ApiPath, ApiQuery};
 use super::state::AppState;
-use super::stats::{Format, PlayDelivery};
+use super::stats::{PlayDelivery, session_delivery};
 use crate::catalog::store as catalog_store;
 use crate::core::error::AppError;
 use crate::core::outbound::encode_component;
@@ -555,23 +555,7 @@ async fn sessions(State(state): State<AppState>) -> ApiResult<Sessions> {
         sessions: list
             .into_iter()
             .map(|s| Session {
-                delivery: PlayDelivery {
-                    decision: Some(s.decision.clone()),
-                    video: s.delivery.video.clone(),
-                    audio: s.delivery.audio.clone(),
-                    source: (s.delivery.source_resolution.is_some()
-                        || s.delivery.source_bitrate.is_some())
-                    .then(|| Format {
-                        resolution: s.delivery.source_resolution.clone(),
-                        bitrate: s.delivery.source_bitrate,
-                    }),
-                    stream: (s.delivery.stream_resolution.is_some()
-                        || s.delivery.stream_bitrate.is_some())
-                    .then(|| Format {
-                        resolution: s.delivery.stream_resolution.clone(),
-                        bitrate: s.delivery.stream_bitrate,
-                    }),
-                },
+                delivery: session_delivery(&s.delivery, &s.decision),
                 bandwidth: s.bandwidth,
                 network: s
                     .local

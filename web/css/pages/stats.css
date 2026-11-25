@@ -1,4 +1,5 @@
-/* Statistics: the tiles, the charts (inline SVG in the page's tokens), the ranked lists and the shares.
+/* Statistics: the views' tabs and filters, the tiles, the charts (inline SVG in the page's tokens), the ranked lists,
+   the shares, the history's columns and the credit of the location database.
    Four series colors at most: direct play, direct stream, transcode, unknown; local and remote reuse the first two. */
 @layer pages {
   .st [data-s="s1"] { --st: var(--ok); }
@@ -49,6 +50,25 @@
   .st-rank-name small { grid-area: auto; }
   .st-history .mq-section-head { margin-block-end: var(--s2); }
   .st-none { color: var(--text-2); font-size: var(--fs-md); }
+
+  .st-filterbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+  .st-stream { display: inline-flex; align-items: center; gap: 6px; }
+  .st-filters { flex-wrap: wrap; gap: 8px; margin-block-end: var(--s3); }
+  .st-filters .mq-input[type="date"] { block-size: 32px; inline-size: auto; }
+  .st-credit { margin-block-start: 8px; color: var(--text-2); font-size: var(--fs-sm); }
+  .st-credit a { color: var(--text-2); text-decoration: underline; text-underline-offset: 2px; }
+  .st-credit a:hover { color: var(--text); }
+  .st-value-sm { font-size: var(--fs-lg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .st-person .mq-crumbs { margin-block-end: var(--s3); }
+
+  /* The history's columns: every cell keeps its value on one line, so a title is given room of its own, the two-line
+     cells a limit, and the columns that hide go by the table's own width (the sidebar takes some 296 px of the page). */
+  @media (min-width: 721px) { .st .mq-table td.m-main > .mq-cell-title { min-inline-size: 15rem; } }
+  .st .mq-table td > .mq-cell-two { max-inline-size: 14rem; }
+  .st .mq-cell-two b { overflow: hidden; text-overflow: ellipsis; }
+  .st .mq-tablewrap { container-type: inline-size; }
+  @container (max-width: 1360px) { .st .mq-table .hide-xl { display: none; } }
+  @container (max-width: 1140px) { .st .mq-table .hide-lg { display: none; } }
 
   .st-avatar { display: grid; place-items: center; inline-size: 64px; block-size: 64px; border-radius: 50%; font-weight: 600; font-size: var(--fs-lg); }
   .st-recent { display: grid; gap: 8px; }

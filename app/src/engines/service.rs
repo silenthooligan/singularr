@@ -21,6 +21,7 @@ use crate::core::config::{
     ProcessorKind,
 };
 use crate::core::error::{AppError, AppResult};
+use crate::core::geoip::{self, GeoIp};
 use crate::core::journal::{Journal, event};
 use crate::core::observe;
 use crate::core::outbound::{Allowlist, Calls, Outbound, OutboundError};
@@ -68,6 +69,9 @@ pub struct EngineSet {
     pub access: AccessBook,
     /// The titles a manager searches for now.
     pub searches: Searches,
+    /// The location database the statistics place addresses with: the plays' loop of locations
+    /// puts a file in use, the routes read it.
+    pub geoip: GeoIp,
     health: Mutex<HashMap<String, bool>>,
 }
 
@@ -227,6 +231,13 @@ pub fn allowlist(config: &Config) -> Result<Allowlist, OutboundError> {
     if let Some((url, _)) = config.search.meilisearch() {
         allow.allow_service("meilisearch", url)?;
     }
+    // The location database's monthly file: GET of that one file and nothing else. No address
+    // is sent there. It is listed unless the operator names a file of their own or the
+    // environment turns the download off. Listed, the switch in Settings turns it off and on without a
+    // restart. Nothing is sent while the download is off (`plays::locations`).
+    if config.geoip.may_download() {
+        allow.allow_integration("db-ip", geoip::ORIGIN, geoip::calls())?;
+    }
     Ok(allow)
 }
 
@@ -342,6 +353,7 @@ impl EngineSet {
             slots,
             access: AccessBook::default(),
             searches: Searches::default(),
+            geoip: GeoIp::default(),
             health: Mutex::new(HashMap::new()),
         }
     }
@@ -835,7 +847,13 @@ mod tests {
             } else {
                 assert!(rule.acts.is_empty(), "{origin} must take no act");
             }
-            assert!(rule.gets.is_empty(), "{origin}");
+            // The location database's download is the one host held to a GET of its own: the
+            // month's file.
+            if rule.label == "db-ip" {
+                assert_eq!(rule.gets.len(), 1, "{origin}");
+            } else {
+                assert!(rule.gets.is_empty(), "{origin}");
+            }
             if rule.label != "qbittorrent" && rule.label != "tvdb" {
                 assert!(
                     rule.reads.is_empty(),
@@ -864,6 +882,24 @@ mod tests {
                     .is_err()
             );
         }
+    }
+
+    #[test]
+    fn the_location_download_is_listed_unless_a_file_or_the_environment_says_otherwise() {
+        let listed = |extra: &[(&'static str, &'static str)]| {
+            let mut e = BTreeMap::from([("DATABASE_URL", "postgres://x@127.0.0.1:1/x")]);
+            e.extend(extra.iter().copied());
+            allowlist(&Config::from(&e).unwrap())
+                .unwrap()
+                .hosts()
+                .any(|(h, r)| h.contains("download.db-ip.com") && r.label == "db-ip")
+        };
+        // Listed by default: the download is on until the owner turns it off, in Settings
+        // without a restart.
+        assert!(listed(&[]));
+        assert!(listed(&[("SINGULARR_GEOIP_DOWNLOAD", "on")]));
+        assert!(!listed(&[("SINGULARR_GEOIP_DOWNLOAD", "off")]));
+        assert!(!listed(&[("SINGULARR_GEOIP_PATH", "/geo/city.mmdb")]));
     }
 
     #[test]

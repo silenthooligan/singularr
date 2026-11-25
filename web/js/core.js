@@ -753,7 +753,7 @@
       ...((ws.integrations || []).some(i => i.role === 'processing') ? [{ id: 'processing', label: 'Processing', icon: 'refresh', page: 'processing',
         children: [sub('Runs'), sub('Flows', { tab: 'flows' }), sub('Worker', { tab: 'worker' }), sub('Libraries', { tab: 'libraries' }), sub('Rules', { tab: 'rules' })] }] : []),
       { id: 'calendar', label: 'Calendar', icon: 'calendar', page: 'calendar' },
-      { id: 'stats', label: 'Statistics', icon: 'play', page: 'stats' },
+      { id: 'stats', label: 'Statistics', icon: 'play', page: 'stats', children: [sub('Overview'), sub('History', { tab: 'history' }), sub('Users', { tab: 'users' }), sub('Libraries', { tab: 'libraries' }), sub('Players', { tab: 'players' }), sub('Graphs', { tab: 'graphs' })] },
       { group: 'Automate' },
       { id: 'rules', label: 'Rules', icon: 'rules', page: 'rules', children: [sub('Quality profiles'), sub('Lists', { tab: 'lists' }), sub('Naming', { tab: 'naming' }), sub('More', { tab: 'more' }), { label: 'Release lab', page: 'lab', hash: {} }] },
       { group: 'System' },

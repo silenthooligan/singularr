@@ -1057,6 +1057,14 @@ fn job_words(pass: &str, of: &str) -> (String, String) {
             "Movie root folder scan".to_string(),
             "Files no manager tracks",
         ),
+        "locations" => (
+            "Location database".to_string(),
+            "DB-IP City Lite, monthly while the download is on",
+        ),
+        "tidy" => (
+            "Play housekeeping".to_string(),
+            "Title links, retention, kept addresses",
+        ),
         other => (other.replace(['-', '_'], " "), ""),
     };
     (label, reads.to_string())

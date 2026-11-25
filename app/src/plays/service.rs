@@ -26,8 +26,8 @@
 //! addresses unless the setting keeps them, and forgets plays older than the setting keeps.
 
 use super::model::{
-    Follower, HISTORY_EVERY, HISTORY_EVERY_DEFAULT, KEEP_ADDRESSES, KEEP_FOR, PlayRecord,
-    TRANSCODE, closeness, from_history_play, from_server_play, from_session, merge,
+    DIRECT_PLAY, Follower, HISTORY_EVERY, HISTORY_EVERY_DEFAULT, KEEP_ADDRESSES, KEEP_FOR,
+    PlayRecord, closeness, from_history_play, from_server_play, from_session, merge,
 };
 use super::store;
 use crate::catalog::store as catalog_store;
@@ -50,6 +50,8 @@ use tokio::task::JoinHandle;
 /// The pass names, in jobs, metrics and the journal.
 pub const SESSIONS: &str = "sessions";
 pub const HISTORY: &str = "plays";
+/// The housekeeping's own loop, where no history pass runs it.
+pub const TIDY: &str = "tidy";
 /// How often the sessions are read while something plays, and while nothing does.
 pub const BUSY: Duration = Duration::from_secs(10);
 pub const IDLE: Duration = Duration::from_secs(60);
@@ -95,9 +97,10 @@ impl PlaysDeps {
     }
 }
 
-/// Whether the players' addresses are kept. Off by default: only home network or outside is.
+/// Whether the players' addresses are kept: on by default, for the owner's statistics. Off,
+/// only home network or outside is kept.
 pub fn keep_addresses(settings: &Settings) -> bool {
-    settings.value(KEEP_ADDRESSES).as_bool().unwrap_or(false)
+    settings.value(KEEP_ADDRESSES).as_bool().unwrap_or(true)
 }
 
 /// How many days plays are kept. `None`: forever, the default.
@@ -245,8 +248,9 @@ pub async fn absorb_all(
 }
 
 /// One reading of the sessions: what plays now is written, with what each play adds up to so
-/// far, and the plays that ended are closed. The file of a transcoded video is asked of the
-/// server once per play. Returns how many play now.
+/// far, and the plays that ended are closed. The file of a play the server transcodes or sends
+/// in another container is asked of the server once per play: the session describes what is
+/// sent. Returns how many play now.
 pub async fn live_pass(
     deps: &PlaysDeps,
     server: &Arc<dyn MediaServer>,
@@ -260,8 +264,17 @@ pub async fn live_pass(
         let Some(mut r) = from_session(server.id(), s, now) else {
             continue;
         };
-        if r.video_decision.as_deref() == Some(TRANSCODE)
-            && r.source_resolution.is_none()
+        r.server_kind = Some(server.kind().to_string());
+        // Transcoded or sent in another container: the session describes what is sent. The
+        // file's facts the session leaves out come from the item's record, each on its own.
+        let changed = r.decision.as_deref().is_some_and(|d| d != DIRECT_PLAY);
+        let unknown = r.source_resolution.is_none()
+            || r.source_bitrate.is_none()
+            || r.source_container.is_none()
+            || (r.source_video_codec.is_none() && r.video_decision.is_some())
+            || (r.source_audio_codec.is_none() && r.audio_decision.is_some());
+        if changed
+            && unknown
             && let (Some(session), Some(key)) = (r.session_id.clone(), r.rating_key.clone())
         {
             if !files.contains_key(&session) {
@@ -269,8 +282,24 @@ pub async fn live_pass(
                 files.insert(session.clone(), media);
             }
             if let Some(Some(media)) = files.get(&session) {
-                r.source_resolution = media.resolution.clone();
-                r.source_bitrate = media.bitrate;
+                r.source_resolution = r
+                    .source_resolution
+                    .take()
+                    .or_else(|| media.resolution.clone());
+                r.source_bitrate = r.source_bitrate.or(media.bitrate);
+                r.source_video_codec = r
+                    .source_video_codec
+                    .take()
+                    .or_else(|| media.video_codec.clone());
+                r.source_audio_codec = r
+                    .source_audio_codec
+                    .take()
+                    .or_else(|| media.audio_codec.clone());
+                r.source_audio_channels = r.source_audio_channels.or(media.audio_channels);
+                r.source_container = r
+                    .source_container
+                    .take()
+                    .or_else(|| media.container.clone());
             }
         }
         readings.push((r, s.state.clone()));
@@ -322,7 +351,10 @@ pub async fn server_history_pass(
             .plays
             .iter()
             .filter(|p| cursor.is_none_or(|c| p.id > c))
-            .map(|p| from_server_play(id, p, &names, &places))
+            .map(|p| PlayRecord {
+                server_kind: Some(server.kind().to_string()),
+                ..from_server_play(id, p, &names, &places)
+            })
             .collect();
         let reached = fresh.len() < size;
         read += fresh.len();
@@ -446,19 +478,49 @@ pub async fn housekeeping(deps: &PlaysDeps) -> Result<(), sqlx::Error> {
 }
 
 /// The loops: the sessions of each media server, the history of each that keeps one, and
-/// Tautulli's plays.
+/// Tautulli's plays. The housekeeping follows each history pass. With no history to read (a
+/// Jellyfin or Emby server alone), it runs on a loop of its own.
 pub fn spawn(deps: PlaysDeps) -> Vec<JoinHandle<()>> {
     let mut out = Vec::new();
+    let mut tidied = false;
     for server in deps.engines.media_servers.iter().cloned() {
         out.push(tokio::spawn(live_loop(deps.clone(), server.clone())));
         if server.keeps_history() {
             out.push(tokio::spawn(history_loop(deps.clone(), server)));
+            tidied = true;
         }
     }
     if let Some(history) = deps.engines.play_history.clone() {
-        out.push(tokio::spawn(tautulli_loop(deps, history)));
+        out.push(tokio::spawn(tautulli_loop(deps.clone(), history)));
+        tidied = true;
+    }
+    if !tidied && !deps.engines.media_servers.is_empty() {
+        out.push(tokio::spawn(housekeeping_loop(deps)));
     }
     out
+}
+
+/// The housekeeping on a loop of its own, as often as a history would be read.
+async fn housekeeping_loop(deps: PlaysDeps) {
+    let job = jobs::registry().register(JobSpec {
+        id: format!("plays:{TIDY}"),
+        pass: TIDY.to_string(),
+        integration: None,
+        every: history_every(&deps.settings),
+    });
+    job.wait(jitter(deps.jitter)).await;
+    loop {
+        let started = job.begin();
+        let outcome = housekeeping(&deps)
+            .await
+            .map(|()| "Plays tidied".to_string())
+            .map_err(|e| e.to_string());
+        if let Err(e) = &outcome {
+            tracing::warn!(error = %e, "the plays could not be tidied");
+        }
+        job.end(started, outcome);
+        job.wait(history_every(&deps.settings)).await;
+    }
 }
 
 async fn live_loop(deps: PlaysDeps, server: Arc<dyn MediaServer>) {

@@ -4734,7 +4734,8 @@ async fn the_face_role_reads_its_views_and_nothing_else() {
     use singularr::requests::store as rs;
 
     // No table is readable: not the catalog, the keys, the journal, the requests with their
-    // requesters, the accounts, the sessions, the intents, music or home movies.
+    // requesters, the accounts, the sessions, the intents, music or home movies, nor the plays
+    // with the players' addresses.
     for table in [
         "copies",
         "titles",
@@ -4751,6 +4752,8 @@ async fn the_face_role_reads_its_views_and_nothing_else() {
         "music_tracks",
         "title_editions",
         "untracked_files",
+        "plays",
+        "play_sources",
     ] {
         let e = sqlx::query(sqlx::AssertSqlSafe(format!(
             "SELECT 1 FROM {table} LIMIT 1"

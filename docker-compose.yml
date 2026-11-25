@@ -31,10 +31,13 @@ services:
       DATABASE_URL: postgres://singularr:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/singularr
     ports:
       - "${SINGULARR_PORT:-7300}:3000"
-    # Optional, read only: the music and home video folders Singularr scans and serves covers from.
-    # volumes:
-    #   - /path/to/music:/media/music:ro
-    #   - /path/to/home-videos:/media/homemovies:ro
+    volumes:
+      # The data folder (SINGULARR_DATA_DIR) holds what Singularr downloads: the location database,
+      # once a month unless SINGULARR_GEOIP_DOWNLOAD=off. The image owns /data as uid 10001.
+      - data:/data
+      # Optional, read only: the music and home video folders Singularr scans and serves covers from.
+      # - /path/to/music:/media/music:ro
+      # - /path/to/home-videos:/media/homemovies:ro
 
   requests:
     <<: *hardening
@@ -70,3 +73,4 @@ services:
 
 volumes:
   db:
+  data:

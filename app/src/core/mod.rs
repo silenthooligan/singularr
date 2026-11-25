@@ -11,6 +11,8 @@ pub mod db;
 #[cfg(feature = "ssr")]
 pub mod error;
 #[cfg(feature = "ssr")]
+pub mod geoip;
+#[cfg(feature = "ssr")]
 pub mod http;
 #[cfg(feature = "ssr")]
 pub mod identity;

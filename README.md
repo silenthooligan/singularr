@@ -70,8 +70,13 @@ season or a single episode. Sign-in with Jellyfin and Emby accounts is on the ro
 - **Requests:** requests from the portal and from Seerr in one list. Each viewer may have a limited
   number of seasons of a show at a time.
 - **Processing:** Tdarr's flows, workers and libraries, and rules that pick the files for a flow.
-- **Statistics:** plays recorded from each media server's sessions, by person, device and delivery
-  method. Tautulli's history imports into Statistics.
+- **Statistics:** every play of every media server, from its sessions, a Plex server's history or
+  Tautulli's. Overview, History, Users, Libraries, Players and Graphs, each with the same filters.
+  Each play names the media server, the player app and platform with their versions, the device,
+  the client's address and its location, and how the stream was delivered (direct play, direct
+  stream or transcode, the file and the stream sent, and why the server transcoded). Locations are
+  looked up on the server in DB-IP's IP to City Lite database, downloaded once a month unless the
+  owner turns that off. IP geolocation by [DB-IP](https://db-ip.com).
 - **Calendar:** episodes and movies by air and release date.
 - **Notifications:** a choice of channels per event: Slack, Discord, email, webhooks, ntfy, Telegram,
   Pushover and Gotify.
@@ -93,7 +98,8 @@ docker compose up -d
 ```
 
 Compose pulls the beta image from `ghcr.io/silenthooligan/singularr`. `docker compose up -d --build`
-builds from the checkout instead. Point the proxy at port 7300.
+builds from the checkout instead. Point the proxy at port 7300. The volume `data` (at `/data`) holds
+the files Singularr downloads: the location database, once a month unless turned off.
 [docs/configuration.md](docs/configuration.md) describes every setting.
 
 ### Sign-in
@@ -119,6 +125,8 @@ from Settings, API. Each key has its own scopes.
   them.
 - Singularr Requests runs as its own process with its own database role. It reads only the views made
   for it and has no integration secrets.
+- The players' addresses in Statistics are the owner's alone: no API key reads them and Singularr
+  Requests cannot reach them. No address is written to the log or sent anywhere to be placed.
 
 Report security problems privately as described in [SECURITY.md](SECURITY.md).
 

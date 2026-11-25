@@ -561,6 +561,29 @@ impl SearchConfig {
     }
 }
 
+/// Locations (`core::geoip`): a database file of the operator's, or the monthly download of
+/// DB-IP's City Lite into the data directory. The download is on unless turned off.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeoIpConfig {
+    /// `SINGULARR_GEOIP_PATH`: a MaxMind DB file to place addresses with. Set, nothing is
+    /// downloaded.
+    pub path: Option<String>,
+    /// `SINGULARR_GEOIP_DOWNLOAD`: `on` downloads the database, `off` does not. Unset, the
+    /// setting in Settings decides, on by default.
+    pub download: Option<bool>,
+    /// `SINGULARR_DATA_DIR`, default `/data`: where Singularr keeps the files it downloads.
+    pub data_dir: String,
+}
+
+impl GeoIpConfig {
+    /// The database may be downloaded: no file of the operator's is named and the environment
+    /// does not turn the download off. Whether it is, the download setting says
+    /// (`plays::locations`), on unless the owner turns it off.
+    pub fn may_download(&self) -> bool {
+        self.path.is_none() && self.download != Some(false)
+    }
+}
+
 #[derive(Clone)]
 pub struct Config {
     pub database_url: String,
@@ -605,6 +628,7 @@ pub struct Config {
     /// item's key.
     pub plex_web_url: String,
     pub search: SearchConfig,
+    pub geoip: GeoIpConfig,
     pub owner_emails: String,
     pub edge_token_set: bool,
     /// `SINGULARR_EDGE_TOKEN` still holds the placeholder. The identity middleware would take
@@ -1459,6 +1483,22 @@ impl Config {
             },
             interval: seconds(env, "SINGULARR_SEARCH_INDEX_SECS", 900, 60, &mut warnings),
         };
+        let geoip = GeoIpConfig {
+            path: set(env, "SINGULARR_GEOIP_PATH"),
+            download: set(env, "SINGULARR_GEOIP_DOWNLOAD").map(|v| {
+                match v.to_ascii_lowercase().as_str() {
+                    "on" | "true" | "yes" | "1" => true,
+                    "off" | "false" | "no" | "0" => false,
+                    other => {
+                        warnings.push(format!(
+                            "SINGULARR_GEOIP_DOWNLOAD={other:?} is neither on nor off; the location database is not downloaded"
+                        ));
+                        false
+                    }
+                }
+            }),
+            data_dir: set(env, "SINGULARR_DATA_DIR").unwrap_or_else(|| "/data".to_string()),
+        };
         let sync = SyncConfig {
             enabled: set(env, "SINGULARR_SYNC_ENABLED")
                 .map(|v| {
@@ -1539,6 +1579,7 @@ impl Config {
                 .map(|u| base_url(&u))
                 .unwrap_or_else(|| "https://app.plex.tv/desktop".to_string()),
             search,
+            geoip,
             owner_emails,
             edge_token_set,
             edge_token_placeholder,
@@ -1728,6 +1769,25 @@ impl fmt::Display for Config {
             f,
             "  SINGULARR_SEARCH_INDEX_SECS    {}",
             self.search.interval.as_secs()
+        )?;
+        writeln!(
+            f,
+            "  SINGULARR_GEOIP_PATH           {}",
+            self.geoip.path.as_deref().unwrap_or("unset")
+        )?;
+        writeln!(
+            f,
+            "  SINGULARR_GEOIP_DOWNLOAD       {}",
+            match self.geoip.download {
+                Some(true) => "on",
+                Some(false) => "off",
+                None => "unset (Settings, on by default)",
+            }
+        )?;
+        writeln!(
+            f,
+            "  SINGULARR_DATA_DIR             {}",
+            self.geoip.data_dir
         )?;
         writeln!(
             f,

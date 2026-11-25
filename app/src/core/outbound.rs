@@ -548,7 +548,8 @@ impl BodyRule {
 
 /// Whether `path` is the path `declared` names. A declared segment `{id}` stands for one
 /// segment of one to ten digits (a record's number), `{any}` for any one segment that is not
-/// empty; every other segment is itself, exactly.
+/// empty; a segment with `{month}` in it for the same text around a month written `YYYY-MM`
+/// (`dbip-city-lite-{month}.mmdb.gz`). Every other segment is itself, exactly.
 fn path_is(declared: &str, path: &str) -> bool {
     if !declared.contains('{') {
         return declared == path;
@@ -577,7 +578,33 @@ fn segment_is(declared: &str, segment: &str) -> bool {
     match declared {
         "{id}" => (1..=10).contains(&segment.len()) && segment.bytes().all(|b| b.is_ascii_digit()),
         "{any}" => !segment.is_empty(),
+        with_month if with_month.contains("{month}") => month_segment(with_month, segment),
         exact => exact == segment,
+    }
+}
+
+/// Whether a segment is the declared one with a month (`YYYY-MM`, 01 to 12) where it says
+/// `{month}`.
+fn month_segment(declared: &str, segment: &str) -> bool {
+    let Some((before, after)) = declared.split_once("{month}") else {
+        return false;
+    };
+    let Some(month) = segment
+        .strip_prefix(before)
+        .and_then(|rest| rest.strip_suffix(after))
+    else {
+        return false;
+    };
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    match month.split_once('-') {
+        Some((year, number)) => {
+            year.len() == 4
+                && digits(year)
+                && number.len() == 2
+                && digits(number)
+                && number.parse::<u8>().is_ok_and(|n| (1..=12).contains(&n))
+        }
+        None => false,
     }
 }
 
@@ -1225,15 +1252,32 @@ pub struct Checked {
 #[async_trait]
 pub trait Transport: Send + Sync {
     async fn send(&self, url: Url, req: &OutRequest) -> Result<OutResponse, String>;
+
+    /// Send, and write a 2xx answer's body into `sink` piece by piece as it arrives: a file too
+    /// large to hold whole. The answer comes back without that body. By default the body is
+    /// read whole first, then written.
+    async fn send_into(
+        &self,
+        url: Url,
+        req: &OutRequest,
+        sink: &mut (dyn std::io::Write + Send),
+    ) -> Result<OutResponse, String> {
+        let mut res = self.send(url, req).await?;
+        if (200..300).contains(&res.status) {
+            sink.write_all(&res.body).map_err(|e| e.to_string())?;
+            res.body = Vec::new();
+        }
+        Ok(res)
+    }
 }
 
 struct ReqwestTransport {
     client: reqwest::Client,
 }
 
-#[async_trait]
-impl Transport for ReqwestTransport {
-    async fn send(&self, url: Url, req: &OutRequest) -> Result<OutResponse, String> {
+impl ReqwestTransport {
+    /// The request of a call: its method, time limit, headers and body.
+    fn request(&self, url: Url, req: &OutRequest) -> reqwest::RequestBuilder {
         let method = match req.method {
             Method::Get => reqwest::Method::GET,
             Method::Post => reqwest::Method::POST,
@@ -1263,18 +1307,65 @@ impl Transport for ReqwestTransport {
                 .header("content-type", "application/json")
                 .body(text.clone()),
         };
-        let res = builder.send().await.map_err(|e| describe(&e))?;
-        let status = res.status().as_u16();
-        let headers = res
-            .headers()
-            .iter()
-            .filter_map(|(n, v)| Some((n.as_str().to_string(), v.to_str().ok()?.to_string())))
-            .collect();
-        let body = res.bytes().await.map_err(|e| describe(&e))?.to_vec();
+        builder
+    }
+}
+
+/// An answer's status and headers.
+fn head_of(res: &reqwest::Response) -> (u16, Vec<(String, String)>) {
+    let headers = res
+        .headers()
+        .iter()
+        .filter_map(|(n, v)| Some((n.as_str().to_string(), v.to_str().ok()?.to_string())))
+        .collect();
+    (res.status().as_u16(), headers)
+}
+
+#[async_trait]
+impl Transport for ReqwestTransport {
+    async fn send(&self, url: Url, req: &OutRequest) -> Result<OutResponse, String> {
+        let res = self
+            .request(url, req)
+            .send()
+            .await
+            .map_err(|e| describe(&e))?;
+        let (status, headers) = head_of(&res);
+        // The body as reqwest gathered it, without a copy.
+        let body = Vec::from(res.bytes().await.map_err(|e| describe(&e))?);
         Ok(OutResponse {
             status,
             headers,
             body,
+        })
+    }
+
+    async fn send_into(
+        &self,
+        url: Url,
+        req: &OutRequest,
+        sink: &mut (dyn std::io::Write + Send),
+    ) -> Result<OutResponse, String> {
+        let mut res = self
+            .request(url, req)
+            .send()
+            .await
+            .map_err(|e| describe(&e))?;
+        let (status, headers) = head_of(&res);
+        if !(200..300).contains(&status) {
+            let body = Vec::from(res.bytes().await.map_err(|e| describe(&e))?);
+            return Ok(OutResponse {
+                status,
+                headers,
+                body,
+            });
+        }
+        while let Some(chunk) = res.chunk().await.map_err(|e| describe(&e))? {
+            sink.write_all(&chunk).map_err(|e| e.to_string())?;
+        }
+        Ok(OutResponse {
+            status,
+            headers,
+            body: Vec::new(),
         })
     }
 }
@@ -1407,14 +1498,36 @@ impl Outbound {
     /// Check, send, log. A status outside 2xx is returned, not turned into an error; use
     /// [`Outbound::get_json`] when only a 2xx answer is useful.
     pub async fn send(&self, req: OutRequest) -> Result<OutResponse, OutboundError> {
-        let checked = match self.check(req.method, &req.url, &req.body) {
-            Ok(ok) => ok,
-            Err(e) => {
-                tracing::warn!(target: "singularr::outbound", method = req.method.as_str(), error = %e, "refused");
-                metrics::counter!("singularr_outbound_refused_total").increment(1);
-                return Err(e);
-            }
-        };
+        let checked = self.admit(&req)?;
+        self.dispatch(&req, checked, None).await
+    }
+
+    /// [`Outbound::send`] for a file too large to hold: the same check, log and count. A 2xx
+    /// answer's body is written into `sink` as it arrives, and the answer comes back without it.
+    pub async fn send_into(
+        &self,
+        req: OutRequest,
+        sink: &mut (dyn std::io::Write + Send),
+    ) -> Result<OutResponse, OutboundError> {
+        let checked = self.admit(&req)?;
+        self.dispatch(&req, checked, Some(sink)).await
+    }
+
+    /// A call checked, or refused: a refusal is logged and counted.
+    fn admit(&self, req: &OutRequest) -> Result<Checked, OutboundError> {
+        self.check(req.method, &req.url, &req.body).inspect_err(|e| {
+            tracing::warn!(target: "singularr::outbound", method = req.method.as_str(), error = %e, "refused");
+            metrics::counter!("singularr_outbound_refused_total").increment(1);
+        })
+    }
+
+    /// Send a checked call, then log and count what came back.
+    async fn dispatch(
+        &self,
+        req: &OutRequest,
+        checked: Checked,
+        sink: Option<&mut (dyn std::io::Write + Send)>,
+    ) -> Result<OutResponse, OutboundError> {
         let host = checked.url.host_str().unwrap_or_default().to_string();
         let path = if checked.target {
             TARGET_ADDRESS.to_string()
@@ -1423,7 +1536,10 @@ impl Outbound {
         };
         let label = checked.label;
         let started = Instant::now();
-        let result = self.transport.send(checked.url, &req).await;
+        let result = match sink {
+            Some(sink) => self.transport.send_into(checked.url, req, sink).await,
+            None => self.transport.send(checked.url, req).await,
+        };
         let ms = started.elapsed().as_millis() as u64;
         match result {
             Ok(res) => {
@@ -1581,6 +1697,21 @@ pub mod recorded {
             headers: &[(&str, &str)],
         ) {
             self.record(method, url_part, Some(body_part), status, body, headers);
+        }
+
+        /// Answer `method` on a URL that contains `url_part` with bytes that are no text: a
+        /// compressed file.
+        pub fn answer_bytes(&self, method: Method, url_part: &str, status: u16, body: &[u8]) {
+            self.answers.lock().unwrap().push(Answer {
+                method,
+                url_part: url_part.to_string(),
+                body_part: None,
+                response: Ok(OutResponse {
+                    status,
+                    headers: Vec::new(),
+                    body: body.to_vec(),
+                }),
+            });
         }
 
         fn record(
@@ -1913,6 +2044,51 @@ mod tests {
             .unwrap();
         assert_eq!(v["version"], "5");
         assert_eq!(recorded.methods_seen(), vec![Method::Get]);
+    }
+
+    #[tokio::test]
+    async fn a_streamed_answer_is_checked_like_any_call() {
+        let recorded = Recorded::new();
+        recorded.answer(
+            Method::Get,
+            "/api/v3/system/status",
+            200,
+            r#"{"version":"5"}"#,
+        );
+        recorded.answer(Method::Get, "/api/v3/missing", 404, "gone");
+        let out = Outbound::with_transport(allow(), recorded.clone());
+        // Refused before a byte is sent, and nothing written.
+        let mut sink = Vec::new();
+        let err = out
+            .send_into(OutRequest::get("https://example.org/x"), &mut sink)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, OutboundError::HostNotAllowed { .. }));
+        assert!(sink.is_empty() && recorded.methods_seen().is_empty());
+        // A 2xx answer's body goes to the sink and not into the answer; another answer keeps
+        // its body and writes nothing.
+        let res = out
+            .send_into(
+                OutRequest::get("http://192.0.2.61:7979/api/v3/system/status"),
+                &mut sink,
+            )
+            .await
+            .unwrap();
+        assert_eq!((res.status, res.body.is_empty()), (200, true));
+        assert_eq!(sink, br#"{"version":"5"}"#);
+        let mut none = Vec::new();
+        let missing = out
+            .send_into(
+                OutRequest::get("http://192.0.2.61:7979/api/v3/missing"),
+                &mut none,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            (missing.status, missing.body.as_slice()),
+            (404, &b"gone"[..])
+        );
+        assert!(none.is_empty());
     }
 
     #[test]

@@ -18,6 +18,7 @@ them unset.
 | `SINGULARR_REQUESTS_PUBLIC_URL` | unset | the portal's public address, linked from the workspace |
 | `SINGULARR_SIGN_OUT_URL` | unset | the target of the workspace's Sign out (the sign-in proxy's sign-out address) |
 | `SINGULARR_INSTANCE` | unset | an instance file (`singularr.toml`) with workspace names and integrations beyond the environment's (below) |
+| `SINGULARR_DATA_DIR` | `/data` | the folder Singularr writes to: the location database it downloads (Statistics, below). The compose file mounts the volume `data` there. The image creates `/data` owned by uid 10001: a new volume starts out writable |
 | `RUST_LOG` | `info` | log filter |
 | `TZ` | `UTC` | time zone of the container |
 
@@ -90,6 +91,32 @@ Singularr reads one media server of each type: the first Plex, Jellyfin and Emby
 configuration lists. Each one has its own libraries, server pass and sessions. Its plays count in
 Statistics. An album or artist of the first media server has the id `album-<key>`. One of another
 server has `album-<server>_<key>`.
+
+## Statistics
+
+Statistics counts every play of every media server: each server's sessions, a Plex server's own
+history, and Tautulli's history when one is configured. Each play records the media server, the
+player (the app and its version, the platform and its version, the device), the client's address
+with its location, and how the stream was delivered. The statistics are the owner's alone. No API
+key reads them. Singularr Requests cannot reach them.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `SINGULARR_GEOIP_DOWNLOAD` | unset (on) | DB-IP's IP to City Lite database is downloaded once a month into the data folder. `off` turns the download off. `on` fixes it on. Unset, the switch in Settings, Jobs, Play history decides, on by default |
+| `SINGULARR_GEOIP_PATH` | unset | a location database the operator provides: a MaxMind DB file with city records, such as DB-IP's City Lite or MaxMind's GeoLite2 City. Set, nothing is downloaded |
+
+Locations are looked up on this machine. No address is sent to any service. The download is one
+GET of `https://download.db-ip.com/free/dbip-city-lite-YYYY-MM.mmdb.gz` (some 60 MB), the only
+address on that host Singularr may call. The database takes some 130 MB of memory while in use.
+Without a database, Statistics shows each address without a location. A private, loopback or
+link-local address reads Local network.
+
+The players' addresses are kept by default (Settings, Jobs, Play history, Keep IP addresses).
+Turned off, the plays keep only home network or outside. The addresses already kept are removed.
+An address is never written to the log.
+
+IP geolocation by [DB-IP](https://db-ip.com), licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 ## Metadata and search
 

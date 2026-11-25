@@ -37,6 +37,8 @@ const GAP_MAX: i64 = 120;
 pub struct PlayRecord {
     /// The media server's integration id.
     pub server: String,
+    /// Its kind: `plex`, `jellyfin`, `emby`.
+    pub server_kind: Option<String>,
     pub rating_key: Option<String>,
     pub show_key: Option<String>,
     /// The catalog title it belongs to: the movie, or an episode's show.
@@ -67,10 +69,22 @@ pub struct PlayRecord {
     pub device: Option<String>,
     pub platform: Option<String>,
     pub product: Option<String>,
+    /// The app's version and the platform's.
+    pub product_version: Option<String>,
+    pub platform_version: Option<String>,
+    /// The device's own id on the media server.
+    pub device_id: Option<String>,
     /// On the home network (true) or outside (false).
     pub local: Option<bool>,
-    /// Kept only while the setting keeps addresses.
+    /// The client's address, the owner's to see. Kept while the setting keeps addresses (the
+    /// default), never in a log and never in Singularr Requests.
     pub address: Option<String>,
+    /// The connection was encrypted.
+    pub secure: Option<bool>,
+    /// The server's vendor relayed the connection (Plex).
+    pub relayed: Option<bool>,
+    /// What the stream took, kbit/s.
+    pub bandwidth: Option<i64>,
     /// `direct play`, `direct stream` or `transcode`: the play as a whole, then its video and
     /// its audio.
     pub decision: Option<String>,
@@ -81,6 +95,17 @@ pub struct PlayRecord {
     pub source_bitrate: Option<i64>,
     pub stream_resolution: Option<String>,
     pub stream_bitrate: Option<i64>,
+    /// The file's codecs, audio channels and container, and what was sent.
+    pub source_video_codec: Option<String>,
+    pub source_audio_codec: Option<String>,
+    pub source_audio_channels: Option<i32>,
+    pub source_container: Option<String>,
+    pub stream_video_codec: Option<String>,
+    pub stream_audio_codec: Option<String>,
+    pub stream_audio_channels: Option<i32>,
+    pub stream_container: Option<String>,
+    /// Why the server transcoded, in its words, where it says.
+    pub transcode_reasons: Vec<String>,
     /// The sources that know it, each by its own id: the media server's session, its history
     /// entry, Tautulli's row.
     pub session_id: Option<String>,
@@ -203,8 +228,11 @@ pub fn merge(old: &PlayRecord, new: &PlayRecord) -> PlayRecord {
             raw.insert(k.clone(), v.clone());
         }
     }
+    let codec = |x: &Option<String>, y: &Option<String>| pick(x, da, y, db);
+    let count = |x: &Option<i32>, y: &Option<i32>| pick(x, da, y, db);
     PlayRecord {
         server: old.server.clone(),
+        server_kind: old.server_kind.clone().or_else(|| new.server_kind.clone()),
         rating_key: item(&old.rating_key, &new.rating_key),
         show_key: item(&old.show_key, &new.show_key),
         title_id: new.title_id.or(old.title_id),
@@ -242,8 +270,14 @@ pub fn merge(old: &PlayRecord, new: &PlayRecord) -> PlayRecord {
         device: item(&old.device, &new.device),
         platform: item(&old.platform, &new.platform),
         product: item(&old.product, &new.product),
+        product_version: item(&old.product_version, &new.product_version),
+        platform_version: item(&old.platform_version, &new.platform_version),
+        device_id: item(&old.device_id, &new.device_id),
         local: pick(&old.local, wa, &new.local, wb),
         address: item(&old.address, &new.address),
+        secure: pick(&old.secure, wa, &new.secure, wb),
+        relayed: pick(&old.relayed, wa, &new.relayed, wb),
+        bandwidth: pick(&old.bandwidth, da, &new.bandwidth, db),
         decision: way(&old.decision, &new.decision),
         video_decision: way(&old.video_decision, &new.video_decision),
         audio_decision: way(&old.audio_decision, &new.audio_decision),
@@ -251,6 +285,19 @@ pub fn merge(old: &PlayRecord, new: &PlayRecord) -> PlayRecord {
         source_bitrate: pick(&old.source_bitrate, da, &new.source_bitrate, db),
         stream_resolution: way(&old.stream_resolution, &new.stream_resolution),
         stream_bitrate: pick(&old.stream_bitrate, da, &new.stream_bitrate, db),
+        source_video_codec: codec(&old.source_video_codec, &new.source_video_codec),
+        source_audio_codec: codec(&old.source_audio_codec, &new.source_audio_codec),
+        source_audio_channels: count(&old.source_audio_channels, &new.source_audio_channels),
+        source_container: codec(&old.source_container, &new.source_container),
+        stream_video_codec: codec(&old.stream_video_codec, &new.stream_video_codec),
+        stream_audio_codec: codec(&old.stream_audio_codec, &new.stream_audio_codec),
+        stream_audio_channels: count(&old.stream_audio_channels, &new.stream_audio_channels),
+        stream_container: codec(&old.stream_container, &new.stream_container),
+        transcode_reasons: if new.transcode_reasons.is_empty() || db < da {
+            old.transcode_reasons.clone()
+        } else {
+            new.transcode_reasons.clone()
+        },
         session_id: old.session_id.clone().or_else(|| new.session_id.clone()),
         history_id: old.history_id.or(new.history_id),
         tautulli_id: old.tautulli_id.or(new.tautulli_id),
@@ -320,8 +367,10 @@ pub fn closeness(a: &PlayRecord, b: &PlayRecord) -> Option<i64> {
 pub fn from_session(server: &str, s: &ServerSession, now: DateTime<Utc>) -> Option<PlayRecord> {
     let session_id = s.session_id.clone()?;
     let episode = s.kind == "episode";
+    let d = &s.delivery;
     Some(PlayRecord {
         server: server.to_string(),
+        server_kind: None,
         rating_key: s.rating_key.clone(),
         show_key: if episode { s.show_key.clone() } else { None },
         title_id: None,
@@ -348,15 +397,30 @@ pub fn from_session(server: &str, s: &ServerSession, now: DateTime<Utc>) -> Opti
         device: s.device.clone(),
         platform: s.platform.clone(),
         product: s.product.clone(),
+        product_version: s.product_version.clone(),
+        platform_version: s.platform_version.clone(),
+        device_id: s.device_id.clone(),
         local: s.local,
         address: s.address.clone(),
+        secure: s.secure,
+        relayed: s.relayed,
+        bandwidth: s.bandwidth,
         decision: Some(s.decision.clone()).filter(|d| !d.is_empty()),
-        video_decision: s.delivery.video.clone(),
-        audio_decision: s.delivery.audio.clone(),
-        source_resolution: s.delivery.source_resolution.clone(),
-        source_bitrate: s.delivery.source_bitrate,
-        stream_resolution: s.delivery.stream_resolution.clone(),
-        stream_bitrate: s.delivery.stream_bitrate,
+        video_decision: d.video.clone(),
+        audio_decision: d.audio.clone(),
+        source_resolution: d.source_resolution.clone(),
+        source_bitrate: d.source_bitrate,
+        stream_resolution: d.stream_resolution.clone(),
+        stream_bitrate: d.stream_bitrate,
+        source_video_codec: d.source_video_codec.clone(),
+        source_audio_codec: d.source_audio_codec.clone(),
+        source_audio_channels: d.source_audio_channels,
+        source_container: d.source_container.clone(),
+        stream_video_codec: d.stream_video_codec.clone(),
+        stream_audio_codec: d.stream_audio_codec.clone(),
+        stream_audio_channels: d.stream_audio_channels,
+        stream_container: d.stream_container.clone(),
+        transcode_reasons: d.transcode_reasons.clone(),
         session_id: Some(session_id),
         history_id: None,
         tautulli_id: None,
@@ -378,6 +442,7 @@ pub fn from_server_play(
     let episode = p.kind == "episode";
     PlayRecord {
         server: server.to_string(),
+        server_kind: None,
         rating_key: p.rating_key.clone(),
         show_key: if episode { p.show_key.clone() } else { None },
         title_id: None,
@@ -404,8 +469,14 @@ pub fn from_server_play(
         device: None,
         platform: device.and_then(|(_, platform)| platform.clone()),
         product: None,
+        product_version: None,
+        platform_version: None,
+        device_id: None,
         local: None,
         address: None,
+        secure: None,
+        relayed: None,
+        bandwidth: None,
         decision: None,
         video_decision: None,
         audio_decision: None,
@@ -413,6 +484,15 @@ pub fn from_server_play(
         source_bitrate: None,
         stream_resolution: None,
         stream_bitrate: None,
+        source_video_codec: None,
+        source_audio_codec: None,
+        source_audio_channels: None,
+        source_container: None,
+        stream_video_codec: None,
+        stream_audio_codec: None,
+        stream_audio_channels: None,
+        stream_container: None,
+        transcode_reasons: Vec::new(),
         session_id: None,
         history_id: Some(p.id),
         tautulli_id: None,
@@ -428,6 +508,7 @@ pub fn from_history_play(server: &str, p: &HistoryPlay, owner: Option<i64>) -> P
     let secs = |n: Option<i64>| n.and_then(|n| i32::try_from(n.max(0)).ok());
     PlayRecord {
         server: server.to_string(),
+        server_kind: Some("plex".to_string()),
         rating_key: p.rating_key.clone(),
         show_key: if episode { p.show_key.clone() } else { None },
         title_id: None,
@@ -452,8 +533,14 @@ pub fn from_history_play(server: &str, p: &HistoryPlay, owner: Option<i64>) -> P
         device: None,
         platform: p.platform.clone(),
         product: p.product.clone(),
+        product_version: None,
+        platform_version: None,
+        device_id: p.device_id.clone(),
         local: p.local,
         address: p.address.clone(),
+        secure: p.secure,
+        relayed: p.relayed,
+        bandwidth: None,
         decision: p.decision.clone(),
         video_decision: None,
         audio_decision: None,
@@ -461,6 +548,15 @@ pub fn from_history_play(server: &str, p: &HistoryPlay, owner: Option<i64>) -> P
         source_bitrate: None,
         stream_resolution: None,
         stream_bitrate: None,
+        source_video_codec: None,
+        source_audio_codec: None,
+        source_audio_channels: None,
+        source_container: None,
+        stream_video_codec: None,
+        stream_audio_codec: None,
+        stream_audio_channels: None,
+        stream_container: None,
+        transcode_reasons: Vec::new(),
         session_id: None,
         history_id: None,
         tautulli_id: Some(p.id),
@@ -552,6 +648,23 @@ impl Follower {
                         record.source_resolution = f.record.source_resolution.clone();
                         record.source_bitrate = f.record.source_bitrate;
                     }
+                    // The file's codecs and container, where an earlier reading asked the server.
+                    let old = &f.record;
+                    if record.source_video_codec.is_none() {
+                        record.source_video_codec = old.source_video_codec.clone();
+                    }
+                    if record.source_audio_codec.is_none() {
+                        record.source_audio_codec = old.source_audio_codec.clone();
+                    }
+                    if record.source_audio_channels.is_none() {
+                        record.source_audio_channels = old.source_audio_channels;
+                    }
+                    if record.source_container.is_none() {
+                        record.source_container = old.source_container.clone();
+                    }
+                    if record.server_kind.is_none() {
+                        record.server_kind = old.server_kind.clone();
+                    }
                     f.record = record.clone();
                     f.state = state;
                     f.seen = now;
@@ -595,6 +708,8 @@ impl Follower {
 pub struct Filter {
     /// Plays that started at or after this.
     pub since: Option<DateTime<Utc>>,
+    /// Plays that started before this.
+    pub until: Option<DateTime<Utc>>,
     /// Kinds as stored: `movie`, `episode`, `track`.
     pub kinds: Vec<String>,
     /// A library by its id (`plex-1`).
@@ -604,6 +719,76 @@ pub struct Filter {
     /// As stored: `direct play`, `direct stream`, `transcode`.
     pub decision: Option<String>,
     pub platform: Option<String>,
+    /// A media server by its integration id.
+    pub server: Option<String>,
+    /// A player by its name (the device's when the player has none).
+    pub player: Option<String>,
+    /// A player app.
+    pub product: Option<String>,
+    /// A client address.
+    pub address: Option<String>,
+}
+
+/// How the history is ordered: a column, and the direction.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SortKey {
+    #[default]
+    Date,
+    Person,
+    Title,
+    Server,
+    Player,
+    Platform,
+    Product,
+    Delivery,
+    Quality,
+    Duration,
+    Paused,
+    Progress,
+    Address,
+}
+
+impl SortKey {
+    /// A column of the API by its word: `date`, `person`, `title`, `server`, `player`,
+    /// `platform`, `product`, `delivery`, `quality`, `duration`, `paused`, `progress`,
+    /// `address`.
+    pub fn of(word: &str) -> Option<SortKey> {
+        Some(match word.trim().to_ascii_lowercase().as_str() {
+            "date" | "at" | "started" => SortKey::Date,
+            "person" | "user" => SortKey::Person,
+            "title" => SortKey::Title,
+            "server" => SortKey::Server,
+            "player" => SortKey::Player,
+            "platform" => SortKey::Platform,
+            "product" | "app" => SortKey::Product,
+            "delivery" | "stream" | "decision" => SortKey::Delivery,
+            "quality" => SortKey::Quality,
+            "duration" | "watched" => SortKey::Duration,
+            "paused" => SortKey::Paused,
+            "progress" | "percent" => SortKey::Progress,
+            "address" | "ip" => SortKey::Address,
+            _ => return None,
+        })
+    }
+
+    /// The expression the plays are ordered by.
+    pub fn expression(self) -> &'static str {
+        match self {
+            SortKey::Date => "p.started_at",
+            SortKey::Person => "lower(p.account_name)",
+            SortKey::Title => "lower(COALESCE(p.show_title, p.title))",
+            SortKey::Server => "p.server",
+            SortKey::Player => "lower(COALESCE(p.player, p.device))",
+            SortKey::Platform => "lower(p.platform)",
+            SortKey::Product => "lower(p.product)",
+            SortKey::Delivery => "p.decision",
+            SortKey::Quality => "COALESCE(p.stream_bitrate, p.source_bitrate)",
+            SortKey::Duration => "p.watched_secs",
+            SortKey::Paused => "p.paused_secs",
+            SortKey::Progress => "p.progress",
+            SortKey::Address => "p.address",
+        }
+    }
 }
 
 /// The stored kinds of a kind word of the API: `movie`, `show` (its episodes), `music` (its
@@ -667,7 +852,12 @@ mod tests {
             device: Some("SHIELD".into()),
             platform: Some("Android".into()),
             product: Some("Plex for Android (TV)".into()),
+            product_version: Some("8.26.2".into()),
+            platform_version: Some("11".into()),
+            device_id: Some("device-1".into()),
             local: Some(true),
+            secure: Some(true),
+            relayed: Some(false),
             address: Some("10.0.0.20".into()),
             delivery: Delivery {
                 video: Some(TRANSCODE.into()),
@@ -676,6 +866,9 @@ mod tests {
                 source_bitrate: None,
                 stream_resolution: Some("720p".into()),
                 stream_bitrate: Some(4000),
+                stream_video_codec: Some("h264".into()),
+                stream_audio_codec: Some("aac".into()),
+                ..Delivery::default()
             },
             bandwidth: Some(4200),
             raw: json!({"Player": {"address": "10.0.0.20", "title": "Living Room TV"}}),

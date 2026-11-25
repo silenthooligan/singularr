@@ -8,9 +8,12 @@
 //! still counts.
 //!
 //! The sources are only read: the media server and Tautulli with GET, through their ports
-//! (`engines`). Addresses are kept only while the setting says so; otherwise a play says home
-//! network or outside and nothing more.
+//! (`engines`). A player's address is kept for the owner while the setting says so (the
+//! default); otherwise a play says home network or outside and nothing more. An address is
+//! placed on this machine with a location database (`locations`). It never goes to a log and
+//! never reaches Singularr Requests.
 
+pub mod locations;
 pub mod model;
 pub mod service;
 pub mod store;

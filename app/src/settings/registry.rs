@@ -962,8 +962,27 @@ pub static SECTIONS: &[Section] = &[
                         Kind::Bool,
                         "Off: local or remote only",
                     )
-                    .by_default(Fallback::Bool(false))
+                    .by_default(Fallback::Bool(true))
                     .saves(),
+                    Field::new(
+                        "jobs.plays.locations",
+                        "Location database download",
+                        Kind::Bool,
+                        "DB-IP City Lite, monthly, into the data folder",
+                    )
+                    .by_default(Fallback::Bool(true))
+                    .env(&["SINGULARR_GEOIP_DOWNLOAD"])
+                    .read(|c| json!(c.geoip.download.unwrap_or(true)))
+                    .saves(),
+                    Field::new(
+                        "jobs.plays.locationsFile",
+                        "Location database file",
+                        Kind::Path,
+                        "Replaces the download",
+                    )
+                    .env(&["SINGULARR_GEOIP_PATH"])
+                    .read(|c| opt(&c.geoip.path))
+                    .restart(),
                 ],
             },
         ],
@@ -1029,6 +1048,16 @@ pub static SECTIONS: &[Section] = &[
                     .by_default(Fallback::Int(10))
                     .env(&["SINGULARR_DB_MAX_CONNECTIONS"])
                     .read(|c| json!(c.db_max_connections))
+                    .restart(),
+                    Field::new(
+                        "system.dataDir",
+                        "Data folder",
+                        Kind::Path,
+                        "Downloaded files",
+                    )
+                    .by_default(Fallback::Text("/data"))
+                    .env(&["SINGULARR_DATA_DIR"])
+                    .read(|c| json!(c.geoip.data_dir))
                     .restart(),
                 ],
             },
