@@ -18,22 +18,44 @@ Kodi), in place of a pipeline of single-purpose containers.
   history, collections, scans), with an adapter per server.
 - **One interface language.** [docs/copy.md](copy.md).
 
-## Where it stands
+## What Singularr takes over
 
-| What | Stands in for | State |
+Singularr replaces the apps that manage a library. Each job moves in on its own, so an existing setup can
+keep running beside Singularr and retire one app at a time.
+
+| Job | Done today by | In 0.1 (beta) | In Singularr |
+|---|---|---|---|
+| The library: titles, editions, copies | Radarr, Sonarr | read from the managers and the media server | Singularr's own catalog (stage 3) |
+| Quality profiles, lists and naming ([profiles.md](profiles.md)) | custom formats, profiles, naming screens | Singularr's rules judge every release; the managers still apply their own | the only rules (stage 3) |
+| Search and grab | Radarr, Sonarr | through the managers, with Singularr's verdict beside theirs | through your indexers and download client directly (stage 2) |
+| Import, renaming and upgrades | Radarr, Sonarr, import scripts | the managers | Singularr places, names, verifies and upgrades files (stage 2) |
+| Requests | Seerr, Jellyseerr | Singularr Requests in front, Seerr behind | Singularr carries them out (stage 3) |
+| Play statistics | Tautulli | live: from Plex, with a Tautulli import | recorded by Singularr from any media server's sessions |
+| Notifications | Notifiarr, Apprise | live | live |
+| Processing rules | import scripts, Tdarr's own screens | live; Tdarr stays the transcoder | live |
+| Subtitles | Bazarr | | stage 4 |
+| Retention | Maintainerr | | stage 4 |
+| Download cleanup | Cleanuparr | reported | acted on (stage 4) |
+| Collections and gaps | Gaps | | stage 4 |
+| Built-in sign-in and first-run setup | an authenticating proxy | | before 1.0 |
+
+## Any service, one layer per kind
+
+Singularr brings the engine (the library, the rules, the decisions) and the integrations. The services
+are yours to choose: each kind plugs in through one layer, with an adapter per service, and Singularr
+drives it through its API, so daily work never needs that service's own screens.
+
+| Kind | 0.1 (beta) | Next |
 |---|---|---|
-| Answers that travel: compressed, read in parts, at addresses no content blocker blocks | | live; paging and pushed changes to come |
-| Notifications: Slack, Discord, email, webhooks and more, per event | Notifiarr, Apprise | live |
-| Play statistics: who played what, where and how; import from Tautulli | Tautulli | live |
-| Quality profiles, lists and naming ([profiles.md](profiles.md)) | the managers' profile, custom format and naming screens | live; applying them to the managers is next |
-| Processing: flows, workers and libraries, and rules that send files to a flow | Tdarr's own screens for daily work | live |
-| Interactive search and grab, import a refused download, remove a download | the managers' search and queue screens | live, through the managers |
-| Built-in sign-in and a first-run setup | an authenticating proxy | before 1.0 |
-| Subtitles: wanted, providers, download, sync | Bazarr | planned |
-| Retention: rules by plays, age and requester, with a grace period | Maintainerr | planned |
-| Download cleanup: strikes for stalled, failed and fake downloads | Cleanuparr | planned |
-| Media servers: Jellyfin, Emby, Kodi | | planned |
-| Singularr's own search, grab and import | Radarr, Sonarr | later |
+| Media servers and players | Plex: libraries, items, sessions, plays, images, viewer sign-in | Jellyfin and Emby (the two APIs share a lineage), Kodi as a player |
+| Download clients | qBittorrent | Transmission, Deluge, SABnzbd, NZBGet |
+| Indexers | through the managers | Prowlarr, Jackett, and Torznab or Newznab indexers directly (stage 2) |
+| Transcoders | Tdarr: flows, workers, libraries, rules | others through the same layer |
+| Requests engine | Seerr | Singularr itself (stage 3) |
+| Metadata | TMDB, TVDB | |
+
+Play statistics do not depend on a server's own history: Singularr records plays from each media
+server's sessions, the way Tautulli does for Plex, so they work the same on every server.
 
 ## What each replaced program does that must not be lost
 

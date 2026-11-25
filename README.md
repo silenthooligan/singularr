@@ -6,7 +6,7 @@
 </p>
 
 <p align="center"><strong>Escape container sprawl.</strong></p>
-<p align="center">A self-hosted workspace for Plex media management.</p>
+<p align="center">One self-hosted app for your whole media library, whatever server plays it.</p>
 <p align="center">
 <a href="#install">Install</a> ·
 <a href="docs/configuration.md">Configure</a> ·
@@ -21,13 +21,25 @@
 
 ![A luminous violet event horizon beside the words “Escape container sprawl.”](./brand/Campaign/Singularr%20launch%20card.png)
 
-Singularr brings a Plex library and the services around it into one workspace. Radarr, Sonarr,
-qBittorrent, Seerr, Tautulli and Tdarr each keep running in their own containers; Singularr reads them,
-shows the library, the downloads and the requests in one place, and explains every decision it makes.
-It acts on a service only where you allow it to.
+Singularr runs a media library from end to end in one app. It finds and downloads movies and shows,
+imports and names them, keeps their editions and subtitles, takes requests from the people who watch,
+records what they play, and clears out what is no longer wanted. It replaces the stack of
+single-purpose apps a library usually needs (Radarr, Sonarr, Seerr, Tautulli, Bazarr, Maintainerr,
+Cleanuparr) with one library, one set of rules and one interface, and it explains every decision it
+makes.
 
-> **Beta (0.x).** Singularr manages a real library every day, and it changes quickly. Until 1.0 a
-> release may change settings or behavior; the [changelog](CHANGELOG.md) says what changed.
+Singularr brings the engine and the integrations; the services are yours to choose. Media servers and
+players, download clients, indexers and transcoders each plug in through one layer per kind, with an
+adapter per service, and Singularr drives them through their APIs. 0.1 speaks Plex, qBittorrent,
+Prowlarr and Tdarr; Jellyfin, Emby, Kodi, Transmission, Deluge, SABnzbd and NZBGet come next
+([roadmap](docs/roadmap.md)).
+
+> **Beta (0.x).** Singularr manages a real library every day. In 0.1 it still hands some jobs to the
+> apps it replaces: Radarr and Sonarr search, grab and import (Singularr drives them and judges every
+> release), Seerr carries out requests, and Plex is the media server. Each job moves into Singularr in
+> turn ([roadmap](docs/roadmap.md)), so you can run 0.1 beside your current setup and retire each app
+> as its job lands. Until 1.0 a release may change settings or behavior; the [changelog](CHANGELOG.md)
+> says what changed.
 
 ## One library, two views
 
@@ -35,13 +47,14 @@ It acts on a service only where you allow it to.
 views. Every title shows its files, editions and copies, and the activity queue names the title,
 edition or episode, the service responsible and its current state.
 
-**Singularr Requests** is the portal for viewers. They sign in with Plex, find a movie or show and
+**Singularr Requests** is the portal for viewers. They sign in with their media server account (Plex
+in 0.1), find a movie or show and
 choose exactly what they want, down to a single episode: a request for *Signal Coast* S02E03 names one
 episode when the owner reviews it.
 
 ## What it does
 
-- **Library.** Movies, shows, music and home videos from your Plex sections, with editions as a first
+- **Library.** Movies, shows, music and home videos from your media server's libraries, with editions as a first
   class idea: a title can hold a theatrical cut and an open matte copy side by side.
 - **Activity.** The download queue with each item's stage and, when it is stuck, why; the managers'
   history; and the wanted list (missing, and below the profile's cutoff).
@@ -55,8 +68,8 @@ episode when the owner reviews it.
   review.
 - **Processing.** Tdarr's flows, workers and libraries, and rules that decide which files go to which
   flow, watched before they are trusted.
-- **Statistics.** Who played what, where and how it was delivered, from Plex, with an import from
-  Tautulli.
+- **Statistics.** Who played what, where and how it was delivered, from the media server, with an
+  import from Tautulli.
 - **Notifications.** Slack, Discord, email, webhooks and more, chosen per event.
 - **Journal.** Every change and decision, with who or what made it.
 - **API.** Everything the interface does is in `/api/v1`, described by OpenAPI at
@@ -64,8 +77,9 @@ episode when the owner reviews it.
 
 ## Install
 
-You need Docker with Compose, a Plex server, Radarr or Sonarr (or both), and a reverse proxy that signs
-people in (oauth2-proxy, Authelia, Authentik or similar). PostgreSQL comes with the compose file.
+You need Docker with Compose, a media server (Plex in 0.1), a download client (qBittorrent in 0.1),
+Radarr or Sonarr (until Singularr's own search and import land), and a reverse proxy that signs people in (oauth2-proxy, Authelia, Authentik
+or similar). PostgreSQL comes with the compose file.
 
 ```bash
 git clone https://github.com/silenthooligan/singularr.git
