@@ -39,10 +39,10 @@ pub struct Library {
     pub name: String,
     /// `movie` or `show`.
     pub kind: Option<String>,
-    /// The integration it belongs to: the Plex server for its sections, a Radarr or Sonarr
+    /// The integration it belongs to: the media server for its sections, a Radarr or Sonarr
     /// integration for the library of its own.
     pub integration: Option<String>,
-    /// The section key, for a library of the Plex server.
+    /// The section key, for a library of a media server.
     pub section_key: Option<String>,
     /// The Radarr or Sonarr integration that manages a section (none for music and home
     /// video).

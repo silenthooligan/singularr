@@ -81,17 +81,17 @@ async fn music_albums(
 
 /// The album's cover image from its folder, with the content type of its extension. Only a
 /// file under the music folder is served, at most 16 MiB.
-/// An album of the Plex server (`album-<rating key>`) has its cover made by the server, resized
-/// to `?size=` pixels (64 to 1200, default 600).
-#[utoipa::path(get, path = "/api/v1/music/albums/{id}/cover", tag = "music", params(("id" = String, Path, description = "`album-<rating key>` (the Plex server) or the folder album's id"), super::server::ImageQuery),
+/// An album of a media server (`album-<item key>`, `album-<server>_<item key>`) has its cover
+/// made by that server, resized to `?size=` pixels (64 to 1200, default 600).
+#[utoipa::path(get, path = "/api/v1/music/albums/{id}/cover", tag = "music", params(("id" = String, Path, description = "`album-<item key>` or `album-<server>_<item key>` (a media server), or the folder album's id"), super::server::ImageQuery),
     responses((status = 200, description = "The image (image/jpeg, image/png, image/webp, image/gif or image/bmp)"), (status = 404, body = ProblemDoc), (status = 401, body = ProblemDoc)))]
 async fn music_cover(
     State(state): State<AppState>,
     ApiPath(id): ApiPath<String>,
     ApiQuery(q): ApiQuery<super::server::ImageQuery>,
 ) -> Result<Response, AppError> {
-    if let Some(key) = id.strip_prefix("album-") {
-        return super::server::server_image(&state, "album", key, q.size).await;
+    if id.starts_with("album-") {
+        return super::server::server_image(&state, "album", &id, q.size).await;
     }
     let id: i64 = id
         .parse()

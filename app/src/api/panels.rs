@@ -26,8 +26,9 @@ use std::collections::BTreeMap;
 #[serde(rename_all = "camelCase")]
 pub struct IntegrationPanel {
     pub id: String,
-    /// `plex`, `radarr`, `sonarr`, `qbittorrent`, `prowlarr`, `tdarr`, `hush`, `seerr`, and the
-    /// metadata providers `tmdb`, `tvdb`.
+    /// `plex`, `jellyfin`, `emby`, `radarr`, `sonarr`, the download clients `qbittorrent`,
+    /// `transmission`, `deluge`, `sabnzbd` and `nzbget`, `prowlarr`, `tdarr`, `hush`, `seerr`,
+    /// `tautulli`, and the metadata providers `tmdb`, `tvdb`.
     #[serde(rename = "type")]
     pub kind: String,
     /// The group of its type: `server`, `managers`, `downloads`, `indexers`, `processing`,
@@ -218,9 +219,13 @@ pub fn groups() -> Vec<IntegrationGroup> {
 /// The group of an integration type.
 pub fn group_of(kind: IntegrationType) -> &'static str {
     match kind {
-        IntegrationType::Plex => "server",
+        IntegrationType::Plex | IntegrationType::Jellyfin | IntegrationType::Emby => "server",
         IntegrationType::Radarr | IntegrationType::Sonarr => "managers",
-        IntegrationType::Qbittorrent => "downloads",
+        IntegrationType::Qbittorrent
+        | IntegrationType::Transmission
+        | IntegrationType::Deluge
+        | IntegrationType::Sabnzbd
+        | IntegrationType::Nzbget => "downloads",
         IntegrationType::Prowlarr => "indexers",
         IntegrationType::Tdarr | IntegrationType::Hush => "processing",
         IntegrationType::Seerr => "requests",
@@ -245,7 +250,23 @@ pub fn reads(kind: IntegrationType) -> Vec<String> {
             "Grab history",
             "Release name parsing",
         ],
-        IntegrationType::Qbittorrent => &["Torrent state, progress and folder"],
+        IntegrationType::Qbittorrent | IntegrationType::Transmission | IntegrationType::Deluge => {
+            &[
+                "Torrent state, progress and folder",
+                "Speeds, seeds, peers and ratio",
+                "Category and tracker",
+            ]
+        }
+        IntegrationType::Sabnzbd => &[
+            "Queue: state, progress, speed and time left",
+            "History: completed, failed and in post-processing",
+            "Category and folder",
+        ],
+        IntegrationType::Nzbget => &[
+            "Queue: state, progress, speed and time left",
+            "History: completed, failed and deleted",
+            "Category and folder",
+        ],
         IntegrationType::Seerr => &[
             "Requests and status",
             "Requester display names",
@@ -257,6 +278,14 @@ pub fn reads(kind: IntegrationType) -> Vec<String> {
             "Movies and shows with ratings, plays and editions",
             "Artists, albums and tracks",
             "Now playing",
+            "Artwork",
+        ],
+        IntegrationType::Jellyfin | IntegrationType::Emby => &[
+            "Libraries and folders",
+            "Movies and shows with ratings and plays",
+            "Artists, albums and tracks",
+            "Now playing",
+            "Users",
             "Artwork",
         ],
         IntegrationType::Tdarr => &[
@@ -287,8 +316,20 @@ pub fn reads(kind: IntegrationType) -> Vec<String> {
 pub fn secret_key(kind: IntegrationType) -> &'static str {
     match kind {
         IntegrationType::Plex => "token",
-        IntegrationType::Qbittorrent => "password",
+        IntegrationType::Qbittorrent
+        | IntegrationType::Transmission
+        | IntegrationType::Deluge
+        | IntegrationType::Nzbget => "password",
         _ => "apiKey",
+    }
+}
+
+/// The label of a type's secret: `Token`, `Password`, `API key`.
+pub fn secret_label(kind: IntegrationType) -> &'static str {
+    match secret_key(kind) {
+        "token" => "Token",
+        "password" => "Password",
+        _ => "API key",
     }
 }
 
@@ -315,18 +356,20 @@ pub fn kinds() -> Vec<IntegrationKind> {
     let mut out: Vec<IntegrationKind> = IntegrationType::ALL
         .into_iter()
         .map(|k| {
-            let secret = match k {
-                IntegrationType::Plex => "Token",
-                IntegrationType::Qbittorrent => "Password",
-                _ => "API key",
-            };
+            let secret = secret_label(k);
             // The host and the port each program listens on unless it is told otherwise. The
             // bridge has no port of its own to name.
             let host = match k {
                 IntegrationType::Plex => "plex:32400",
+                IntegrationType::Jellyfin => "jellyfin:8096",
+                IntegrationType::Emby => "emby:8096",
                 IntegrationType::Radarr => "radarr:7878",
                 IntegrationType::Sonarr => "sonarr:8989",
                 IntegrationType::Qbittorrent => "qbittorrent:8080",
+                IntegrationType::Transmission => "transmission:9091",
+                IntegrationType::Deluge => "deluge:8112",
+                IntegrationType::Sabnzbd => "sabnzbd:8080",
+                IntegrationType::Nzbget => "nzbget:6789",
                 IntegrationType::Prowlarr => "prowlarr:9696",
                 IntegrationType::Tdarr => "tdarr:8265",
                 IntegrationType::Hush => "hush",
@@ -342,7 +385,7 @@ pub fn kinds() -> Vec<IntegrationKind> {
                 "As reached from the server",
                 "connection",
             )];
-            if k == IntegrationType::Qbittorrent {
+            if k.takes_user() {
                 fields.push(type_field(
                     "username",
                     "Username",
@@ -386,9 +429,17 @@ pub fn kinds() -> Vec<IntegrationKind> {
                     IntegrationType::Plex => {
                         "Libraries, ratings, plays, editions, music and sessions"
                     }
+                    IntegrationType::Jellyfin | IntegrationType::Emby => {
+                        "Libraries, ratings, plays, music and sessions"
+                    }
                     IntegrationType::Radarr => "Movies, files, editions, queue and history",
                     IntegrationType::Sonarr => "Shows, episodes, files, queue and history",
-                    IntegrationType::Qbittorrent => "Torrents, progress and unassigned downloads",
+                    IntegrationType::Qbittorrent
+                    | IntegrationType::Transmission
+                    | IntegrationType::Deluge => "Torrents, progress and unassigned downloads",
+                    IntegrationType::Sabnzbd | IntegrationType::Nzbget => {
+                        "Usenet downloads, progress and unassigned downloads"
+                    }
                     IntegrationType::Prowlarr => "Indexers",
                     IntegrationType::Tdarr => {
                         "Worker nodes, queues, active workers, libraries and flows"
@@ -400,9 +451,11 @@ pub fn kinds() -> Vec<IntegrationKind> {
                     }
                 }
                 .to_string(),
+                // Every download client is read, any number of each type.
                 max: match k {
                     IntegrationType::Plex
-                    | IntegrationType::Qbittorrent
+                    | IntegrationType::Jellyfin
+                    | IntegrationType::Emby
                     | IntegrationType::Seerr
                     | IntegrationType::Tautulli => Some(1),
                     _ => None,
@@ -604,11 +657,11 @@ pub struct LibraryPanel {
     pub name: String,
     /// `movie`, `show`, `music`, `homevideo` or `photo`.
     pub kind: String,
-    /// The Plex server's section key; absent for a manager's own library.
+    /// The media server's section key; absent for a manager's own library.
     pub plex_key: Option<String>,
     /// The integration that manages it (a Radarr or Sonarr), when one does.
     pub manager: Option<String>,
-    /// Its folders as the Plex server names them.
+    /// Its folders as its media server names them.
     pub locations: Vec<String>,
     /// Its folders as its manager names them; the server's folders when no manager does.
     pub roots: Vec<String>,

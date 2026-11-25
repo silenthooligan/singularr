@@ -1,4 +1,4 @@
-/* A plain video library of the Plex server (one that no manager looks after, such as home video):
+/* A plain video library of a media server (one that no manager looks after, such as home video):
    a timeline by year or decade, or a table; a recording opens a drawer with its chapters, people
    and places and an editor for its title, date, places, people and notes. The editor saves through
    the API; in the demo Save cannot act. ?id=<library id>; state in the address: tab, g, a, q, rec. */
@@ -77,7 +77,7 @@
       const next = { title: v('#lv-title') || r.title, date: from ? { from, to: to || null } : null, places: split(v('#lv-places')), people: split(v('#lv-people')), notes: v('#lv-notes') };
       /* The notes are Singularr's own data: they save through the API. In the demo Save is a control that cannot act. */
       if (!MQ.live) return;
-      /* Notes belong to the tape. A recording Plex lists whose file is not in the home movies folder has none to write to. */
+      /* Notes belong to the tape. A recording the media server lists whose file is not in the home movies folder has none to write to. */
       if (r.tape == null) { MQ.toast("Couldn't save: not in the home movies folder", 'warn'); return; }
       const res = await MQ.send('PATCH', `/home-movies/${encodeURIComponent(r.tape)}`, {
         title: next.title, year_from: from ? Number(from) : null, year_to: to ? Number(to) : null, people: next.people, places: next.places, notes: next.notes || null,

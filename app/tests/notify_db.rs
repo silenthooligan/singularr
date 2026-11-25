@@ -808,11 +808,7 @@ fn app_state(pool: &PgPool, journal: Journal, out: &Outbound, mails: Arc<Mails>)
         )),
         settings: Arc::new(singularr::settings::Settings::new(&config, &env, None)),
         pages: Default::default(),
-        search: Arc::new(singularr::search::Search::new(
-            pool.clone(),
-            &config.search,
-            out,
-        )),
+        search: Arc::new(singularr::search::Search::new(pool.clone(), &config, out)),
         notify: Notifier::new(pool.clone(), journal.clone(), out.clone(), mails),
         config,
         pool: pool.clone(),

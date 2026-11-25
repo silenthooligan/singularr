@@ -1,9 +1,18 @@
 //! The one way out. Every HTTP call Singularr makes goes through [`Outbound::send`].
 //!
 //! - A call to a host that is not listed is refused before anything is sent.
+//! - A host rule is listed by its address: the origin, and the path below which the integration
+//!   answers. A call goes by the rule whose path holds its own, whole segments, the longest such
+//!   path first: a media server at `https://host/` and a manager at `https://host/radarr` keep
+//!   a rule each. A call at a listed origin that no rule's path holds is refused.
 //! - Toward an integration a host rule knows three things. GET passes, unless the adapter
-//!   declares its GETs (`gets`): then only those pass, each an exact path with a condition on
-//!   one value of the query, for a service that changes things on GET (Tautulli). Its `reads` pass
+//!   declares its GETs (`gets`): then only those pass, each an exact path, with a condition on
+//!   one value of the query where the path alone does not say that the call reads (Tautulli
+//!   takes every command at one path). Where a key beside the command turns a read into a
+//!   change, the condition also names the keys the query may hold (SABnzbd). A service that
+//!   starts work on some GETs (a media server starts a transcode, a scan or a download on GET)
+//!   declares the paths it reads. An adapter whose service takes commands on GET and reads
+//!   with POST alone takes no GET at all (`no_get`, NZBGet). Its `reads` pass
 //!   always: calls that are not GET and only read (a sign-in, a query a service takes with POST),
 //!   each a method, a path and, where the path alone does not say that the call only reads, a
 //!   condition on the JSON body. Its `acts` pass only while the integration's access is `act`
@@ -285,6 +294,8 @@ pub enum Expect {
     /// A list of one to this many objects, each holding what `rule` says (its pointers start at
     /// the object).
     Each { max: usize, rule: BodyRule },
+    /// A list of at most this many values, none of them a list or an object.
+    Scalars(usize),
 }
 
 impl Expect {
@@ -320,6 +331,12 @@ impl Expect {
                     .iter()
                     .all(|item| item.is_object() && rule.holds(item))
             }),
+            Expect::Scalars(max) => found.as_array().is_some_and(|items| {
+                items.len() <= *max
+                    && items
+                        .iter()
+                        .all(|v| !matches!(v, Value::Array(_) | Value::Object(_)))
+            }),
         }
     }
 }
@@ -336,6 +353,83 @@ pub struct BodyTest {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BodyRule {
     pub tests: Vec<BodyTest>,
+    /// Texts the body's text holds exactly once each (the whole body's, in a rule of its own).
+    pub once: Vec<String>,
+    /// The body's text holds no backslash (the whole body's, in a rule of its own).
+    pub plain: bool,
+}
+
+/// A JSON value read strictly: an object that names one member twice is refused. The services
+/// differ on which of the two counts. Transmission's parser keeps the first. NZBGet searches
+/// its text for the first. serde_json keeps the last.
+struct Strict(serde_json::Value);
+
+impl<'de> serde::Deserialize<'de> for Strict {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Strict, D::Error> {
+        d.deserialize_any(StrictVisitor).map(Strict)
+    }
+}
+
+struct StrictVisitor;
+
+impl<'de> serde::de::Visitor<'de> for StrictVisitor {
+    type Value = serde_json::Value;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a JSON value")
+    }
+
+    fn visit_bool<E: serde::de::Error>(self, v: bool) -> Result<Self::Value, E> {
+        Ok(serde_json::Value::Bool(v))
+    }
+
+    fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Self::Value, E> {
+        Ok(v.into())
+    }
+
+    fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Self::Value, E> {
+        Ok(v.into())
+    }
+
+    fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Self::Value, E> {
+        Ok(serde_json::Number::from_f64(v)
+            .map_or(serde_json::Value::Null, serde_json::Value::Number))
+    }
+
+    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+        Ok(serde_json::Value::String(v.to_string()))
+    }
+
+    fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
+        Ok(serde_json::Value::String(v))
+    }
+
+    fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+        Ok(serde_json::Value::Null)
+    }
+
+    fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+        Ok(serde_json::Value::Null)
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+        let mut items = Vec::new();
+        while let Some(Strict(item)) = seq.next_element()? {
+            items.push(item);
+        }
+        Ok(serde_json::Value::Array(items))
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+        let mut members = serde_json::Map::new();
+        while let Some(key) = map.next_key::<String>()? {
+            let Strict(value) = map.next_value()?;
+            if members.insert(key, value).is_some() {
+                return Err(serde::de::Error::custom("a member is written twice"));
+            }
+        }
+        Ok(serde_json::Value::Object(members))
+    }
 }
 
 impl BodyRule {
@@ -404,6 +498,25 @@ impl BodyRule {
         self.test(pointer, Expect::Each { max, rule })
     }
 
+    /// The value at `pointer` is a list of at most `max` values, none a list or an object.
+    pub fn scalars(self, pointer: &str, max: usize) -> BodyRule {
+        self.test(pointer, Expect::Scalars(max))
+    }
+
+    /// The body's text holds `text` exactly once. A service that finds a member by searching
+    /// its text (NZBGet finds `"method"` so) then reads the member the tests read.
+    pub fn written_once(mut self, text: &str) -> BodyRule {
+        self.once.push(text.to_string());
+        self
+    }
+
+    /// The body's text holds no backslash. An escape cannot then hide a name from a service
+    /// that searches the text.
+    pub fn plain(mut self) -> BodyRule {
+        self.plain = true;
+        self
+    }
+
     /// Every test holds in this value.
     fn holds(&self, json: &serde_json::Value) -> bool {
         self.tests
@@ -411,15 +524,25 @@ impl BodyRule {
             .all(|t| t.expect.holds(json.pointer(&t.pointer)))
     }
 
-    /// A body that is JSON and holds what every test says. A member written twice is read as
-    /// the services read it: the last one counts.
+    /// A body that is JSON and holds what every test says. A body with an object that names
+    /// one member twice is refused ([`Strict`]).
     fn allows(&self, body: &Body) -> bool {
         let Body::Json(text) = body else {
             return false;
         };
-        serde_json::from_str::<serde_json::Value>(text)
+        if self.plain && text.contains('\\') {
+            return false;
+        }
+        if !self
+            .once
+            .iter()
+            .all(|t| text.matches(t.as_str()).count() == 1)
+        {
+            return false;
+        }
+        serde_json::from_str::<Strict>(text)
             .ok()
-            .is_some_and(|json| self.holds(&json))
+            .is_some_and(|Strict(json)| self.holds(&json))
     }
 }
 
@@ -479,11 +602,27 @@ impl QueryRule {
 }
 
 /// A GET a host takes once its adapter declares its GETs: the exact path, and what its query
-/// must say.
+/// must say. `query: None`: the path alone says that the call reads. `others: None`: the query
+/// may name any key beside the rule's own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GetCall {
     pub path: String,
-    pub query: QueryRule,
+    pub query: Option<QueryRule>,
+    /// The keys the query may name beside the rule's own. `None`: any key.
+    pub others: Option<Vec<String>>,
+}
+
+impl GetCall {
+    /// The query holds what the rule says, and no key but the rule's own and `others`.
+    fn allows(&self, url: &Url) -> bool {
+        self.query.as_ref().is_none_or(|q| q.allows(url))
+            && self.others.as_ref().is_none_or(|others| {
+                url.query_pairs().all(|(key, _)| {
+                    self.query.as_ref().is_some_and(|q| key == q.key.as_str())
+                        || others.iter().any(|o| *o == key)
+                })
+            })
+    }
 }
 
 /// A call that is not a GET and only reads. It passes whatever the access.
@@ -532,6 +671,9 @@ pub struct Calls {
     pub acts: Vec<ActCall>,
     /// Empty: every GET passes. Otherwise only these.
     pub gets: Vec<GetCall>,
+    /// No GET passes at all: the service takes its commands on GET too. Every read the adapter
+    /// makes is a listed POST.
+    pub no_get: bool,
     /// Paths refused whatever the method, GET included: what a service does on a GET that
     /// is no read. A path that ends with `/` stands for everything below it.
     pub never: Vec<String>,
@@ -544,11 +686,48 @@ impl Calls {
     pub fn get_when(mut self, path: &str, key: &str, values: &[&str]) -> Calls {
         self.gets.push(GetCall {
             path: path.to_string(),
-            query: QueryRule {
+            query: Some(QueryRule {
                 key: key.to_string(),
                 values: values.iter().map(|v| v.to_string()).collect(),
-            },
+            }),
+            others: None,
         });
+        self
+    }
+
+    /// A GET of `path`, whatever its query: a path that only reads. Once an adapter declares one,
+    /// a GET to its host passes only as one it declares: for a service that starts work on some
+    /// of its GETs (a media server starts a transcode or a library scan on GET). `{id}` and
+    /// `{any}` stand for one segment, as in every declared path.
+    pub fn get(mut self, path: &str) -> Calls {
+        self.gets.push(GetCall {
+            path: path.to_string(),
+            query: None,
+            others: None,
+        });
+        self
+    }
+
+    /// A GET of `path` that passes while its query names `key` once with one of `values`, and
+    /// no key but `key` and `others`. For a service where a key beside the command makes the
+    /// same command a change. SABnzbd's `mode=queue` lists the queue. With `name=delete` it
+    /// deletes from it.
+    pub fn get_only(mut self, path: &str, key: &str, values: &[&str], others: &[&str]) -> Calls {
+        self.gets.push(GetCall {
+            path: path.to_string(),
+            query: Some(QueryRule {
+                key: key.to_string(),
+                values: values.iter().map(|v| v.to_string()).collect(),
+            }),
+            others: Some(others.iter().map(|o| o.to_string()).collect()),
+        });
+        self
+    }
+
+    /// No GET to the host passes: for a service that takes every command on GET as well as
+    /// with POST (NZBGet answers `/jsonrpc/<method>`), whose adapter reads with POST alone.
+    pub fn no_get(mut self) -> Calls {
+        self.no_get = true;
         self
     }
 
@@ -642,6 +821,8 @@ pub struct HostRule {
     pub acts: Vec<ActCall>,
     /// The only GETs that pass, when the adapter declares any. Empty: every GET passes.
     pub gets: Vec<GetCall>,
+    /// No GET passes.
+    pub no_get: bool,
     /// Paths refused whatever the method, GET included.
     pub never: Vec<String>,
     /// What Singularr may do with the integration behind this host.
@@ -656,6 +837,7 @@ impl HostRule {
             reads: calls.reads,
             acts: calls.acts,
             gets: calls.gets,
+            no_get: calls.no_get,
             never: calls.never,
             access: AccessSwitch::default(),
         }
@@ -671,9 +853,28 @@ fn host_key(url: &Url) -> Option<String> {
     ))
 }
 
-/// `scheme://host:port`, the part of a URL the allowlist keys on.
+/// `scheme://host:port`, the origin of a URL as the allowlist names it.
 fn origin_key(url: &Url) -> Option<String> {
     Some(format!("{}://{}", url.scheme(), host_key(url)?))
+}
+
+/// What a rule is listed by: the origin, then the path of the address without its last `/`
+/// (nothing for an address at the root).
+fn rule_key(url: &Url) -> Option<String> {
+    Some(format!(
+        "{}{}",
+        origin_key(url)?,
+        url.path().trim_end_matches('/')
+    ))
+}
+
+/// Whether the path of a rule's address holds a call's path, whole segments: `/radarr` holds
+/// `/radarr` and `/radarr/api`, and not `/radarrx`. The root (nothing) holds every path.
+fn path_holds(base: &str, path: &str) -> bool {
+    base.is_empty()
+        || path
+            .strip_prefix(base)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 #[derive(Debug, Clone, Default)]
@@ -725,11 +926,12 @@ impl Allowlist {
         self.allow_integration(label, base_url, posts(post_paths))
     }
 
-    /// List the origin of an integration with the calls beyond GET its adapter declares. Its
+    /// List the address of an integration with the calls beyond GET its adapter declares. Its
     /// access is `read` until its switch says otherwise ([`Allowlist::switch`]). The paths of
     /// the calls are the adapter's own, below the address: an integration reached under a
-    /// path (`https://host/bridge`) is called there. One origin has one rule: of two
-    /// integrations at the same origin, the one listed last holds it.
+    /// path (`https://host/bridge`) is called there. One address has one rule: of two
+    /// integrations at the same address, the one listed last holds it. Integrations at one
+    /// origin under different paths have a rule each.
     pub fn allow_integration(
         &mut self,
         label: &str,
@@ -737,7 +939,7 @@ impl Allowlist {
         mut calls: Calls,
     ) -> Result<(), OutboundError> {
         let url = Url::parse(base_url).map_err(|_| OutboundError::BadUrl(base_url.to_string()))?;
-        let key = origin_key(&url).ok_or_else(|| OutboundError::BadUrl(base_url.to_string()))?;
+        let key = rule_key(&url).ok_or_else(|| OutboundError::BadUrl(base_url.to_string()))?;
         let below = url.path().trim_end_matches('/');
         if !below.is_empty() {
             for path in calls
@@ -759,20 +961,43 @@ impl Allowlist {
     /// index): every method passes. Never used for an engine.
     pub fn allow_service(&mut self, label: &str, base_url: &str) -> Result<(), OutboundError> {
         let url = Url::parse(base_url).map_err(|_| OutboundError::BadUrl(base_url.to_string()))?;
-        let key = origin_key(&url).ok_or_else(|| OutboundError::BadUrl(base_url.to_string()))?;
+        let key = rule_key(&url).ok_or_else(|| OutboundError::BadUrl(base_url.to_string()))?;
         self.rules
             .insert(key, HostRule::new(label, false, Calls::default()));
         Ok(())
     }
 
-    /// Every listed origin with its rule, for the startup log and the doctor.
+    /// Every listed address (the origin, then the path of an integration reached under one) with
+    /// its rule, for the startup log and the doctor.
     pub fn hosts(&self) -> impl Iterator<Item = (&String, &HostRule)> {
         self.rules.iter()
     }
 
+    /// The rule a call to `origin` at `path` goes by: of the rules listed at the origin, the
+    /// one whose path holds the call's, the longest such path first. `Err(Some(rule))`: the
+    /// origin has rules and none holds the path, with the first of them to name in the refusal.
+    /// `Err(None)`: the origin has no rule.
+    fn rule_at(&self, origin: &str, path: &str) -> Result<&HostRule, Option<&HostRule>> {
+        let mut first = None;
+        let mut best: Option<(usize, &HostRule)> = None;
+        for (key, rule) in &self.rules {
+            let Some(base) = key.strip_prefix(origin) else {
+                continue;
+            };
+            if !(base.is_empty() || base.starts_with('/')) {
+                continue;
+            }
+            first = first.or(Some(rule));
+            if path_holds(base, path) && best.is_none_or(|(len, _)| base.len() > len) {
+                best = Some((base.len(), rule));
+            }
+        }
+        best.map(|(_, rule)| rule).ok_or(first)
+    }
+
     /// The access switch of the host listed under this label (an integration's id), when the
     /// host has an act the switch could let through. `None` for every other label: a host
-    /// without an act, an integration that is not asked, or one whose origin another
+    /// without an act, an integration that is not asked, or one whose address another
     /// integration listed after it.
     pub fn switch(&self, label: &str) -> Option<AccessSwitch> {
         self.rules
@@ -798,11 +1023,19 @@ impl Allowlist {
             return Err(OutboundError::BadUrl(without_query(url)));
         }
         let key = origin_key(&parsed).ok_or_else(|| OutboundError::BadUrl(without_query(url)))?;
-        let rule = self
-            .rules
-            .get(&key)
-            .ok_or_else(|| OutboundError::HostNotAllowed { host: key.clone() })?;
         let path = parsed.path();
+        let rule = match self.rule_at(&key, path) {
+            Ok(rule) => rule,
+            Err(Some(near)) => {
+                return Err(OutboundError::NotListed {
+                    method: method.as_str(),
+                    host: key,
+                    label: near.label.clone(),
+                    path: path.to_string(),
+                });
+            }
+            Err(None) => return Err(OutboundError::HostNotAllowed { host: key }),
+        };
         let barred = rule
             .never
             .iter()
@@ -822,14 +1055,15 @@ impl Allowlist {
             return Ok((parsed, rule));
         }
         if method == Method::Get {
-            // A host whose adapter declares its GETs takes those alone. The refusal names the
-            // path and never the query, which may hold a key.
-            if rule.gets.is_empty()
+            // A host whose adapter declares its GETs takes those alone. One that takes no GET
+            // takes none. The refusal names the path and never the query, which may hold a
+            // key.
+            let declared = rule.gets.is_empty()
                 || rule
                     .gets
                     .iter()
-                    .any(|call| path_is(&call.path, path) && call.query.allows(&parsed))
-            {
+                    .any(|call| path_is(&call.path, path) && call.allows(&parsed));
+            if declared && !rule.no_get {
                 return Ok((parsed, rule));
             }
             return Err(OutboundError::NotListed {
@@ -1060,6 +1294,14 @@ fn describe(e: &reqwest::Error) -> String {
     }
 }
 
+/// The value of an `Authorization` header for HTTP basic authentication (RFC 7617).
+pub fn basic_auth(user: &str, password: &str) -> String {
+    format!(
+        "Basic {}",
+        super::smtp::base64(format!("{user}:{password}").as_bytes())
+    )
+}
+
 /// Percent-encode one query or form component.
 pub fn encode_component(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -1120,12 +1362,16 @@ impl Outbound {
         &self.targets
     }
 
-    /// Who the host of this URL is listed as: the label of its host rule (an integration, a
-    /// metadata provider, one of Singularr's own services). `None` for a host without a rule.
+    /// Who the host of this URL is listed as: the label of the rule a call there goes by (an
+    /// integration, a metadata provider, one of Singularr's own services), else of a rule at its
+    /// origin. `None` for an origin without a rule.
     pub fn listed(&self, url: &str) -> Option<String> {
         let parsed = Url::parse(url.trim()).ok()?;
         let key = origin_key(&parsed)?;
-        self.allow.rules.get(&key).map(|rule| rule.label.clone())
+        match self.allow.rule_at(&key, parsed.path()) {
+            Ok(rule) | Err(Some(rule)) => Some(rule.label.clone()),
+            Err(None) => None,
+        }
     }
 
     /// The whole decision for one call, pure. A host with a rule is judged by its rule alone
@@ -1321,6 +1567,20 @@ pub mod recorded {
             body: &str,
         ) {
             self.record(method, url_part, Some(body_part), status, body, &[]);
+        }
+
+        /// [`Recorded::answer_body`] with headers: a sign-in a service takes in the body of a
+        /// POST, answered with a cookie.
+        pub fn answer_body_with(
+            &self,
+            method: Method,
+            url_part: &str,
+            body_part: &str,
+            status: u16,
+            body: &str,
+            headers: &[(&str, &str)],
+        ) {
+            self.record(method, url_part, Some(body_part), status, body, headers);
         }
 
         fn record(
@@ -1752,6 +2012,247 @@ mod tests {
         );
     }
 
+    /// A media server starts work on some GETs (a transcode, a library scan, a download). Its
+    /// adapter declares the paths it reads: a GET of one of them passes with any query. Every
+    /// other GET is refused, as is any other method at the same paths.
+    #[test]
+    fn a_host_that_declares_its_paths_takes_gets_of_those_alone() {
+        let mut a = Allowlist::default();
+        a.allow_integration(
+            "server",
+            "http://10.0.0.40:8096/jellyfin",
+            Calls::default()
+                .get("/Items")
+                .get("/Items/{any}/Images/{any}")
+                .get("/library/metadata/{id}"),
+        )
+        .unwrap();
+        let at = |rest: &str| format!("http://10.0.0.40:8096/jellyfin{rest}");
+        for url in [
+            at("/Items?ParentId=abc&Recursive=true&Fields=ProviderIds,Path"),
+            at("/Items"),
+            at("/Items/0123abcd/Images/Primary?maxWidth=300"),
+            at("/library/metadata/109882"),
+        ] {
+            assert!(a.check(Method::Get, &url).is_ok(), "{url}");
+        }
+        for url in [
+            at("/Items/0123abcd/Download"),
+            at("/Videos/0123abcd/stream?static=true"),
+            at("/Items/0123abcd/Images"),
+            at("/Items/0123abcd/Images/Primary/0"),
+            at("/library/metadata/abc"),
+            at("/library/sections/1/refresh"),
+            "http://10.0.0.40:8096/Items".to_string(),
+        ] {
+            assert!(
+                matches!(
+                    a.check(Method::Get, &url),
+                    Err(OutboundError::NotListed { .. })
+                ),
+                "{url} must be refused"
+            );
+        }
+        for method in [Method::Post, Method::Put, Method::Delete] {
+            assert!(
+                a.check(method, &at("/Items")).is_err(),
+                "{}",
+                method.as_str()
+            );
+        }
+    }
+
+    /// The label of the rule a GET goes by, or how it was refused.
+    fn rule_of(a: &Allowlist, url: &str) -> Result<String, OutboundError> {
+        a.check(Method::Get, url)
+            .map(|(_, rule)| rule.label.clone())
+    }
+
+    /// A media server at the root of a host and a manager under a path of the same host keep a
+    /// rule each, in either order: a call goes by the rule whose path holds it, the longest one
+    /// first. A path that only begins like another is not below it.
+    #[test]
+    fn a_rule_is_listed_by_its_address_and_the_longest_path_wins() {
+        let server = || {
+            Calls::default()
+                .get("/library/sections")
+                .get("/status/sessions")
+        };
+        let manager = || Calls::default().act(Method::Post, "/api/v3/command");
+        for server_first in [true, false] {
+            let mut a = Allowlist::default();
+            let mut list = |label: &str, address: &str, calls: Calls| {
+                a.allow_integration(label, address, calls).unwrap();
+            };
+            if server_first {
+                list("plex", "https://media.example.org/", server());
+                list("radarr", "https://media.example.org/radarr", manager());
+            } else {
+                list("radarr", "https://media.example.org/radarr/", manager());
+                list("plex", "https://media.example.org", server());
+            }
+            let at = |path: &str| format!("https://media.example.org{path}");
+            assert_eq!(rule_of(&a, &at("/library/sections")).unwrap(), "plex");
+            assert_eq!(rule_of(&a, &at("/radarr/api/v3/movie")).unwrap(), "radarr");
+            assert_eq!(rule_of(&a, &at("/radarr")).unwrap(), "radarr");
+            // The server takes its declared GETs alone, the manager every GET and its act only
+            // while it may act.
+            for path in ["/library/sections/1/refresh", "/radarrx/api", "/"] {
+                match a.check(Method::Get, &at(path)) {
+                    Err(OutboundError::NotListed { label, .. }) => assert_eq!(label, "plex"),
+                    other => panic!("{path}: {:?}", other.map(|(_, r)| r.label.clone())),
+                }
+            }
+            assert!(matches!(
+                a.check(Method::Post, &at("/radarr/api/v3/command")),
+                Err(OutboundError::NotAllowed { .. })
+            ));
+            assert!(matches!(
+                a.check(Method::Post, &at("/api/v3/command")),
+                Err(OutboundError::NotListed { .. })
+            ));
+            let keys: Vec<&str> = a.hosts().map(|(k, _)| k.as_str()).collect();
+            assert_eq!(
+                keys,
+                [
+                    "https://media.example.org:443",
+                    "https://media.example.org:443/radarr"
+                ]
+            );
+        }
+    }
+
+    /// Two media servers behind one host, each under its own path: each takes its own GETs.
+    /// A path under neither is refused. So is every other host.
+    #[test]
+    fn two_servers_behind_one_host_keep_their_own_calls() {
+        let mut a = Allowlist::default();
+        a.allow_integration(
+            "plex",
+            "https://media.example.org/plex",
+            Calls::default().get("/library/sections"),
+        )
+        .unwrap();
+        a.allow_integration(
+            "jellyfin",
+            "https://media.example.org/jellyfin",
+            Calls::default().get("/Items").get("/Sessions"),
+        )
+        .unwrap();
+        let at = |path: &str| format!("https://media.example.org{path}");
+        assert_eq!(rule_of(&a, &at("/plex/library/sections")).unwrap(), "plex");
+        assert_eq!(
+            rule_of(&a, &at("/jellyfin/Items?Limit=1")).unwrap(),
+            "jellyfin"
+        );
+        assert_eq!(rule_of(&a, &at("/jellyfin/Sessions")).unwrap(), "jellyfin");
+        for (path, label) in [
+            ("/plex/Items", "plex"),
+            ("/jellyfin/library/sections", "jellyfin"),
+            ("/jellyfin/Videos/abc/stream", "jellyfin"),
+        ] {
+            match a.check(Method::Get, &at(path)) {
+                Err(OutboundError::NotListed { label: l, .. }) => assert_eq!(l, label, "{path}"),
+                other => panic!("{path}: {:?}", other.map(|(_, r)| r.label.clone())),
+            }
+        }
+        // Under neither path: refused. The origin still counts as listed.
+        assert!(matches!(
+            a.check(Method::Get, &at("/library/sections")),
+            Err(OutboundError::NotListed { .. })
+        ));
+        let out = Outbound::with_transport(a.clone(), Recorded::new());
+        assert_eq!(
+            out.listed(&at("/jellyfin/Items")).as_deref(),
+            Some("jellyfin")
+        );
+        assert!(out.listed(&at("/elsewhere")).is_some());
+        assert!(matches!(
+            a.check(
+                Method::Get,
+                "https://other.example.org/plex/library/sections"
+            ),
+            Err(OutboundError::HostNotAllowed { .. })
+        ));
+    }
+
+    /// A GET whose other keys are listed takes those keys alone. A host that takes no GET takes
+    /// none. Its listed POSTs still pass.
+    #[test]
+    fn a_get_can_be_held_to_its_keys_and_a_host_can_take_no_get() {
+        const KEY: &str = "0123456789abcdef0123456789abcdef";
+        let mut a = Allowlist::default();
+        a.allow_integration(
+            "usenet",
+            "http://10.0.0.70:8080",
+            Calls::default().get_only(
+                "/api",
+                "mode",
+                &["queue", "history"],
+                &["output", "apikey", "limit"],
+            ),
+        )
+        .unwrap();
+        a.allow_integration(
+            "rpc",
+            "http://10.0.0.71:6789",
+            Calls::default()
+                .read_when(Method::Post, "/jsonrpc", "/method", &["listgroups"])
+                .no_get(),
+        )
+        .unwrap();
+        let at = |rest: &str| format!("http://10.0.0.70:8080/api?{rest}");
+        for rest in [
+            format!("mode=queue&output=json&apikey={KEY}"),
+            format!("mode=history&output=json&limit=100&apikey={KEY}"),
+            "mode=queue".to_string(),
+        ] {
+            assert!(a.check(Method::Get, &at(&rest)).is_ok(), "{rest}");
+        }
+        for rest in [
+            format!("mode=queue&name=delete&value=all&apikey={KEY}"),
+            format!("mode=history&name=delete&value=all&apikey={KEY}"),
+            format!("mode=queue&output=json&apikey={KEY}&del_files=1"),
+            format!("mode=shutdown&apikey={KEY}"),
+            format!("mode=queue&mode=pause&apikey={KEY}"),
+            format!("output=json&apikey={KEY}"),
+        ] {
+            let err = a.check(Method::Get, &at(&rest)).unwrap_err();
+            assert!(
+                matches!(err, OutboundError::NotListed { .. }),
+                "{rest} must be refused, got {err:?}"
+            );
+            assert!(!err.to_string().contains(KEY), "{err}");
+        }
+        // The listed POST passes; no GET does, a method in the path included.
+        let rpc = "http://10.0.0.71:6789/jsonrpc";
+        let listgroups = Body::Json(r#"{"method": "listgroups", "params": [0]}"#.to_string());
+        assert!(a.check_call(Method::Post, rpc, &listgroups).is_ok());
+        for url in [
+            rpc.to_string(),
+            format!("{rpc}/shutdown"),
+            format!("{rpc}/listgroups"),
+            "http://10.0.0.71:6789/".to_string(),
+        ] {
+            assert!(
+                matches!(
+                    a.check(Method::Get, &url),
+                    Err(OutboundError::NotListed { .. })
+                ),
+                "{url}"
+            );
+        }
+        assert!(
+            a.check_call(
+                Method::Post,
+                &format!("{rpc}/shutdown"),
+                &Body::Json(r#"{"method": "listgroups"}"#.to_string())
+            )
+            .is_err()
+        );
+        assert_eq!(basic_auth("fxuser", "fxpass"), "Basic Znh1c2VyOmZ4cGFzcw==");
+    }
+
     #[test]
     fn a_listed_read_passes_only_with_the_body_that_makes_it_a_read() {
         let a = integrations();
@@ -1790,19 +2291,31 @@ mod tests {
                 "{body:?} must be refused, got {err:?}"
             );
         }
-        // A mode written twice is judged as the service reads it: by the last one.
+        // A mode written twice is refused, whichever comes first: the services differ on
+        // which one counts. So is a member written twice anywhere in the body.
         let twice = |first: &str, last: &str| {
             json(&format!(
                 r#"{{"data": {{"mode": "{first}", "collection": "FileJSONDB", "mode": "{last}"}}}}"#
             ))
         };
+        for (first, last) in [
+            ("getAll", "removeOne"),
+            ("removeOne", "getAll"),
+            ("getAll", "getAll"),
+        ] {
+            assert!(
+                a.check_call(Method::Post, &records, &twice(first, last))
+                    .is_err(),
+                "{first} then {last}"
+            );
+        }
         assert!(
-            a.check_call(Method::Post, &records, &twice("getAll", "removeOne"))
-                .is_err()
-        );
-        assert!(
-            a.check_call(Method::Post, &records, &twice("removeOne", "getAll"))
-                .is_ok()
+            a.check_call(
+                Method::Post,
+                &records,
+                &json(r#"{"data": {"collection": "LibrarySettingsJSONDB", "mode": "getAll", "x": {"y": 1, "y": 2}}}"#)
+            )
+            .is_err()
         );
         // A read by its path alone takes any body; the method and the path are exact.
         let tables = format!("{WORKER}/api/v2/client/status-tables");

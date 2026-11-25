@@ -811,13 +811,13 @@ pub static SECTIONS: &[Section] = &[
                     .restart(),
                     Field::new(
                         "jobs.downloads",
-                        "Download client",
+                        "Download clients",
                         Kind::Duration { min: 10 },
                         "",
                     )
                     .by_default(Fallback::Int(30))
-                    .env(&["SINGULARR_SYNC_QBIT_SECS"])
-                    .read(|c| secs(c.sync.qbit))
+                    .env(&["SINGULARR_SYNC_DOWNLOADS_SECS", "SINGULARR_SYNC_QBIT_SECS"])
+                    .read(|c| secs(c.sync.downloads))
                     .restart(),
                     Field::new(
                         "jobs.history",

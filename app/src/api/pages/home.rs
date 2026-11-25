@@ -41,19 +41,27 @@ fn num(n: i64) -> String {
     if n < 0 { format!("-{out}") } else { out }
 }
 
-/// What plays, each with the card of its title when the catalog holds it.
+/// The key of what a session plays, as the catalog links it: an episode's show, else the item.
+fn played_key(s: &ServerSession) -> Option<&str> {
+    match s.kind.as_str() {
+        "episode" => s.show_key.as_deref(),
+        _ => s.rating_key.as_deref(),
+    }
+}
+
+/// What plays, each with the card of its title when the catalog holds it. An item is looked up
+/// by its server and its key: two servers can hold one key.
 async fn playing(state: &AppState, sessions: &[ServerSession]) -> AppResult<Vec<Playing>> {
-    let keys: Vec<String> = sessions
+    let items: Vec<(String, String)> = sessions
         .iter()
-        .filter_map(|s| match s.kind.as_str() {
-            "episode" => s.show_key.clone(),
-            _ => s.rating_key.clone(),
-        })
+        .filter_map(|s| Some((s.server.clone(), played_key(s)?.to_string())))
         .collect();
-    let titles: HashMap<String, i64> = catalog_store::server_item_titles(&state.pool, &keys)
-        .await?
-        .into_iter()
-        .collect();
+    let titles: HashMap<(String, String), i64> =
+        catalog_store::server_items_titles(&state.pool, &items)
+            .await?
+            .into_iter()
+            .map(|(server, key, title)| ((server, key), title))
+            .collect();
     let ids: Vec<i64> = titles.values().copied().collect();
     let cards = Cards::of_titles(&state.pool, &ids).await?;
     Ok(sessions
@@ -61,14 +69,8 @@ async fn playing(state: &AppState, sessions: &[ServerSession]) -> AppResult<Vec<
         .enumerate()
         .map(|(i, s)| {
             let is_episode = s.kind == "episode";
-            let key = if is_episode {
-                &s.show_key
-            } else {
-                &s.rating_key
-            };
-            let card = key
-                .as_ref()
-                .and_then(|k| titles.get(k))
+            let card = played_key(s)
+                .and_then(|k| titles.get(&(s.server.clone(), k.to_string())))
                 .and_then(|id| cards.card(*id));
             let title = card.unwrap_or_else(|| TitleCard {
                 id: None,

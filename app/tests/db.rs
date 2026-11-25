@@ -20,7 +20,7 @@ use singularr::catalog::model::{CopyQuery, TitleQuery};
 use singularr::catalog::{service as catalog, sync as catalog_sync};
 use singularr::core::auth::{self, Caller};
 use singularr::core::config::SeerrConfig;
-use singularr::core::config::{ArrConfig, ArrKind, Config, QbitConfig};
+use singularr::core::config::{ArrConfig, ArrKind, ClientKind, Config, DownloadClientConfig};
 use singularr::core::error::AppError;
 use singularr::core::journal::Journal;
 use singularr::core::model::{EventQuery, NewApiKey, Paging, Scope};
@@ -32,7 +32,7 @@ use singularr::engines::arr::{ArrClient, Radarr, Sonarr};
 use singularr::engines::qbit::Qbit;
 use singularr::engines::seerr::Seerr;
 use singularr::engines::service::{EngineSet, EngineSlot, PassOk, statuses};
-use singularr::engines::{Downloader, LibraryEngine};
+use singularr::engines::{ClientDownload, DownloadClient, LibraryEngine};
 use singularr::homemovies::model::{InboxQuery, TapePatch, TapeQuery};
 use singularr::homemovies::service::{self as homemovies, HomeMovies};
 use singularr::lifecycle::downloads::{Claims, reconcile};
@@ -86,6 +86,13 @@ struct TestDb {
 impl TestDb {
     /// `None` when no test server is configured.
     async fn new(test: &str) -> Option<TestDb> {
+        let t = TestDb::bare(test).await?;
+        db::migrate(&t.pool).await.expect("the migrations apply");
+        Some(t)
+    }
+
+    /// A database with no migration applied. `None` when no test server is configured.
+    async fn bare(test: &str) -> Option<TestDb> {
         let Ok(url) = std::env::var("SINGULARR_TEST_DATABASE_URL") else {
             eprintln!(
                 "{test}: skipped, SINGULARR_TEST_DATABASE_URL is not set (see tools/gate.sh)"
@@ -108,7 +115,6 @@ impl TestDb {
             .connect(&format!("{base}/{name}"))
             .await
             .expect("connect to the test database");
-        db::migrate(&pool).await.expect("the migrations apply");
         Some(TestDb { pool, admin, name })
     }
 
@@ -141,7 +147,10 @@ fn outbound(recorded: Arc<Recorded>) -> Outbound {
         .allow_engine("qbittorrent", QBIT, &["/api/v2/auth/login"])
         .unwrap();
     allow.allow_engine("seerr", SEERR, &[]).unwrap();
-    allow.allow_engine("plex", PLEX, &[]).unwrap();
+    // The Plex server takes the GETs its adapter declares and no other, as in the program.
+    allow
+        .allow_integration("plex", PLEX, singularr::engines::plex::calls())
+        .unwrap();
     // The processing services, with the calls beyond GET their adapters declare.
     allow
         .allow_integration("hush", HUSH, singularr::engines::hush::calls())
@@ -1450,11 +1459,12 @@ async fn downloads_get_owners_and_stuck_ones_and_orphans_are_journaled() {
         &out,
     )));
     let qbit = Qbit::new(
-        &QbitConfig {
+        &DownloadClientConfig {
             id: "qbittorrent".to_string(),
+            kind: ClientKind::Qbittorrent,
             url: Some(QBIT.to_string()),
             user: Some("u".into()),
-            pass: Some("p".into()),
+            secret: Some("p".into()),
         },
         out.clone(),
     )
@@ -1470,7 +1480,7 @@ async fn downloads_get_owners_and_stuck_ones_and_orphans_are_journaled() {
     titles_pass(&deps, &engine, true).await.unwrap();
     let last = core_store::latest_event_id(&t.pool).await.unwrap();
 
-    let torrents = qbit.torrents().await.unwrap();
+    let torrents = qbit.downloads().await.unwrap();
     let queue = engine.queue().await.unwrap();
     let grabs = engine.grabs(1, 250).await.unwrap();
 
@@ -1478,7 +1488,7 @@ async fn downloads_get_owners_and_stuck_ones_and_orphans_are_journaled() {
     // of a claim. The queue item with no title behind it is one already.
     let mut claims = Claims::default();
     claims.queues.insert("radarr".into(), queue.clone());
-    let report = reconcile(&t.pool, &journal, torrents.clone(), &claims)
+    let report = reconcile(&t.pool, &journal, "qbittorrent", torrents.clone(), &claims)
         .await
         .unwrap();
     assert_eq!((report.listed, report.added), (4, 4));
@@ -1500,7 +1510,7 @@ async fn downloads_get_owners_and_stuck_ones_and_orphans_are_journaled() {
         .history
         .insert("radarr".into(), grabs.download_ids.into_iter().collect());
     claims.complete = true;
-    let report = reconcile(&t.pool, &journal, torrents.clone(), &claims)
+    let report = reconcile(&t.pool, &journal, "qbittorrent", torrents.clone(), &claims)
         .await
         .unwrap();
     assert_eq!((report.added, report.orphaned), (0, 1));
@@ -1611,7 +1621,7 @@ async fn downloads_get_owners_and_stuck_ones_and_orphans_are_journaled() {
 
     // The same picture again: no write, no event.
     let last = core_store::latest_event_id(&t.pool).await.unwrap();
-    let report = reconcile(&t.pool, &journal, torrents.clone(), &claims)
+    let report = reconcile(&t.pool, &journal, "qbittorrent", torrents.clone(), &claims)
         .await
         .unwrap();
     assert_eq!(
@@ -1632,7 +1642,9 @@ async fn downloads_get_owners_and_stuck_ones_and_orphans_are_journaled() {
     harry.progress = 1.0;
     harry.state = "uploading".into();
     later.retain(|d| !d.name.starts_with("A.Manual.Download"));
-    let report = reconcile(&t.pool, &journal, later, &claims).await.unwrap();
+    let report = reconcile(&t.pool, &journal, "qbittorrent", later, &claims)
+        .await
+        .unwrap();
     assert_eq!((report.completed, report.removed), (1, 1));
     let events = kinds(&t.pool, last).await;
     assert_eq!(
@@ -1652,6 +1664,704 @@ async fn downloads_get_owners_and_stuck_ones_and_orphans_are_journaled() {
         &(Method::Post, format!("{QBIT}/api/v2/auth/login"))
     );
     assert!(qbit_calls[1..].iter().all(|(m, _)| *m == Method::Get));
+    t.drop_db().await;
+}
+
+/// Two download clients side by side, a torrent client and a usenet client: each is read on
+/// its own and its pass touches its own rows. A usenet job meets its manager by its job id as a
+/// torrent does by its hash: Sonarr names SABnzbd's `nzo_id` as the download id. On Activity a
+/// usenet download its client completed reads Completed.
+#[tokio::test]
+async fn a_usenet_client_lives_beside_a_torrent_client_and_meets_its_manager() {
+    let Some(t) = TestDb::new("usenet").await else {
+        return;
+    };
+    const SAB: &str = "http://192.0.2.63:8080";
+    let recorded = Recorded::new();
+    recorded.answer_with(
+        Method::Post,
+        "/api/v2/auth/login",
+        200,
+        "Ok.",
+        &[("set-cookie", "SID=test; path=/")],
+    );
+    recorded.answer(
+        Method::Get,
+        "/api/v2/torrents/info",
+        200,
+        &fixture("qbit_torrents.json"),
+    );
+    recorded.answer(
+        Method::Get,
+        "mode=queue",
+        200,
+        &fixture("sabnzbd/queue.json"),
+    );
+    // The history's jobs finished an hour ago: inside the window the history is read over.
+    let finished_at = (chrono::Utc::now().timestamp() - 3600).to_string();
+    recorded.answer(
+        Method::Get,
+        "mode=history",
+        200,
+        &fixture("sabnzbd/history.json").replace("1795580820", &finished_at),
+    );
+    let mut allow = Allowlist::default();
+    allow
+        .allow_integration("qbittorrent", QBIT, singularr::engines::qbit::calls())
+        .unwrap();
+    allow
+        .allow_integration("sabnzbd", SAB, singularr::engines::sabnzbd::calls())
+        .unwrap();
+    let out = Outbound::with_transport(allow, recorded.clone());
+    let client = |id: &str, kind: ClientKind, url: &str| DownloadClientConfig {
+        id: id.to_string(),
+        kind,
+        url: Some(url.to_string()),
+        user: Some("u".into()),
+        secret: Some("p".into()),
+    };
+    let qbit = singularr::engines::clients::adapter(
+        &client("qbittorrent", ClientKind::Qbittorrent, QBIT),
+        &out,
+    )
+    .unwrap();
+    let sab =
+        singularr::engines::clients::adapter(&client("sabnzbd", ClientKind::Sabnzbd, SAB), &out)
+            .unwrap();
+    let journal = Journal::new();
+
+    // Sonarr's queue names the job SABnzbd downloads by its nzo_id; its grab history names the
+    // one SABnzbd completed.
+    const MOVING: &str = "9B79119C-23C6-4017-B101-4CE68E37A5EF";
+    const DONE: &str = "93AC82C7-FFAF-41C7-A11A-06AF0E456887";
+    let mut claims = Claims::default();
+    claims.queues.insert(
+        "sonarr".into(),
+        vec![singularr::engines::QueueItem {
+            queue_id: 7,
+            engine_title_id: Some(4242),
+            title: "Tears.of.Steel.S01E03.1080p.WEB-DL.x264-FX".into(),
+            download_id: Some(MOVING.into()),
+            status: Some("downloading".into()),
+            tracked_state: Some("downloading".into()),
+            tracked_status: Some("ok".into()),
+            messages: vec![],
+            indexer: Some("Usenet (Prowlarr)".into()),
+        }],
+    );
+    claims
+        .history
+        .insert("sonarr".into(), HashSet::from([DONE.to_string()]));
+    claims.complete = true;
+
+    let last = core_store::latest_event_id(&t.pool).await.unwrap();
+    let torrents = reconcile(
+        &t.pool,
+        &journal,
+        qbit.id(),
+        qbit.downloads().await.unwrap(),
+        &claims,
+    )
+    .await
+    .unwrap();
+    let usenet = reconcile(
+        &t.pool,
+        &journal,
+        sab.id(),
+        sab.downloads().await.unwrap(),
+        &claims,
+    )
+    .await
+    .unwrap();
+    assert_eq!((torrents.listed, usenet.listed, usenet.added), (4, 5, 5));
+    let of = |client: &str| DownloadQuery {
+        client: Some(client.into()),
+        ..Default::default()
+    };
+    let rows = downloads::downloads(&t.pool, &of("sabnzbd")).await.unwrap();
+    assert_eq!(rows.total, 5);
+    let row = |id: &str| rows.items.iter().find(|d| d.hash == id).unwrap().clone();
+    let moving = row(MOVING);
+    assert_eq!(
+        (moving.owner.as_deref(), moving.owner_source.as_deref()),
+        (Some("sonarr"), Some("queue"))
+    );
+    assert_eq!(
+        (
+            moving.protocol.as_str(),
+            moving.status.as_deref(),
+            moving.state.as_str()
+        ),
+        ("usenet", Some("downloading"), "Downloading")
+    );
+    assert_eq!(
+        moving.item_id.as_deref(),
+        Some("9b79119c-23c6-4017-b101-4ce68e37a5ef")
+    );
+    assert_eq!(moving.indexer.as_deref(), Some("Usenet (Prowlarr)"));
+    assert!(moving.speed_bytes.is_some() && moving.eta_seconds.is_some());
+    assert_eq!(
+        (moving.seeds, moving.peers, moving.orphan),
+        (None, None, false)
+    );
+    let done = row(DONE);
+    assert_eq!(
+        (
+            done.owner.as_deref(),
+            done.owner_source.as_deref(),
+            done.status.as_deref()
+        ),
+        (Some("sonarr"), Some("history"), Some("completed"))
+    );
+    // The failed job no manager claims is an orphan, as a torrent nobody claims is.
+    let failed = rows
+        .items
+        .iter()
+        .find(|d| d.status.as_deref() == Some("failed"))
+        .unwrap();
+    assert!(failed.orphan && failed.owner.is_none());
+    let usenet_rows = downloads::downloads(
+        &t.pool,
+        &DownloadQuery {
+            protocol: Some("usenet".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(usenet_rows.total, 5);
+    assert_eq!(
+        downloads::downloads(&t.pool, &of("qbittorrent"))
+            .await
+            .unwrap()
+            .total,
+        4
+    );
+    // The journal says which client saw what.
+    let events = core_store::events_after(&t.pool, last, 1000).await.unwrap();
+    let added_by = |actor: &str| {
+        events
+            .iter()
+            .filter(|e| e.kind == "download_added" && e.actor == actor)
+            .count()
+    };
+    assert_eq!(
+        (added_by("sync:qbittorrent"), added_by("sync:sabnzbd")),
+        (4, 5)
+    );
+
+    // On Activity each download names its own client. A usenet job is done once its client
+    // reports it completed.
+    let st = state_over(&t.pool, journal.clone(), &[("SABNZBD_URL", SAB)], &out);
+    let app = routes::router(st);
+    let queue = get_ok(&app, "/api/v1/activity/queue").await;
+    let stage_of = |id: &str| {
+        let row = queue["queue"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == format!("q-{}", id.to_ascii_lowercase()))
+            .unwrap_or_else(|| panic!("{id} in {queue}"))
+            .clone();
+        (row["stage"].clone(), row["client"].clone())
+    };
+    assert_eq!(
+        stage_of(DONE),
+        (serde_json::json!("completed"), serde_json::json!("SABnzbd"))
+    );
+    assert_eq!(
+        stage_of(MOVING),
+        (
+            serde_json::json!("downloading"),
+            serde_json::json!("SABnzbd")
+        )
+    );
+    assert_eq!(
+        stage_of("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1").1,
+        serde_json::json!("qBittorrent")
+    );
+
+    // One client's pass touches its own rows alone: qBittorrent listing nothing removes its own
+    // four and none of SABnzbd's.
+    let report = reconcile(&t.pool, &journal, "qbittorrent", Vec::new(), &claims)
+        .await
+        .unwrap();
+    assert_eq!(report.removed, 4);
+    assert_eq!(downloads_store::all(&t.pool).await.unwrap().len(), 5);
+    // The same picture again from SABnzbd: no write, no event.
+    let before = core_store::latest_event_id(&t.pool).await.unwrap();
+    let again = reconcile(
+        &t.pool,
+        &journal,
+        sab.id(),
+        sab.downloads().await.unwrap(),
+        &claims,
+    )
+    .await
+    .unwrap();
+    assert_eq!((again.added, again.updated, again.removed), (0, 0, 0));
+    assert_eq!(core_store::latest_event_id(&t.pool).await.unwrap(), before);
+    // A download is found by the id its manager knows it by, as an act on a manager asks.
+    let one = downloads_store::one(&t.pool, &MOVING.to_ascii_lowercase())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(one.client, "sabnzbd");
+    // Toward SABnzbd: GETs alone, each in its declared form.
+    let sab_calls: Vec<_> = recorded
+        .seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, u)| u.starts_with(SAB))
+        .cloned()
+        .collect();
+    assert!(!sab_calls.is_empty() && sab_calls.iter().all(|(m, _)| *m == Method::Get));
+    t.drop_db().await;
+}
+
+/// One download as a test lists it: a torrent, or a usenet job.
+fn listed(hash: &str, protocol: singularr::engines::Protocol, progress: f64) -> ClientDownload {
+    let usenet = protocol == singularr::engines::Protocol::Usenet;
+    ClientDownload {
+        id: hash.to_ascii_lowercase(),
+        download_id: hash.to_string(),
+        protocol,
+        name: format!("Release.{hash}"),
+        category: Some("radarr".to_string()),
+        status: match (usenet, progress >= 1.0) {
+            (true, true) => singularr::engines::DownloadStatus::Completed,
+            (false, true) => singularr::engines::DownloadStatus::Seeding,
+            _ => singularr::engines::DownloadStatus::Downloading,
+        },
+        state: "state".to_string(),
+        progress,
+        size_bytes: 1_000,
+        downloaded_bytes: None,
+        added_at: None,
+        completed_at: None,
+        save_path: None,
+        speed: None,
+        upload_speed: None,
+        eta: None,
+        tracker: None,
+        seeds: None,
+        peers: None,
+        ratio: None,
+        seeding_seconds: 0,
+    }
+}
+
+/// A usenet job that finished `days` ago.
+fn finished(hash: &str, days: i64) -> ClientDownload {
+    ClientDownload {
+        completed_at: Some(chrono::Utc::now() - chrono::TimeDelta::days(days)),
+        ..listed(hash, singularr::engines::Protocol::Usenet, 1.0)
+    }
+}
+
+/// A configuration slip (a client's variables lost) sets the client's rows aside: every read
+/// leaves them out. Nothing is removed or raised. Its return finds them as they were, with
+/// no `download_added` and no `download_orphaned`: the owner, the title, the indexer and when
+/// each was first seen are kept. A client under a new id takes over the rows of the downloads
+/// it lists, with the same.
+#[tokio::test]
+async fn a_client_the_configuration_stops_listing_keeps_its_downloads_for_its_return() {
+    let Some(t) = TestDb::new("slip").await else {
+        return;
+    };
+    use singularr::engines::Protocol::Torrent;
+    const A: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1";
+    const B: &str = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB2";
+    let journal = Journal::new();
+    let title: i64 = sqlx::query_scalar(
+        "INSERT INTO titles (ext_key, kind, tmdb_id, title, sort_title)
+         VALUES ('tmdb:movie:763215', 'movie', 763215, 'Damsel', 'damsel') RETURNING id",
+    )
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    // Radarr's queue holds A, its grab history B.
+    let mut claims = Claims::default();
+    claims.queues.insert(
+        "radarr".into(),
+        vec![singularr::engines::QueueItem {
+            queue_id: 1,
+            engine_title_id: Some(500),
+            title: "Release".into(),
+            download_id: Some(A.into()),
+            status: Some("downloading".into()),
+            tracked_state: Some("downloading".into()),
+            tracked_status: Some("ok".into()),
+            messages: vec![],
+            indexer: Some("Indexer (Prowlarr)".into()),
+        }],
+    );
+    claims
+        .history
+        .insert("radarr".into(), HashSet::from([B.to_string()]));
+    claims.complete = true;
+    let both = || vec![listed(A, Torrent, 0.5), listed(B, Torrent, 1.0)];
+    reconcile(&t.pool, &journal, "qbittorrent", both(), &claims)
+        .await
+        .unwrap();
+    // The catalog links A to its title; both were first seen weeks ago.
+    sqlx::query("UPDATE downloads SET title_id = $1 WHERE hash = $2")
+        .bind(title)
+        .bind(A)
+        .execute(&t.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE downloads SET first_seen_at = '2026-11-01T00:00:00Z'")
+        .execute(&t.pool)
+        .await
+        .unwrap();
+    let kept = |d: &singularr::lifecycle::model::Download| {
+        (
+            d.hash.clone(),
+            d.owner.clone(),
+            d.title_id,
+            d.indexer.clone(),
+            d.first_seen_at.to_rfc3339(),
+            d.orphan,
+        )
+    };
+    let mut first: Vec<_> = downloads_store::all(&t.pool)
+        .await
+        .unwrap()
+        .iter()
+        .map(kept)
+        .collect();
+    first.sort();
+    assert_eq!(
+        first[0],
+        (
+            A.to_string(),
+            Some("radarr".to_string()),
+            Some(title),
+            Some("Indexer (Prowlarr)".to_string()),
+            "2026-11-01T00:00:00+00:00".to_string(),
+            false
+        )
+    );
+    let config = |extra: &[(&'static str, &'static str)]| {
+        let mut env = BTreeMap::from([
+            ("DATABASE_URL", "postgres://x@127.0.0.1:1/x"),
+            ("RADARR_URL", RADARR),
+        ]);
+        env.extend(extra.iter().copied());
+        Config::from(&env).unwrap()
+    };
+
+    // The slip: QBIT_URL, QBIT_USER and QBIT_PASS come empty. Its rows are set aside with one
+    // event. No read sees them.
+    let before = core_store::latest_event_id(&t.pool).await.unwrap();
+    let report = singularr::api::state::prune_unconfigured(&t.pool, &journal, &config(&[]))
+        .await
+        .unwrap();
+    assert_eq!((report.downloads_set_aside, report.downloads), (2, 0));
+    assert_eq!(kinds(&t.pool, before).await, vec!["integrations_pruned"]);
+    assert!(downloads_store::all(&t.pool).await.unwrap().is_empty());
+    assert!(downloads_store::one(&t.pool, A).await.unwrap().is_none());
+    assert!(
+        downloads_store::title_queue(&t.pool, title)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let page = downloads::downloads(&t.pool, &DownloadQuery::default())
+        .await
+        .unwrap();
+    assert_eq!(page.total, 0);
+    assert_eq!(downloads::counts(&t.pool).await.unwrap().total, 0);
+    // A second start in the same state changes nothing more.
+    let again = singularr::api::state::prune_unconfigured(&t.pool, &journal, &config(&[]))
+        .await
+        .unwrap();
+    assert!(again.is_empty(), "{again:?}");
+
+    // The return: its rows are back as they were. Radarr imported A (it left the queue) and B
+    // is past the grab history read: the stored owners stand. Nothing is raised.
+    let with_qbit = [("QBIT_URL", QBIT), ("QBIT_USER", "u"), ("QBIT_PASS", "p")];
+    let back = singularr::api::state::prune_unconfigured(&t.pool, &journal, &config(&with_qbit))
+        .await
+        .unwrap();
+    assert!(back.is_empty(), "{back:?}");
+    let mut gone = Claims::default();
+    gone.history.insert("radarr".into(), HashSet::new());
+    gone.complete = true;
+    let before = core_store::latest_event_id(&t.pool).await.unwrap();
+    let report = reconcile(&t.pool, &journal, "qbittorrent", both(), &gone)
+        .await
+        .unwrap();
+    assert_eq!(
+        (report.added, report.orphaned, report.removed),
+        (0, 0, 0),
+        "{report:?}"
+    );
+    assert!(kinds(&t.pool, before).await.is_empty());
+    let mut now: Vec<_> = downloads_store::all(&t.pool)
+        .await
+        .unwrap()
+        .iter()
+        .map(kept)
+        .collect();
+    now.sort();
+    assert_eq!(now, first);
+
+    // A new id for the same client: the rows of the downloads it lists are taken over with
+    // what they held. None is added.
+    let file =
+        format!("[[integration]]\nid = \"seedbox\"\ntype = \"qbittorrent\"\nurl = \"{QBIT}\"\n");
+    let renamed = Config::with_instance(
+        &BTreeMap::from([
+            ("DATABASE_URL", "postgres://x@127.0.0.1:1/x"),
+            ("RADARR_URL", RADARR),
+        ]),
+        Some(("/x/i.toml", file.as_str())),
+    )
+    .unwrap();
+    let report = singularr::api::state::prune_unconfigured(&t.pool, &journal, &renamed)
+        .await
+        .unwrap();
+    assert_eq!(report.downloads_set_aside, 2);
+    let before = core_store::latest_event_id(&t.pool).await.unwrap();
+    let report = reconcile(
+        &t.pool,
+        &journal,
+        "seedbox",
+        vec![listed(A, Torrent, 0.6)],
+        &gone,
+    )
+    .await
+    .unwrap();
+    assert_eq!((report.added, report.taken_over), (0, 1), "{report:?}");
+    assert!(
+        !kinds(&t.pool, before)
+            .await
+            .iter()
+            .any(|k| k == "download_added")
+    );
+    let a = downloads_store::one(&t.pool, A).await.unwrap().unwrap();
+    assert_eq!(a.client, "seedbox");
+    assert_eq!(
+        (kept(&a), a.progress),
+        (first[0].clone(), 0.6),
+        "the row of A, taken over"
+    );
+    // B stays set aside under the old id, out of every read.
+    assert_eq!(downloads_store::all(&t.pool).await.unwrap().len(), 1);
+    let set_aside: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM downloads WHERE absent_since IS NOT NULL")
+            .fetch_one(&t.pool)
+            .await
+            .unwrap();
+    assert_eq!(set_aside, 1);
+    // Rows set aside for longer than the days kept are removed at start.
+    sqlx::query("UPDATE downloads SET absent_since = now() - interval '31 days' WHERE absent_since IS NOT NULL")
+        .execute(&t.pool)
+        .await
+        .unwrap();
+    let report = singularr::api::state::prune_unconfigured(&t.pool, &journal, &renamed)
+        .await
+        .unwrap();
+    assert_eq!((report.downloads, report.downloads_set_aside), (1, 0));
+    t.drop_db().await;
+}
+
+/// A usenet client's history is read over a window. A job past the listing's edge is no
+/// removal: its row stays while it is inside the window and goes without an event once it is
+/// older. A job that comes back inside the window finds its row. A job inside the edge that
+/// the listing leaves out was removed.
+#[tokio::test]
+async fn a_usenet_history_window_moves_without_false_events() {
+    let Some(t) = TestDb::new("window").await else {
+        return;
+    };
+    use singularr::engines::{ClientListing, Protocol::Usenet};
+    let journal = Journal::new();
+    let claims = Claims::default();
+    let edge =
+        |days: f64| Some(chrono::Utc::now() - chrono::TimeDelta::seconds((days * 86_400.0) as i64));
+    // First pass: a job downloading, and four finished 1, 2, 3 and 9 days ago.
+    let first = ClientListing {
+        downloads: vec![
+            listed("Q", Usenet, 0.4),
+            finished("J1", 1),
+            finished("J2", 2),
+            finished("J3", 3),
+            finished("J9", 9),
+        ],
+        finished_since: None,
+    };
+    let report = reconcile(&t.pool, &journal, "sabnzbd", first, &claims)
+        .await
+        .unwrap();
+    assert_eq!(report.added, 5);
+    // The history now holds more than the limit: the edge is the oldest job read, J2. J1 was
+    // removed from SABnzbd (its manager took it). J3 is past the edge inside the window, J9
+    // past the window.
+    let before = core_store::latest_event_id(&t.pool).await.unwrap();
+    let cut = ClientListing {
+        downloads: vec![listed("Q", Usenet, 0.5), finished("J2", 2)],
+        finished_since: edge(2.0),
+    };
+    let report = reconcile(&t.pool, &journal, "sabnzbd", cut, &claims)
+        .await
+        .unwrap();
+    assert_eq!(
+        (report.removed, report.aged, report.added),
+        (1, 1, 0),
+        "{report:?}"
+    );
+    assert_eq!(kinds(&t.pool, before).await, vec!["download_removed"]);
+    let mut stored: Vec<String> = downloads_store::all(&t.pool)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|d| d.hash)
+        .collect();
+    stored.sort();
+    assert_eq!(stored, ["J2", "J3", "Q"]);
+    // The edge moves back: J3 comes back inside the window and finds its row.
+    let before = core_store::latest_event_id(&t.pool).await.unwrap();
+    let whole = ClientListing {
+        downloads: vec![
+            listed("Q", Usenet, 0.6),
+            finished("J2", 2),
+            finished("J3", 3),
+        ],
+        finished_since: edge(7.0),
+    };
+    let report = reconcile(&t.pool, &journal, "sabnzbd", whole, &claims)
+        .await
+        .unwrap();
+    assert_eq!((report.added, report.removed), (0, 0), "{report:?}");
+    assert!(kinds(&t.pool, before).await.is_empty());
+    t.drop_db().await;
+}
+
+/// Migration 0019 over rows the schema before it wrote: a qBittorrent row with every column
+/// set takes the id of the qBittorrent engine last seen working, keeps every value it had, and
+/// is keyed by its client and hash. The portal's view reads it. A database at version 18, as
+/// the live one is, takes every later migration in order.
+#[tokio::test]
+async fn the_download_clients_migration_keeps_the_rows_before_it() {
+    let Some(t) = TestDb::bare("m0019").await else {
+        return;
+    };
+    db::MIGRATOR
+        .run_to(18, &t.pool)
+        .await
+        .expect("the migrations before 0019 apply");
+    let later: Vec<String> = db::MIGRATOR
+        .iter()
+        .filter(|m| m.version > 18)
+        .map(|m| format!("{} {}", m.version, m.description))
+        .collect();
+    let pending = db::pending_migrations(&t.pool).await.unwrap();
+    assert_eq!(pending, later);
+    assert!(pending[0].starts_with("19 "), "{pending:?}");
+    for (engine, ok_at) in [
+        ("qbit-old", "2026-11-20T00:00:00Z"),
+        ("qbit-main", "2026-11-24T00:00:00Z"),
+    ] {
+        sqlx::query(
+            "INSERT INTO engine_state (engine, kind, last_ok_at) VALUES ($1, 'qbittorrent', $2::timestamptz)",
+        )
+        .bind(engine)
+        .bind(ok_at)
+        .execute(&t.pool)
+        .await
+        .unwrap();
+    }
+    let title: i64 = sqlx::query_scalar(
+        "INSERT INTO titles (ext_key, kind, tmdb_id, title, sort_title)
+         VALUES ('tmdb:movie:763215', 'movie', 763215, 'Damsel', 'damsel') RETURNING id",
+    )
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO downloads (hash, name, category, state, progress, size_bytes, added_at,
+             completed_at, seeding_seconds, save_path, owner, owner_source, title_id,
+             queue_status, queue_state, queue_health, queue_messages, stuck, stuck_reason,
+             orphan, orphan_reason, first_seen_at, updated_at, speed_bytes, eta_seconds, seeds,
+             peers, indexer)
+         VALUES ('147E6690379BCAC2718AAA6A0D4089BFED6737B2', 'Damsel.2024.1080p', 'radarr',
+             'downloading', 0.5, 7911404354, '2026-11-14T11:50:14Z', '2026-11-14T13:00:00Z',
+             60, '/downloads', 'radarr', 'queue', $1, 'downloading', 'importPending',
+             'warning', '[\"Not an upgrade\"]', true, 'Not an upgrade', false, 'none',
+             '2026-11-14T11:50:20Z', '2026-11-24T08:00:00Z', 1024, 600, 4, 9,
+             'TorrentDownload (Prowlarr)')",
+    )
+    .bind(title)
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    async fn row(pool: &PgPool) -> serde_json::Value {
+        sqlx::query_scalar::<_, serde_json::Value>("SELECT to_jsonb(d) FROM downloads d")
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+    let old = row(&t.pool).await;
+
+    db::migrate(&t.pool).await.expect("0019 applies");
+    assert!(db::pending_migrations(&t.pool).await.unwrap().is_empty());
+    let mut new = row(&t.pool).await;
+    let added: Vec<(String, serde_json::Value)> =
+        ["client", "protocol", "item_id", "status", "absent_since"]
+            .iter()
+            .map(|c| {
+                (
+                    c.to_string(),
+                    new.as_object_mut().unwrap().remove(*c).unwrap(),
+                )
+            })
+            .collect();
+    assert_eq!(new, old, "every value the row had is kept");
+    assert_eq!(
+        added,
+        vec![
+            ("client".to_string(), serde_json::json!("qbit-main")),
+            ("protocol".to_string(), serde_json::json!("torrent")),
+            ("item_id".to_string(), serde_json::Value::Null),
+            ("status".to_string(), serde_json::Value::Null),
+            ("absent_since".to_string(), serde_json::Value::Null),
+        ]
+    );
+    // The key is the client and the hash: another client can hold the same torrent, the same
+    // client cannot hold it twice.
+    let insert = |client: &'static str| {
+        sqlx::query(
+            "INSERT INTO downloads (hash, client, name, state)
+             VALUES ('147E6690379BCAC2718AAA6A0D4089BFED6737B2', $1, 'x', 'seed')",
+        )
+        .bind(client)
+        .execute(&t.pool)
+    };
+    assert!(insert("transmission").await.is_ok());
+    assert!(insert("qbit-main").await.is_err());
+    // The row reads as before the branch. The portal sees the title on its way.
+    let stored = downloads_store::one(&t.pool, "147e6690379bcac2718aaa6a0d4089bfed6737b2")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (
+            stored.client.as_str(),
+            stored.protocol.as_str(),
+            stored.owner.as_deref()
+        ),
+        ("qbit-main", "torrent", Some("radarr"))
+    );
+    let state: String =
+        sqlx::query_scalar("SELECT state FROM face_availability WHERE tmdb_id = 763215")
+            .fetch_one(&t.pool)
+            .await
+            .unwrap();
+    assert_eq!(state, "processing");
     t.drop_db().await;
 }
 
@@ -1800,11 +2510,7 @@ fn state_over(pool: &PgPool, journal: Journal, extra: &[(&str, &str)], out: &Out
         home_movies: Arc::new(HomeMovies::new(&config.home_movies.root)),
         settings: Arc::new(singularr::settings::Settings::new(&config, &env, None)),
         pages: Default::default(),
-        search: Arc::new(singularr::search::Search::new(
-            pool.clone(),
-            &config.search,
-            out,
-        )),
+        search: Arc::new(singularr::search::Search::new(pool.clone(), &config, out)),
         notify: singularr::notify::service::Notifier::new(
             pool.clone(),
             journal.clone(),
@@ -2905,8 +3611,8 @@ async fn discover_marks_what_the_library_holds() {
     // A download in progress for the title the catalog holds no file of.
     let wanted = title_with_tmdb(&t.pool, 999001).await;
     sqlx::query(
-        "INSERT INTO downloads (hash, name, state, progress, title_id)
-         VALUES ('DDDD', 'A.Movie.Not.Yet.Held.2027.1080p.WEB-DL-GRP', 'downloading', 0.5, $1)",
+        "INSERT INTO downloads (client, hash, name, state, progress, title_id)
+         VALUES ('qbittorrent', 'DDDD', 'A.Movie.Not.Yet.Held.2027.1080p.WEB-DL-GRP', 'downloading', 0.5, $1)",
     )
     .bind(wanted)
     .execute(&t.pool)
@@ -5211,10 +5917,12 @@ async fn the_plex_server_gives_libraries_ratings_plays_music_and_sessions() {
     titles_pass(&deps, &engine, true).await.unwrap();
     let server: Arc<dyn singularr::engines::MediaServer> = Arc::new(
         singularr::engines::plex::Plex::new(
-            &singularr::core::config::PlexConfig {
+            &singularr::core::config::MediaServerConfig {
                 id: "plex".to_string(),
+                kind: singularr::core::config::MediaServerKind::Plex,
                 url: Some(PLEX.to_string()),
-                token: Some("plex-token".to_string()),
+                secret: Some("plex-token".to_string()),
+                web_url: None,
             },
             out.clone(),
         )
@@ -5622,11 +6330,12 @@ async fn the_pages_answer_in_the_shapes_of_their_samples() {
         &torrents.to_string(),
     );
     let qbit = Qbit::new(
-        &QbitConfig {
+        &DownloadClientConfig {
             id: "qbittorrent".to_string(),
+            kind: ClientKind::Qbittorrent,
             url: Some(QBIT.to_string()),
             user: Some("u".into()),
-            pass: Some("p".into()),
+            secret: Some("p".into()),
         },
         out.clone(),
     )
@@ -5664,9 +6373,15 @@ async fn the_pages_answer_in_the_shapes_of_their_samples() {
     );
     claims.history.insert("sonarr".into(), HashSet::new());
     claims.complete = true;
-    reconcile(&t.pool, &journal, qbit.torrents().await.unwrap(), &claims)
-        .await
-        .unwrap();
+    reconcile(
+        &t.pool,
+        &journal,
+        "qbittorrent",
+        qbit.downloads().await.unwrap(),
+        &claims,
+    )
+    .await
+    .unwrap();
 
     // The requests of the Seerr site.
     let requests: serde_json::Value =
@@ -5736,10 +6451,12 @@ async fn the_pages_answer_in_the_shapes_of_their_samples() {
     let deps = deps(&t.pool, &journal, engines.clone(), &policy);
     let server: Arc<dyn singularr::engines::MediaServer> = Arc::new(
         singularr::engines::plex::Plex::new(
-            &singularr::core::config::PlexConfig {
+            &singularr::core::config::MediaServerConfig {
                 id: "plex".to_string(),
+                kind: singularr::core::config::MediaServerKind::Plex,
                 url: Some(PLEX.to_string()),
-                token: Some("plex-token".to_string()),
+                secret: Some("plex-token".to_string()),
+                web_url: None,
             },
             out.clone(),
         )
@@ -10849,21 +11566,28 @@ async fn the_managers_are_asked_by_the_owner_only_with_write_access() {
 
     // The refused download, as the downloads pass stores it: Radarr's, for Damsel, stuck.
     let message = "Not a Custom Format upgrade for existing movie file(s). New: [5.1 Surround, Bluray, DD+, Open Matte, x264] (300) do not improve on Existing: [5.1 Surround, HUSH SHH, Opus, x265 (HD)] (600)";
-    let torrent = singularr::engines::Torrent {
-        hash: REFUSED_HASH.to_string(),
+    let torrent = singularr::engines::ClientDownload {
+        id: REFUSED_HASH.to_ascii_lowercase(),
+        download_id: REFUSED_HASH.to_string(),
+        protocol: singularr::engines::Protocol::Torrent,
         name: "The.Devil.Wears.Prada.2006.Open.Matte.BRRip.1080p.x264.DD5.1.gerald99".to_string(),
         category: Some("radarr".to_string()),
+        status: singularr::engines::DownloadStatus::Seeding,
         state: "uploading".to_string(),
         progress: 1.0,
         size_bytes: 7_911_404_354,
+        downloaded_bytes: None,
         added_at: None,
         completed_at: None,
-        seeding_seconds: 60,
         save_path: Some("/downloads".to_string()),
         speed: None,
+        upload_speed: None,
         eta: None,
+        tracker: None,
         seeds: None,
         peers: None,
+        ratio: None,
+        seeding_seconds: 60,
     };
     let mut claims = Claims::default();
     claims.queues.insert(
@@ -10880,7 +11604,7 @@ async fn the_managers_are_asked_by_the_owner_only_with_write_access() {
             indexer: Some("TorrentDownload (Prowlarr)".to_string()),
         }],
     );
-    reconcile(&t.pool, &journal, vec![torrent], &claims)
+    reconcile(&t.pool, &journal, "qbittorrent", vec![torrent], &claims)
         .await
         .unwrap();
 
@@ -11357,5 +12081,129 @@ async fn the_managers_are_asked_by_the_owner_only_with_write_access() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{problem}");
     assert_eq!(problem["code"], "singularr.refused");
     assert_eq!(problem["detail"], "Radarr refused: Movie does not exist");
+    t.drop_db().await;
+}
+
+/// A usenet download keeps its id in its client's case (SABnzbd's `nzo_id`). The import of one
+/// its manager refused asks the manual import and sends the command under the id the manager
+/// wrote. Its files are moved.
+#[tokio::test]
+async fn a_refused_usenet_download_is_imported_under_the_id_its_manager_wrote() {
+    let Some(t) = TestDb::new("usenet_import").await else {
+        return;
+    };
+    use serde_json::json;
+    use singularr::core::outbound::Access;
+    const NZO: &str = "SABnzbd_nzo_x7f3k2ab";
+    let journal = Journal::new();
+    let recorded = Recorded::new();
+    let mut records: serde_json::Value =
+        serde_json::from_str(&fixture("radarr_queue_import_refused.json")).unwrap();
+    records[0]["downloadId"] = json!(NZO);
+    records[0]["protocol"] = json!("usenet");
+    records[0]["downloadClient"] = json!("SABnzbd");
+    let queue = json!({"page": 1, "pageSize": 500, "totalRecords": 1, "records": records});
+    recorded.answer(
+        Method::Get,
+        &format!("{RADARR}/api/v3/queue"),
+        200,
+        &queue.to_string(),
+    );
+    // The offer names no download: the import gives its files the queue entry's id.
+    let mut offer: serde_json::Value =
+        serde_json::from_str(&fixture("radarr_manualimport.json")).unwrap();
+    offer[0].as_object_mut().unwrap().remove("downloadId");
+    recorded.answer(
+        Method::Get,
+        &format!("{RADARR}/api/v3/manualimport"),
+        200,
+        &offer.to_string(),
+    );
+    recorded.answer(
+        Method::Post,
+        &format!("{RADARR}/api/v3/command"),
+        201,
+        r#"{"id": 502, "status": "queued"}"#,
+    );
+
+    // The job as the SABnzbd adapter lists it, claimed by Radarr's queue.
+    let job = singularr::engines::ClientDownload {
+        id: NZO.to_string(),
+        download_id: NZO.to_ascii_uppercase(),
+        protocol: singularr::engines::Protocol::Usenet,
+        name: "The.Devil.Wears.Prada.2006.1080p.BluRay.x264-GRP".to_string(),
+        category: Some("movies".to_string()),
+        status: singularr::engines::DownloadStatus::Completed,
+        state: "Completed".to_string(),
+        progress: 1.0,
+        size_bytes: 7_911_404_354,
+        downloaded_bytes: Some(7_911_404_354),
+        added_at: None,
+        completed_at: None,
+        save_path: Some("/downloads/complete".to_string()),
+        speed: None,
+        upload_speed: None,
+        eta: None,
+        tracker: None,
+        seeds: None,
+        peers: None,
+        ratio: None,
+        seeding_seconds: 0,
+    };
+    let mut claims = Claims::default();
+    claims.queues.insert(
+        "radarr".to_string(),
+        vec![singularr::engines::QueueItem {
+            queue_id: 1374604330,
+            engine_title_id: Some(4806),
+            title: job.name.clone(),
+            download_id: Some(NZO.to_ascii_uppercase()),
+            status: Some("completed".to_string()),
+            tracked_state: Some("importPending".to_string()),
+            tracked_status: Some("warning".to_string()),
+            messages: Vec::new(),
+            indexer: None,
+        }],
+    );
+    reconcile(&t.pool, &journal, "sabnzbd", vec![job], &claims)
+        .await
+        .unwrap();
+
+    let out = acting_outbound(recorded.clone());
+    let st = state_over(&t.pool, journal.clone(), &[("RADARR_API_KEY", "k")], &out);
+    st.engines
+        .access
+        .set(
+            &t.pool,
+            &journal,
+            "user:owner@example.com",
+            "radarr",
+            Access::Act,
+        )
+        .await
+        .unwrap();
+    let app = routes::router(st.clone());
+    let session: [(&str, &str); 1] = [("x-auth-request-email", "owner@example.com")];
+    let path = format!(
+        "/api/v1/activity/queue/q-{}/import",
+        NZO.to_ascii_lowercase()
+    );
+    let (status, _, answer) = call(&app, "POST", &path, &session, None).await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+    assert_eq!(answer["act"], "import");
+    let asked = recorded.urls_seen();
+    assert!(
+        asked
+            .iter()
+            .any(|u| u.ends_with("/api/v3/manualimport?downloadId=SABnzbd_nzo_x7f3k2ab")),
+        "{asked:?}"
+    );
+    let acts = acts_sent(&recorded);
+    assert_eq!(acts.len(), 1, "{acts:?}");
+    let body = acts[0].2.clone().unwrap();
+    assert_eq!(
+        (&body["importMode"], &body["files"][0]["downloadId"]),
+        (&json!("move"), &json!(NZO))
+    );
     t.drop_db().await;
 }

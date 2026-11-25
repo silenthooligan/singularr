@@ -1,0 +1,117 @@
+{
+ "Items": [
+  {
+   "Name": "Nemesis",
+   "ServerId": "f0b3381645f04afb9a0e392e74b6a1b0",
+   "Id": "f7e6d83954e06a0d46724a6068fa21ff",
+   "DateCreated": "2025-02-22T02:32:09.0178164Z",
+   "PremiereDate": "2024-01-01T00:00:00.0000000Z",
+   "Path": "/media/Music/Leap Fidei/Nemesis",
+   "ChannelId": null,
+   "Genres": [
+    "Rap"
+   ],
+   "RunTimeTicks": 1830508539,
+   "ProductionYear": 2024,
+   "IsFolder": true,
+   "Type": "MusicAlbum",
+   "Studios": [],
+   "GenreItems": [
+    {
+     "Name": "Rap",
+     "Id": "76e2da7a09c2d58a10116d7ab66d9798"
+    }
+   ],
+   "UserData": {
+    "PlaybackPositionTicks": 0,
+    "PlayCount": 0,
+    "IsFavorite": true,
+    "Played": false,
+    "Key": "f7e6d839-54e0-6a0d-4672-4a6068fa21ff",
+    "ItemId": "f7e6d83954e06a0d46724a6068fa21ff"
+   },
+   "Artists": [
+    "Leap Fidei"
+   ],
+   "ArtistItems": [
+    {
+     "Name": "Leap Fidei",
+     "Id": "78e6763b3d9b58c349a58ce5eb7877c1"
+    }
+   ],
+   "AlbumArtist": "Leap Fidei",
+   "AlbumArtists": [
+    {
+     "Name": "Leap Fidei",
+     "Id": "78e6763b3d9b58c349a58ce5eb7877c1"
+    }
+   ],
+   "ImageTags": {
+    "Primary": "45ff5f4520bf2b3e9e7410e4c8766cb1"
+   },
+   "BackdropImageTags": [],
+   "ImageBlurHashes": {
+    "Primary": {
+     "45ff5f4520bf2b3e9e7410e4c8766cb1": "eMB;XYyC4VNGRkyrtlV?RjjZ0hXT-URPxZ%MtQM{M|bb_1t7IVV@S5"
+    }
+   },
+   "LocationType": "FileSystem",
+   "MediaType": "Unknown"
+  },
+  {
+   "Name": "Promo",
+   "ServerId": "f0b3381645f04afb9a0e392e74b6a1b0",
+   "Id": "920673748d7c8a4aa03144614f1f947f",
+   "DateCreated": "2019-11-28T06:07:06.0000000Z",
+   "Path": "/media/Music/Binaerpilot/Promo",
+   "ChannelId": null,
+   "Genres": [
+    "Electronic"
+   ],
+   "RunTimeTicks": 3000000000,
+   "IsFolder": true,
+   "Type": "MusicAlbum",
+   "Studios": [],
+   "GenreItems": [
+    {
+     "Name": "Electronic",
+     "Id": "6ca4fc40460773bb0ac0cd7c74ca4807"
+    }
+   ],
+   "ParentBackdropItemId": "9ebcc113abb3ee375dbf1d68c9576ed5",
+   "ParentBackdropImageTags": [
+    "025c78bd3f77fd7a91b7c5ce59c606b9"
+   ],
+   "UserData": {
+    "Rating": 10,
+    "PlaybackPositionTicks": 0,
+    "PlayCount": 0,
+    "IsFavorite": true,
+    "Likes": true,
+    "Played": false,
+    "Key": "92067374-8d7c-8a4a-a031-44614f1f947f",
+    "ItemId": "920673748d7c8a4aa03144614f1f947f"
+   },
+   "Artists": [],
+   "ArtistItems": [],
+   "AlbumArtists": [],
+   "ImageTags": {
+    "Primary": "dcdaa02d4c5425aa20d7dbd3dc0df5fc"
+   },
+   "BackdropImageTags": [],
+   "ImageBlurHashes": {
+    "Primary": {
+     "dcdaa02d4c5425aa20d7dbd3dc0df5fc": "e22i99t7D%Rjof?bt7IUWBj[fQfQfQfQfQ9FRj%Mofay00Rj-;t7WB"
+    },
+    "Backdrop": {
+     "025c78bd3f77fd7a91b7c5ce59c606b9": "WaDR~M579a~BELM{-:IpRj%LM|oJRjfRt6axRkt6smWXazs.R+ae"
+    }
+   },
+   "LocationType": "FileSystem",
+   "MediaType": "Unknown",
+   "NormalizationGain": -8.1
+  }
+ ],
+ "TotalRecordCount": 4,
+ "StartIndex": 0
+}

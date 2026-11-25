@@ -232,7 +232,7 @@ async fn the_server_history_and_tautulli_make_one_row_per_play() {
     record_server(&recorded);
     record_tautulli(&recorded);
     let deps = make_deps(&t.pool, &recorded);
-    let server = deps.engines.media_server.clone().unwrap();
+    let server = deps.engines.media_server().cloned().unwrap();
     let history = deps.engines.play_history.clone().unwrap();
 
     // The media server's history: every entry a play, without durations or delivery.
@@ -345,7 +345,7 @@ async fn a_session_is_one_play_from_start_through_a_pause_to_its_end() {
     let sessions = format!("{PLEX}/status/sessions");
     recorded.answer(Method::Get, &sessions, 200, &session("playing", 60));
     let deps = make_deps(&t.pool, &recorded);
-    let server = deps.engines.media_server.clone().unwrap();
+    let server = deps.engines.media_server().cloned().unwrap();
     let mut follower = singularr::plays::model::Follower::default();
     let mut files = std::collections::HashMap::new();
 
@@ -531,11 +531,7 @@ fn app(pool: &PgPool, journal: &Journal, recorded: &Arc<Recorded>) -> axum::Rout
         home_movies: Arc::new(HomeMovies::new(&config.home_movies.root)),
         settings,
         pages: Default::default(),
-        search: Arc::new(singularr::search::Search::new(
-            pool.clone(),
-            &config.search,
-            &out,
-        )),
+        search: Arc::new(singularr::search::Search::new(pool.clone(), &config, &out)),
         notify: singularr::notify::service::Notifier::new(
             pool.clone(),
             journal.clone(),
@@ -1053,5 +1049,73 @@ async fn statistics_are_the_owner_s_and_a_title_carries_its_plays() {
     let page = owner_get(&app, "/api/v1/stats/plays?title=movie-603").await;
     assert_eq!(page["total"], 3);
     assert_eq!(page["plays"][0]["title"]["id"], "movie-603");
+    t.drop_db().await;
+}
+
+/// A play Tautulli told of while no Plex server was configured has Tautulli's id for its server.
+/// Its keys are the Plex server's. It links through the Plex server Tautulli reads now: as it is
+/// written, and in the housekeeping for one written before. Another server's item of the
+/// same key is another item.
+#[tokio::test]
+async fn a_tautulli_play_links_through_the_plex_server() {
+    let Some(t) = TestDb::new("plays_tautulli_link").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    let deps = make_deps(&t.pool, &recorded);
+    let title: i64 = sqlx::query_scalar(
+        "INSERT INTO titles (ext_key, kind, tmdb_id, title, sort_title, year)
+         VALUES ('test:the-matrix', 'movie', 603, 'The Matrix', 'matrix', 1999) RETURNING id",
+    )
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO title_server (server, rating_key, title_id) VALUES ('plex', '603', $1)",
+    )
+    .bind(title)
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    let start = Utc::now() - chrono::Duration::days(2);
+    let play = |id: i64, server: &str, hours: i64| {
+        let mut r = sitting(
+            id,
+            1,
+            "owner",
+            ("movie", "603", "The Matrix"),
+            None,
+            start + chrono::Duration::hours(hours),
+            60,
+            ("direct play", "lan", "Android", "TV"),
+        );
+        r.server = server.to_string();
+        r
+    };
+    let tautulli = deps.engines.play_history.clone().unwrap();
+    assert_eq!(tautulli.id(), "tautulli");
+    plays::absorb_all(&deps, vec![play(21, "tautulli", 0), play(22, "emby", 3)])
+        .await
+        .unwrap();
+    let linked = || async {
+        sqlx::query_as::<_, (String, Option<i64>)>(
+            "SELECT server, title_id FROM plays ORDER BY tautulli_id",
+        )
+        .fetch_all(&t.pool)
+        .await
+        .unwrap()
+    };
+    let expected = vec![
+        ("tautulli".to_string(), Some(title)),
+        ("emby".to_string(), None),
+    ];
+    assert_eq!(linked().await, expected);
+    // Written before the Plex server was configured, and linked by the housekeeping.
+    sqlx::query("UPDATE plays SET title_id = NULL")
+        .execute(&t.pool)
+        .await
+        .unwrap();
+    plays::housekeeping(&deps).await.unwrap();
+    assert_eq!(linked().await, expected);
     t.drop_db().await;
 }

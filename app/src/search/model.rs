@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "ssr", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct SearchDoc {
-    /// `movie-603`, `show-1396`, `collection-2344`, `album-<key>`, `artist-<key>`.
+    /// `movie-603`, `show-1396`, `collection-2344`, `album-<key>`, `artist-<key>`; an album or
+    /// artist of a media server other than the first names it: `album-<server>_<key>`.
     pub id: String,
     /// `movie`, `show`, `collection`, `album` or `artist`.
     pub kind: String,
@@ -27,7 +28,7 @@ pub struct SearchDoc {
     pub poster: Option<String>,
     #[serde(default)]
     pub rating: Option<f64>,
-    /// An album's artist (`artist-<key>`).
+    /// An album's artist (`artist-<key>`, or `artist-<server>_<key>`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
     /// An album's artist by name.

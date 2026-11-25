@@ -1,6 +1,6 @@
 [package]
 name = "singularr"
-description = "Singularr: a media manager for a Plex server. The server: the API, the sync loops, the rules, and the web client's files."
+description = "Singularr: a media manager for a media server (Plex, Jellyfin, Emby). The server: the API, the sync loops, the rules, and the web client's files."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

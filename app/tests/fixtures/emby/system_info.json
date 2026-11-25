@@ -1,0 +1,41 @@
+{
+ "SystemUpdateLevel": "Release",
+ "OperatingSystemDisplayName": "Linux",
+ "PackageName": "emby-server-deb",
+ "HasPendingRestart": false,
+ "IsShuttingDown": false,
+ "HasImageEnhancers": true,
+ "OperatingSystem": "Linux",
+ "SupportsLibraryMonitor": true,
+ "SupportsLocalPortConfiguration": true,
+ "SupportsWakeServer": false,
+ "WebSocketPortNumber": 8096,
+ "CompletedInstallations": [],
+ "CanSelfRestart": true,
+ "CanSelfUpdate": false,
+ "CanLaunchWebBrowser": false,
+ "ProgramDataPath": "/config",
+ "ItemsByNamePath": "/config/metadata",
+ "CachePath": "/config/cache",
+ "LogPath": "/config/logs",
+ "InternalMetadataPath": "/config/metadata",
+ "TranscodingTempPath": "/config/transcoding-temp",
+ "HttpServerPortNumber": 8096,
+ "SupportsHttps": false,
+ "HttpsPortNumber": 8920,
+ "HasUpdateAvailable": false,
+ "SupportsAutoRunAtStartup": false,
+ "HardwareAccelerationRequiresPremiere": true,
+ "IsInMaintenanceMode": false,
+ "LocalAddress": "http://10.0.0.32:8096",
+ "LocalAddresses": [
+  "http://10.0.0.32:8096"
+ ],
+ "WanAddress": "http://203.0.113.32:8096",
+ "RemoteAddresses": [
+  "http://203.0.113.32:8096"
+ ],
+ "ServerName": "Den",
+ "Version": "4.9.1.90",
+ "Id": "7b6a8c9d0e1f42a3b4c5d6e7f8091a2b"
+}

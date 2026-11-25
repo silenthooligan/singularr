@@ -1,20 +1,30 @@
-//! The qBittorrent adapter (Web API v2), read-only.
+//! The qBittorrent adapter (Web API v2), read-only, behind [`DownloadClient`].
 //!
-//! Two endpoints: `POST /api/v2/auth/login` (the one POST stage 1 makes toward an engine)
-//! and `GET /api/v2/torrents/info`.
+//! Two endpoints: `POST /api/v2/auth/login` (a sign-in, the one call that is not a GET) and
+//! `GET /api/v2/torrents/info`.
 
+use super::access::Action;
 use super::arr::null_as_default;
-use super::{Downloader, EngineError, Torrent};
-use crate::core::config::QbitConfig;
-use crate::core::outbound::{Body, OutRequest, OutResponse, Outbound, expect_ok};
+use super::clients::{count, tracker_host, unix};
+use super::{ClientDownload, DownloadClient, DownloadStatus, EngineError, Protocol};
+use crate::core::config::DownloadClientConfig;
+use crate::core::outbound::{Body, Calls, Method, OutRequest, OutResponse, Outbound, expect_ok};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
 /// The type of the download client integration, and the id of the environment form's.
 pub const ENGINE_ID: &str = "qbittorrent";
 pub const LOGIN_PATH: &str = "/api/v2/auth/login";
+pub const TORRENTS_PATH: &str = "/api/v2/torrents/info";
+
+/// What Singularr can do to qBittorrent beyond reading it: nothing.
+pub const ACTIONS: &[Action] = &[];
+
+/// The calls qBittorrent is sent beyond GET: the sign-in. It only reads.
+pub fn calls() -> Calls {
+    Calls::default().read(Method::Post, LOGIN_PATH)
+}
 
 pub struct Qbit {
     id: String,
@@ -37,30 +47,22 @@ struct RawTorrent {
     #[serde(default, deserialize_with = "null_as_default")]
     progress: f64,
     size: Option<i64>,
+    completed: Option<i64>,
     added_on: Option<i64>,
     completion_on: Option<i64>,
     seeding_time: Option<i64>,
     save_path: Option<String>,
     dlspeed: Option<i64>,
+    upspeed: Option<i64>,
     eta: Option<i64>,
     num_seeds: Option<i64>,
     num_leechs: Option<i64>,
+    ratio: Option<f64>,
+    tracker: Option<String>,
 }
 
 /// qBittorrent writes 8640000 seconds (100 days) for a time left it cannot tell.
 const ETA_UNKNOWN: i64 = 8_640_000;
-
-/// A count or a rate as the client reports it: negative is none.
-fn count(v: Option<i64>) -> Option<i32> {
-    v.filter(|n| *n >= 0)
-        .map(|n| i32::try_from(n).unwrap_or(i32::MAX))
-}
-
-/// A Unix time from qBittorrent. Zero, negative and the 32-bit "never" are no date.
-fn unix(seconds: Option<i64>) -> Option<DateTime<Utc>> {
-    let s = seconds.filter(|s| *s > 0 && *s < 4_000_000_000)?;
-    DateTime::from_timestamp(s, 0)
-}
 
 /// The session cookie of a sign-in answer: the first cookie whose name holds `SID`
 /// (`SID` on qBittorrent 4, `QBT_SID_<port>` on newer ones).
@@ -78,14 +80,35 @@ fn session_cookie(res: &OutResponse) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Where a torrent stands, in the product's words, from qBittorrent's state. A state this
+/// adapter does not know reads by the progress. The title page reads these as it read
+/// qBittorrent's states before ([`crate::api::metadata::title_queue_stage`]).
+pub fn status_of(state: &str, progress: f64) -> DownloadStatus {
+    match state {
+        "downloading" | "forcedDL" | "forcedMetaDL" => DownloadStatus::Downloading,
+        // A torrent waiting for its metadata, or checking the data of a download not complete
+        // yet, waits as a queued one does.
+        "metaDL" | "queuedDL" | "queuedUP" | "checkingDL" => DownloadStatus::Queued,
+        "stalledDL" => DownloadStatus::Stalled,
+        "pausedUP" | "stoppedUP" if progress >= 1.0 => DownloadStatus::Completed,
+        "pausedDL" | "stoppedDL" | "pausedUP" | "stoppedUP" => DownloadStatus::Paused,
+        "uploading" | "forcedUP" | "stalledUP" => DownloadStatus::Seeding,
+        "checkingUP" | "checkingResumeData" => DownloadStatus::Checking,
+        "moving" => DownloadStatus::Unpacking,
+        "error" | "missingFiles" => DownloadStatus::Failed,
+        _ if progress >= 1.0 => DownloadStatus::Completed,
+        _ => DownloadStatus::Downloading,
+    }
+}
+
 impl Qbit {
     /// `None` when no URL is configured.
-    pub fn new(config: &QbitConfig, out: Outbound) -> Option<Self> {
+    pub fn new(config: &DownloadClientConfig, out: Outbound) -> Option<Self> {
         Some(Qbit {
             id: config.id.clone(),
             base: config.url.clone()?,
             user: config.user.clone(),
-            pass: config.pass.clone(),
+            pass: config.secret.clone(),
             out,
             session: Mutex::new(None),
         })
@@ -130,7 +153,7 @@ impl Qbit {
     }
 
     async fn list(&self, cookie: Option<&str>) -> Result<OutResponse, EngineError> {
-        let mut req = OutRequest::get(format!("{}/api/v2/torrents/info", self.base));
+        let mut req = OutRequest::get(format!("{}{TORRENTS_PATH}", self.base));
         if let Some(cookie) = cookie {
             req = req.header("Cookie", cookie);
         }
@@ -138,14 +161,56 @@ impl Qbit {
     }
 }
 
+fn download(t: RawTorrent) -> ClientDownload {
+    let progress = t.progress.clamp(0.0, 1.0);
+    let hash = t.hash.trim().to_string();
+    ClientDownload {
+        download_id: hash.to_ascii_uppercase(),
+        id: hash,
+        protocol: Protocol::Torrent,
+        name: t.name,
+        category: t
+            .category
+            .map(|c| c.trim().to_string())
+            .filter(|c| !c.is_empty()),
+        status: status_of(&t.state, progress),
+        state: t.state,
+        progress,
+        size_bytes: t.size.unwrap_or(0),
+        downloaded_bytes: t.completed.filter(|n| *n >= 0),
+        added_at: unix(t.added_on),
+        completed_at: unix(t.completion_on),
+        save_path: t
+            .save_path
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty()),
+        speed: count(t.dlspeed),
+        upload_speed: count(t.upspeed),
+        eta: count(t.eta.filter(|e| *e < ETA_UNKNOWN)),
+        tracker: t.tracker.as_deref().and_then(tracker_host),
+        seeds: count(t.num_seeds),
+        peers: count(t.num_leechs),
+        ratio: t.ratio.filter(|r| *r >= 0.0),
+        seeding_seconds: t.seeding_time.unwrap_or(0).max(0),
+    }
+}
+
 #[async_trait]
-impl Downloader for Qbit {
+impl DownloadClient for Qbit {
     fn id(&self) -> &str {
         &self.id
     }
 
-    async fn torrents(&self) -> Result<Vec<Torrent>, EngineError> {
-        let url = format!("{}/api/v2/torrents/info", self.base);
+    fn kind(&self) -> &'static str {
+        ENGINE_ID
+    }
+
+    fn protocol(&self) -> Protocol {
+        Protocol::Torrent
+    }
+
+    async fn downloads(&self) -> Result<Vec<ClientDownload>, EngineError> {
+        let url = format!("{}{TORRENTS_PATH}", self.base);
         let mut session = self.session.lock().await;
         if session.is_none() {
             *session = self.login().await?;
@@ -168,51 +233,29 @@ impl Downloader for Qbit {
                 what: "torrents",
                 message: e.to_string(),
             })?;
-        Ok(raw
-            .into_iter()
-            .map(|t| Torrent {
-                hash: t.hash.trim().to_ascii_uppercase(),
-                name: t.name,
-                category: t
-                    .category
-                    .map(|c| c.trim().to_string())
-                    .filter(|c| !c.is_empty()),
-                state: t.state,
-                progress: t.progress.clamp(0.0, 1.0),
-                size_bytes: t.size.unwrap_or(0),
-                added_at: unix(t.added_on),
-                completed_at: unix(t.completion_on),
-                seeding_seconds: t.seeding_time.unwrap_or(0).max(0),
-                save_path: t
-                    .save_path
-                    .map(|p| p.trim().to_string())
-                    .filter(|p| !p.is_empty()),
-                speed: count(t.dlspeed),
-                eta: count(t.eta.filter(|e| *e < ETA_UNKNOWN)),
-                seeds: count(t.num_seeds),
-                peers: count(t.num_leechs),
-            })
-            .collect())
+        Ok(raw.into_iter().map(download).collect())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::config::ClientKind;
+    use crate::core::outbound::Allowlist;
     use crate::core::outbound::recorded::Recorded;
-    use crate::core::outbound::{Allowlist, Method};
     use std::sync::Arc;
 
     const BASE: &str = "http://192.0.2.62:8080";
 
     fn qbit(recorded: Arc<Recorded>, with_login: bool) -> Qbit {
         let mut allow = Allowlist::default();
-        allow.allow_engine(ENGINE_ID, BASE, &[LOGIN_PATH]).unwrap();
-        let config = QbitConfig {
+        allow.allow_integration(ENGINE_ID, BASE, calls()).unwrap();
+        let config = DownloadClientConfig {
             id: ENGINE_ID.to_string(),
+            kind: ClientKind::Qbittorrent,
             url: Some(BASE.to_string()),
             user: with_login.then(|| "admin".to_string()),
-            pass: with_login.then(|| "test-password".to_string()),
+            secret: with_login.then(|| "test-password".to_string()),
         };
         Qbit::new(&config, Outbound::with_transport(allow, recorded)).unwrap()
     }
@@ -234,29 +277,40 @@ mod tests {
             include_str!("../../tests/fixtures/qbit_torrents.json"),
         );
         let q = qbit(recorded.clone(), true);
-        let torrents = q.torrents().await.unwrap();
+        let torrents = q.downloads().await.unwrap();
         assert_eq!(torrents.len(), 4);
         let first = &torrents[0];
-        assert_eq!(first.hash, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1");
+        assert_eq!(
+            first.download_id,
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA1"
+        );
+        assert_eq!(first.id, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1");
         assert_eq!(first.category.as_deref(), Some("radarr"));
         assert_eq!(first.state, "uploading");
+        assert_eq!(first.status, DownloadStatus::Seeding);
+        assert_eq!(first.protocol, Protocol::Torrent);
         assert_eq!(first.progress, 1.0);
         assert!(first.completed_at.is_some() && first.added_at.is_some());
         assert_eq!(first.seeding_seconds, 86400);
+        assert_eq!(first.ratio, Some(1.2));
         let downloading = &torrents[1];
         assert!(downloading.progress < 1.0);
+        assert_eq!(downloading.status, DownloadStatus::Downloading);
         assert_eq!(
             downloading.completed_at, None,
             "a completion time of -1 is no date"
         );
+        assert_eq!(torrents[2].status, DownloadStatus::Completed, "pausedUP");
         assert_eq!(torrents[3].category, None);
+        assert_eq!(torrents[3].status, DownloadStatus::Seeding, "stalledUP");
 
-        q.torrents().await.unwrap();
+        q.downloads().await.unwrap();
         assert_eq!(
             recorded.methods_seen(),
             vec![Method::Post, Method::Get, Method::Get],
             "the session is reused"
         );
+        assert_eq!((q.kind(), q.protocol()), ("qbittorrent", Protocol::Torrent));
     }
 
     #[tokio::test]
@@ -271,7 +325,7 @@ mod tests {
         );
         recorded.answer(Method::Get, "/api/v2/torrents/info", 403, "Forbidden");
         let q = qbit(recorded.clone(), true);
-        let err = q.torrents().await.unwrap_err();
+        let err = q.downloads().await.unwrap_err();
         assert!(matches!(err, EngineError::Login { .. }));
         assert_eq!(
             recorded.methods_seen(),
@@ -284,7 +338,7 @@ mod tests {
         let recorded = Recorded::new();
         recorded.answer(Method::Post, LOGIN_PATH, 200, "Fails.");
         let q = qbit(recorded, true);
-        let err = q.torrents().await.unwrap_err();
+        let err = q.downloads().await.unwrap_err();
         assert!(err.to_string().contains("QBIT_USER"), "{err}");
     }
 
@@ -293,7 +347,7 @@ mod tests {
         let recorded = Recorded::new();
         recorded.answer(Method::Get, "/api/v2/torrents/info", 200, "[]");
         let q = qbit(recorded.clone(), false);
-        assert!(q.torrents().await.unwrap().is_empty());
+        assert!(q.downloads().await.unwrap().is_empty());
         assert_eq!(recorded.methods_seen(), vec![Method::Get]);
     }
 
@@ -312,5 +366,68 @@ mod tests {
             body: vec![],
         };
         assert_eq!(session_cookie(&res).as_deref(), Some("QBT_SID_8080=xyz"));
+    }
+
+    /// Every state qBittorrent names, in the product's words. The stage a title's queue line
+    /// shows follows from these (`api::metadata`).
+    #[test]
+    fn every_state_has_a_status() {
+        for (state, status) in [
+            ("downloading", DownloadStatus::Downloading),
+            ("forcedDL", DownloadStatus::Downloading),
+            ("forcedMetaDL", DownloadStatus::Downloading),
+            ("metaDL", DownloadStatus::Queued),
+            ("queuedDL", DownloadStatus::Queued),
+            ("queuedUP", DownloadStatus::Queued),
+            ("stalledDL", DownloadStatus::Stalled),
+            ("pausedDL", DownloadStatus::Paused),
+            ("stoppedDL", DownloadStatus::Paused),
+            ("pausedUP", DownloadStatus::Paused),
+            ("stoppedUP", DownloadStatus::Paused),
+            ("uploading", DownloadStatus::Seeding),
+            ("forcedUP", DownloadStatus::Seeding),
+            ("stalledUP", DownloadStatus::Seeding),
+            ("checkingDL", DownloadStatus::Queued),
+            ("checkingUP", DownloadStatus::Checking),
+            ("checkingResumeData", DownloadStatus::Checking),
+            ("moving", DownloadStatus::Unpacking),
+            ("error", DownloadStatus::Failed),
+            ("missingFiles", DownloadStatus::Failed),
+        ] {
+            assert_eq!(status_of(state, 0.5), status, "{state}");
+        }
+        assert_eq!(status_of("pausedUP", 1.0), DownloadStatus::Completed);
+        assert_eq!(status_of("stoppedUP", 1.0), DownloadStatus::Completed);
+        assert_eq!(status_of("unknown", 0.5), DownloadStatus::Downloading);
+        assert_eq!(status_of("unknown", 1.0), DownloadStatus::Completed);
+    }
+
+    /// The sign-in is the one call beyond GET. Nothing else that is not a GET passes.
+    #[test]
+    fn the_calls_are_the_sign_in_and_gets() {
+        let mut allow = Allowlist::default();
+        allow.allow_integration(ENGINE_ID, BASE, calls()).unwrap();
+        assert!(
+            allow
+                .check(Method::Post, &format!("{BASE}{LOGIN_PATH}"))
+                .is_ok()
+        );
+        assert!(
+            allow
+                .check(Method::Get, &format!("{BASE}{TORRENTS_PATH}"))
+                .is_ok()
+        );
+        for path in [
+            "/api/v2/torrents/delete",
+            "/api/v2/torrents/pause",
+            "/api/v2/torrents/add",
+            "/api/v2/app/shutdown",
+        ] {
+            assert!(
+                allow.check(Method::Post, &format!("{BASE}{path}")).is_err(),
+                "{path}"
+            );
+        }
+        assert!(ACTIONS.is_empty());
     }
 }

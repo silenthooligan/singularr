@@ -36,7 +36,7 @@ mod service {
     use super::meili::Meili;
     use super::model::{SearchDoc, SearchStatus};
     use super::store;
-    use crate::core::config::SearchConfig;
+    use crate::core::config::Config;
     use crate::core::error::{AppError, AppResult};
     use crate::core::outbound::{Outbound, OutboundError};
     use async_trait::async_trait;
@@ -106,18 +106,28 @@ mod service {
         meili: Option<Meili>,
         /// The last failure of Meilisearch, cleared by its next success.
         meili_error: Mutex<Option<String>>,
+        /// The first media server, whose albums and artists have the short ids.
+        first_server: Option<String>,
     }
 
     impl Search {
-        pub fn new(pool: PgPool, config: &SearchConfig, out: &Outbound) -> Search {
+        pub fn new(pool: PgPool, config: &Config, out: &Outbound) -> Search {
+            let search = &config.search;
             Search {
                 builtin: Builtin::new(pool.clone()),
-                meili: config
+                meili: search
                     .meilisearch()
-                    .map(|(url, key)| Meili::new(url, key, &config.prefix, out.clone())),
+                    .map(|(url, key)| Meili::new(url, key, &search.prefix, out.clone())),
                 pool,
                 meili_error: Mutex::new(None),
+                first_server: config.first_media_server().map(str::to_string),
             }
+        }
+
+        /// The first media server's id: its albums and artists are `album-<key>`, any other
+        /// server's `album-<server>_<key>` (`music::model::server_music_id`).
+        pub fn first_server(&self) -> Option<&str> {
+            self.first_server.as_deref()
         }
 
         /// The provider the configuration asks for.

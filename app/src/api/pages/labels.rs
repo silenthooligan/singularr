@@ -284,10 +284,28 @@ pub fn unreleased(status: Option<&str>) -> bool {
 }
 
 /// The stage of one download: `unassigned` (no manager owns it), `downloading`, `importing`
-/// (complete and still in a manager's queue), or `seeding` (done).
-pub fn queue_stage(orphan: bool, progress: f64, in_queue: bool) -> &'static str {
+/// (done and still in a manager's queue), `seeding` (a torrent that is done), `completed` (a
+/// usenet download that is done) or `failed` (a usenet download its client gave up on).
+///
+/// A torrent is done once all of it is there. A usenet download is done once its client
+/// completed it (`status`, in the words of the port's `DownloadStatus`). Until then it is
+/// downloaded, verified, repaired and unpacked. It stays `downloading` the whole time.
+pub fn queue_stage(
+    orphan: bool,
+    progress: f64,
+    in_queue: bool,
+    usenet: bool,
+    status: Option<&str>,
+) -> &'static str {
     if orphan {
         "unassigned"
+    } else if usenet {
+        match status {
+            Some("failed") => "failed",
+            Some("completed") if in_queue => "importing",
+            Some("completed") => "completed",
+            _ => "downloading",
+        }
     } else if progress < 1.0 {
         "downloading"
     } else if in_queue {
@@ -295,6 +313,12 @@ pub fn queue_stage(orphan: bool, progress: f64, in_queue: bool) -> &'static str 
     } else {
         "seeding"
     }
+}
+
+/// A queue stage that is no longer in motion: a torrent that seeds, a usenet download its
+/// client is done with, completed or failed.
+pub fn queue_done(stage: &str) -> bool {
+    matches!(stage, "seeding" | "completed" | "failed")
 }
 
 /// A request's status in the client's words, from Seerr's words and where the title's download
@@ -455,7 +479,7 @@ pub fn release_state(
     }
 }
 
-/// A Plex session's decision as the client words it: `Direct play`.
+/// A media server session's decision as the client words it: `Direct play`.
 pub fn stream(decision: &str) -> String {
     let mut c = decision.chars();
     match c.next() {
@@ -569,10 +593,32 @@ mod tests {
         assert_eq!(gate_result("trim"), "fail");
         assert_eq!(gate_result("exempt"), "skip");
 
-        assert_eq!(queue_stage(true, 0.5, false), "unassigned");
-        assert_eq!(queue_stage(false, 0.5, true), "downloading");
-        assert_eq!(queue_stage(false, 1.0, true), "importing");
-        assert_eq!(queue_stage(false, 1.0, false), "seeding");
+        let torrent =
+            |orphan, progress, in_queue| queue_stage(orphan, progress, in_queue, false, None);
+        assert_eq!(torrent(true, 0.5, false), "unassigned");
+        assert_eq!(torrent(false, 0.5, true), "downloading");
+        assert_eq!(torrent(false, 1.0, true), "importing");
+        assert_eq!(torrent(false, 1.0, false), "seeding");
+        // A torrent's stage reads by its progress alone, whatever its client says.
+        assert_eq!(
+            queue_stage(false, 0.5, false, false, Some("failed")),
+            "downloading"
+        );
+        // A usenet download is done once its client reports it completed.
+        let usenet = |status, in_queue| queue_stage(false, 1.0, in_queue, true, Some(status));
+        assert_eq!(usenet("unpacking", true), "downloading");
+        assert_eq!(usenet("checking", false), "downloading");
+        assert_eq!(usenet("completed", true), "importing");
+        assert_eq!(usenet("completed", false), "completed");
+        assert_eq!(usenet("failed", true), "failed");
+        assert_eq!(
+            queue_stage(true, 0.0, false, true, Some("failed")),
+            "unassigned"
+        );
+        assert!(queue_done("seeding") && queue_done("completed") && queue_done("failed"));
+        assert!(
+            !queue_done("downloading") && !queue_done("importing") && !queue_done("unassigned")
+        );
         assert_eq!(stream("direct play"), "Direct play");
     }
 

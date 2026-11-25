@@ -13,7 +13,9 @@ const COLUMNS: &str = "p.id, p.updated_at, p.server, p.rating_key, p.show_key, p
         p.source_resolution, p.source_bitrate, p.stream_resolution, p.stream_bitrate,
         p.session_id, p.history_id, p.tautulli_id, p.viewed_at, p.raw";
 
-/// The stored play a source's record names by the source's own id.
+/// The stored play a source's record names by the source's own id. A session's id names an
+/// open play alone: Jellyfin and Emby name a play by the session and the item. The pair comes
+/// back when the item is played again after that play ended.
 pub async fn by_source(
     conn: &mut PgConnection,
     r: &PlayRecord,
@@ -24,7 +26,7 @@ pub async fn by_source(
     sqlx::query_as::<_, Play>(sqlx::AssertSqlSafe(format!(
         "SELECT {COLUMNS} FROM plays p
          WHERE p.server = $1
-           AND (($2::text IS NOT NULL AND p.session_id = $2)
+           AND (($2::text IS NOT NULL AND p.session_id = $2 AND p.stopped_at IS NULL)
                 OR ($3::bigint IS NOT NULL AND p.history_id = $3)
                 OR ($4::bigint IS NOT NULL AND p.tautulli_id = $4))
          ORDER BY p.id LIMIT 1"
@@ -228,11 +230,11 @@ pub async fn from_tautulli(pool: &PgPool) -> Result<i64, sqlx::Error> {
         .await
 }
 
-/// The media server's keys of the items plays name that no catalog title holds yet: an
-/// episode's show, else the item.
-pub async fn unlinked_keys(pool: &PgPool) -> Result<Vec<String>, sqlx::Error> {
-    sqlx::query_scalar::<_, String>(
-        "SELECT DISTINCT COALESCE(show_key, rating_key) FROM plays
+/// The items plays name that no catalog title holds yet, each as (server, key): an episode's
+/// show, else the item.
+pub async fn unlinked_items(pool: &PgPool) -> Result<Vec<(String, String)>, sqlx::Error> {
+    sqlx::query_as::<_, (String, String)>(
+        "SELECT DISTINCT server, COALESCE(show_key, rating_key) FROM plays
          WHERE title_id IS NULL AND COALESCE(show_key, rating_key) IS NOT NULL
          LIMIT 20000",
     )
@@ -240,18 +242,21 @@ pub async fn unlinked_keys(pool: &PgPool) -> Result<Vec<String>, sqlx::Error> {
     .await
 }
 
-/// Link the plays of these items to their catalog titles.
-pub async fn link(pool: &PgPool, found: &[(String, i64)]) -> Result<u64, sqlx::Error> {
+/// Link the plays of these items, each as (server, key, title), to their catalog titles.
+pub async fn link(pool: &PgPool, found: &[(String, String, i64)]) -> Result<u64, sqlx::Error> {
     if found.is_empty() {
         return Ok(0);
     }
-    let keys: Vec<String> = found.iter().map(|(k, _)| k.clone()).collect();
-    let ids: Vec<i64> = found.iter().map(|(_, id)| *id).collect();
+    let servers: Vec<String> = found.iter().map(|(s, _, _)| s.clone()).collect();
+    let keys: Vec<String> = found.iter().map(|(_, k, _)| k.clone()).collect();
+    let ids: Vec<i64> = found.iter().map(|(_, _, id)| *id).collect();
     Ok(sqlx::query(
         "UPDATE plays p SET title_id = f.id, updated_at = now()
-         FROM unnest($1::text[], $2::bigint[]) AS f(key, id)
-         WHERE p.title_id IS NULL AND COALESCE(p.show_key, p.rating_key) = f.key",
+         FROM unnest($1::text[], $2::text[], $3::bigint[]) AS f(server, key, id)
+         WHERE p.title_id IS NULL AND p.server = f.server
+           AND COALESCE(p.show_key, p.rating_key) = f.key",
     )
+    .bind(servers)
     .bind(keys)
     .bind(ids)
     .execute(pool)
@@ -293,16 +298,18 @@ pub async fn forget_before(pool: &PgPool, cutoff: DateTime<Utc>) -> Result<u64, 
         .rows_affected())
 }
 
-/// Forget every address kept: the plays' own, and those in the sources' records.
+/// Forget every address kept: the plays' own, and those in the sources' records (a Plex
+/// session's player, a Jellyfin or Emby session's remote end, Tautulli's row).
 pub async fn forget_addresses(pool: &PgPool) -> Result<u64, sqlx::Error> {
     Ok(sqlx::query(
         "UPDATE plays SET address = NULL,
                 raw = raw #- '{tautulli,ip_address}' #- '{live,Player,address}'
-                          #- '{live,Player,remotePublicAddress}'
+                          #- '{live,Player,remotePublicAddress}' #- '{live,RemoteEndPoint}'
          WHERE address IS NOT NULL
             OR raw #> '{tautulli,ip_address}' IS NOT NULL
             OR raw #> '{live,Player,address}' IS NOT NULL
-            OR raw #> '{live,Player,remotePublicAddress}' IS NOT NULL",
+            OR raw #> '{live,Player,remotePublicAddress}' IS NOT NULL
+            OR raw #> '{live,RemoteEndPoint}' IS NOT NULL",
     )
     .execute(pool)
     .await?

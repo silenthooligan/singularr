@@ -1,14 +1,17 @@
-//! Downloads hygiene: who owns each torrent, which are stuck, which are orphans.
+//! Downloads hygiene: who owns each download, which are stuck, which are orphans.
 //!
-//! A download's owner is the arr whose queue or grab history has its hash. Stage 1 only
-//! reports; nothing is removed or changed in the download client.
+//! A download's owner is the arr whose queue or grab history has its download id: a torrent's
+//! hash, a usenet client's job id. Each download client is read on its own. Its pass touches
+//! its own rows, and the rows set aside under a download id it lists for the first time. Stage
+//! 1 only reports. Nothing is removed or changed in a download client.
 
 use super::model::Download;
 use super::store;
 use crate::catalog::store as catalog_store;
 use crate::core::journal::{Journal, NewEvent, event};
-use crate::engines::{QueueItem, Torrent};
-use chrono::Utc;
+use crate::engines::clients::HISTORY_DAYS;
+use crate::engines::{ClientDownload, ClientListing, QueueItem};
+use chrono::{DateTime, TimeDelta, Utc};
 use serde_json::json;
 use sqlx::PgPool;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -18,14 +21,14 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 pub struct Claims {
     /// The last queue read of each arr, by engine id.
     pub queues: BTreeMap<String, Vec<QueueItem>>,
-    /// Hashes each arr has grabbed, upper case, by engine id.
+    /// The download ids each arr has grabbed, upper case, by engine id.
     pub history: BTreeMap<String, HashSet<String>>,
-    /// Every configured arr has a queue read and a loaded grab history. Until then a torrent
+    /// Every configured arr has a queue read and a loaded grab history. Until then a download
     /// nobody claims cannot be called an orphan.
     pub complete: bool,
 }
 
-/// What the claims say about one torrent.
+/// What the claims say about one download.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Judged {
     pub owner: Option<String>,
@@ -51,9 +54,9 @@ fn is_stuck(item: &QueueItem) -> bool {
         || ["warning", "error"].contains(&health.to_ascii_lowercase().as_str())
 }
 
-/// Decide owner, stuck and orphan for one torrent. `stored_owner` is the owner already on
-/// record: a claim found once is kept when the arrs no longer show it (a finished import
-/// leaves the queue, and old grabs fall off the history that is read).
+/// Decide owner, stuck and orphan for one download, by its download id. `stored_owner` is the
+/// owner already on record: a claim found once is kept when the arrs no longer show it (a
+/// finished import leaves the queue, and old grabs fall off the history that is read).
 pub fn judge(hash: &str, claims: &Claims, stored_owner: Option<(&str, &str)>) -> Judged {
     let in_queue = claims.queues.iter().find_map(|(engine, items)| {
         items
@@ -132,11 +135,18 @@ pub struct DownloadsReport {
     pub orphaned: usize,
     pub removed: usize,
     pub updated: usize,
+    /// Rows past the listing's edge and older than the history's window, gone without an
+    /// event.
+    pub aged: usize,
+    /// Rows set aside under another client that this one took over.
+    pub taken_over: usize,
 }
 
 fn body(d: &Download) -> serde_json::Value {
     json!({
         "hash": d.hash,
+        "client": d.client,
+        "protocol": d.protocol,
         "name": d.name,
         "category": d.category,
         "state": d.state,
@@ -148,9 +158,21 @@ fn body(d: &Download) -> serde_json::Value {
     })
 }
 
-/// The events one torrent raises, given the row stored before (if any) and the row now.
+/// Whether a download is complete: a torrent once all of it is there, a usenet download once
+/// its client reports it completed (one that failed is past its download and is not).
+pub fn complete(d: &Download) -> bool {
+    if d.usenet() {
+        d.status.as_deref() == Some("completed")
+    } else {
+        d.progress >= 1.0
+    }
+}
+
+/// The events one download raises, given the row stored before (if any) and the row now. They
+/// are its client's: `sync:<client id>`.
 pub fn events_for(before: Option<&Download>, now: &Download) -> Vec<NewEvent> {
-    let actor = "sync:qbittorrent";
+    let actor = format!("sync:{}", now.client);
+    let actor = actor.as_str();
     let mut events = Vec::new();
     let with = |extra: serde_json::Value| {
         let mut b = body(now);
@@ -167,7 +189,7 @@ pub fn events_for(before: Option<&Download>, now: &Download) -> Vec<NewEvent> {
             actor,
             body(now),
         )),
-        Some(b) if b.progress < 1.0 && now.progress >= 1.0 => events.push(event(
+        Some(b) if !complete(b) && complete(now) => events.push(event(
             "download_completed",
             "download",
             &now.hash,
@@ -207,6 +229,9 @@ pub fn events_for(before: Option<&Download>, now: &Download) -> Vec<NewEvent> {
 /// What is compared to decide whether a stored row needs writing.
 fn same(a: &Download, b: &Download) -> bool {
     a.name == b.name
+        && a.protocol == b.protocol
+        && a.item_id == b.item_id
+        && a.status == b.status
         && a.category == b.category
         && a.state == b.state
         && a.progress == b.progress
@@ -233,51 +258,110 @@ fn same(a: &Download, b: &Download) -> bool {
         && (a.seeding_seconds - b.seeding_seconds).abs() < 3600
 }
 
-/// Compare the client's torrents with what is stored, write the difference and append the
-/// events, in one transaction.
+/// When a stored download finished, if that is at or before the listing's edge. A finished
+/// download there is past the history the client was read over: its absence from the listing
+/// is no removal.
+fn past_edge(d: &Download, edge: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
+    let edge = edge?;
+    let finished = matches!(d.status.as_deref(), Some("completed" | "failed"));
+    d.completed_at.filter(|at| finished && *at <= edge)
+}
+
+/// Compare one client's listing with what is stored of that client, write the difference and
+/// append the events, in one transaction. Two downloads of one listing with the same download
+/// id are one: the first counts.
+///
+/// A stored download the listing leaves out is removed, with `download_removed`. One past the
+/// listing's edge (a usenet job older than the history read) is no removal. Its row stays as it
+/// is while it is inside the window of [`HISTORY_DAYS`] days. It goes without an event once it
+/// is older. A job that comes back inside the window finds its row.
+///
+/// A download id the client lists for the first time can be one whose row was set aside: the
+/// client it was stored under is one the configuration no longer lists (an id renamed). The row
+/// is taken over with what it held (the owner, the title, the indexer, when it was first seen),
+/// and no `download_added` is raised.
 pub async fn reconcile(
     pool: &PgPool,
     journal: &Journal,
-    torrents: Vec<Torrent>,
+    client: &str,
+    listing: impl Into<ClientListing>,
     claims: &Claims,
 ) -> Result<DownloadsReport, sqlx::Error> {
-    let stored: HashMap<String, Download> = store::all(pool)
+    let ClientListing {
+        downloads,
+        finished_since,
+    } = listing.into();
+    let stored: HashMap<String, Download> = store::of_client(pool, client)
         .await?
         .into_iter()
         .map(|d| (d.hash.clone(), d))
         .collect();
+    let mut seen: HashSet<String> = HashSet::new();
+    let downloads: Vec<ClientDownload> = downloads
+        .into_iter()
+        .filter(|d| seen.insert(d.download_id.clone()))
+        .collect();
     let mut report = DownloadsReport {
-        listed: torrents.len(),
+        listed: downloads.len(),
         ..DownloadsReport::default()
     };
-    let listed: HashSet<&str> = torrents.iter().map(|t| t.hash.as_str()).collect();
+    let listed: HashSet<&str> = downloads.iter().map(|t| t.download_id.as_str()).collect();
+    let now = Utc::now();
+    let window_start = now - TimeDelta::days(HISTORY_DAYS);
+    // What is stored and not listed: past the edge and older than the window (it goes without
+    // an event), past the edge inside the window (it stays), or gone.
+    let mut aged: Vec<&Download> = Vec::new();
+    let mut held = 0;
+    let mut unlisted: Vec<&Download> = Vec::new();
+    for d in stored
+        .values()
+        .filter(|d| !listed.contains(d.hash.as_str()))
+    {
+        match past_edge(d, finished_since) {
+            Some(at) if at < window_start => aged.push(d),
+            Some(_) => held += 1,
+            None => unlisted.push(d),
+        }
+    }
     // A list far shorter than what is stored is not trusted for removals.
-    let removals_trusted = !(stored.len() >= 20 && torrents.len() * 2 < stored.len());
+    let in_scope = stored.len() - aged.len() - held;
+    let removals_trusted = !(in_scope >= 20 && downloads.len() * 2 < in_scope);
     let gone: Vec<&Download> = if removals_trusted {
-        stored
-            .values()
-            .filter(|d| !listed.contains(d.hash.as_str()))
-            .collect()
+        unlisted
     } else {
         tracing::warn!(
-            stored = stored.len(),
-            listed = torrents.len(),
-            "the download client listed far fewer torrents than are stored; removals are skipped this pass"
+            client,
+            stored = in_scope,
+            listed = downloads.len(),
+            "the download client listed far fewer downloads than are stored; removals are skipped this pass"
         );
         Vec::new()
     };
+    // The rows set aside under the ids this client lists for the first time.
+    let first: Vec<String> = downloads
+        .iter()
+        .filter(|t| !stored.contains_key(&t.download_id))
+        .map(|t| t.download_id.clone())
+        .collect();
+    let set_aside: HashMap<String, Download> = store::set_aside_of(pool, &first)
+        .await?
+        .into_iter()
+        .map(|d| (d.hash.clone(), d))
+        .collect();
 
-    let mut writes: Vec<(Download, Vec<NewEvent>)> = Vec::new();
-    let now = Utc::now();
-    for t in &torrents {
-        let before = stored.get(&t.hash);
+    let mut writes: Vec<(Download, Vec<NewEvent>, Option<String>)> = Vec::new();
+    for t in &downloads {
+        let adopted = (!stored.contains_key(&t.download_id))
+            .then(|| set_aside.get(&t.download_id))
+            .flatten();
+        let before = stored.get(&t.download_id).or(adopted);
         let stored_owner = before.and_then(|b| {
             Some((
                 b.owner.as_deref()?,
                 b.owner_source.as_deref().unwrap_or("history"),
             ))
         });
-        let j = judge(&t.hash, claims, stored_owner);
+        let j = judge(&t.download_id, claims, stored_owner);
         let title_id = match (&j.owner, j.engine_title_id) {
             (Some(owner), Some(engine_title_id)) => {
                 catalog_store::title_id_of(pool, owner, engine_title_id).await?
@@ -286,10 +370,14 @@ pub async fn reconcile(
             _ => before.and_then(|b| b.title_id),
         };
         let row = Download {
-            hash: t.hash.clone(),
+            hash: t.download_id.clone(),
+            client: client.to_string(),
+            protocol: t.protocol.as_str().to_string(),
+            item_id: Some(t.id.clone()),
             name: t.name.clone(),
             category: t.category.clone(),
             state: t.state.clone(),
+            status: Some(t.status.as_str().to_string()),
             progress: t.progress,
             size_bytes: t.size_bytes,
             added_at: t.added_at,
@@ -314,7 +402,8 @@ pub async fn reconcile(
             },
             first_seen_at: before.map(|b| b.first_seen_at).unwrap_or(now),
             updated_at: now,
-            // How it moves, only while it is not complete: a seeding torrent's row stays still.
+            // How it moves, only while it is not complete: a seeding torrent's row stays still,
+            // and a usenet download past its download moves no more.
             speed_bytes: (t.progress < 1.0).then_some(t.speed).flatten(),
             eta_seconds: (t.progress < 1.0).then_some(t.eta).flatten(),
             seeds: (t.progress < 1.0).then_some(t.seeds).flatten(),
@@ -323,17 +412,21 @@ pub async fn reconcile(
             indexer: j.indexer.or_else(|| before.and_then(|b| b.indexer.clone())),
         };
         let events = events_for(before, &row);
-        if before.is_none_or(|b| !same(b, &row)) || !events.is_empty() {
-            writes.push((row, events));
+        if adopted.is_some() || before.is_none_or(|b| !same(b, &row)) || !events.is_empty() {
+            writes.push((row, events, adopted.map(|a| a.client.clone())));
         }
     }
-    if writes.is_empty() && gone.is_empty() {
+    if writes.is_empty() && gone.is_empty() && aged.is_empty() {
         return Ok(report);
     }
 
     let mut tx = journal.begin(pool).await?;
     let mut events: Vec<NewEvent> = Vec::new();
-    for (row, row_events) in writes {
+    for (row, row_events, adopted_from) in writes {
+        if let Some(from) = adopted_from {
+            store::delete(tx.conn(), &from, &row.hash).await?;
+            report.taken_over += 1;
+        }
         store::upsert(tx.conn(), &row).await?;
         for e in &row_events {
             match e.kind.as_str() {
@@ -350,15 +443,19 @@ pub async fn reconcile(
         events.extend(row_events);
     }
     for d in gone {
-        store::delete(tx.conn(), &d.hash).await?;
+        store::delete(tx.conn(), client, &d.hash).await?;
         report.removed += 1;
         events.push(event(
             "download_removed",
             "download",
             &d.hash,
-            "sync:qbittorrent",
+            &format!("sync:{client}"),
             body(d),
         ));
+    }
+    for d in aged {
+        store::delete(tx.conn(), client, &d.hash).await?;
+        report.aged += 1;
     }
     tx.append(events).await?;
     tx.commit().await?;
@@ -479,9 +576,13 @@ mod tests {
     fn download(hash: &str, progress: f64) -> Download {
         Download {
             hash: hash.to_string(),
+            client: "qbittorrent".to_string(),
+            protocol: "torrent".to_string(),
+            item_id: Some(hash.to_ascii_lowercase()),
             name: "Release".to_string(),
             category: Some("radarr".to_string()),
             state: "downloading".to_string(),
+            status: Some("downloading".to_string()),
             progress,
             size_bytes: 10,
             added_at: None,
@@ -558,6 +659,55 @@ mod tests {
         );
     }
 
+    /// A usenet download is matched to its manager's queue by its job id, as a torrent is by its
+    /// hash. Its events are its client's.
+    #[test]
+    fn a_usenet_download_is_judged_by_its_job_id_and_journaled_as_its_client() {
+        const NZO: &str = "ECEE74C5-6619-4FB7-BA9A-2EE4CF76E5F2";
+        let mut c = claims(true);
+        c.queues
+            .get_mut("sonarr")
+            .unwrap()
+            .push(item(NZO, Some(12), "downloading", "ok", &[]));
+        let j = judge(NZO, &c, None);
+        assert_eq!(
+            (j.owner.as_deref(), j.owner_source, j.engine_title_id),
+            (Some("sonarr"), Some("queue"), Some(12))
+        );
+        assert_eq!(j.orphan, Some(false));
+        let mut d = download(NZO, 0.4);
+        d.client = "usenet".to_string();
+        d.protocol = "usenet".to_string();
+        assert!(d.usenet());
+        let events = events_for(None, &d);
+        assert_eq!(events[0].actor, "sync:usenet");
+        assert_eq!(
+            (&events[0].body["client"], &events[0].body["protocol"]),
+            (&json!("usenet"), &json!("usenet"))
+        );
+        // The qBittorrent of the environment form journals as it always did.
+        assert_eq!(
+            events_for(None, &download(A, 0.4))[0].actor,
+            "sync:qbittorrent"
+        );
+        // A usenet job completes when its client reports it completed. The end of its download
+        // and the start of its unpacking are no completion. A failed job never completes.
+        let at = |status: &str, progress: f64| {
+            let mut job = d.clone();
+            job.status = Some(status.to_string());
+            job.progress = progress;
+            job
+        };
+        let unpacking = at("unpacking", 1.0);
+        assert!(events_for(Some(&at("downloading", 0.9)), &unpacking).is_empty());
+        assert_eq!(
+            kinds(&events_for(Some(&unpacking), &at("completed", 1.0))),
+            vec!["download_completed"]
+        );
+        assert!(events_for(Some(&at("downloading", 0.9)), &at("failed", 1.0)).is_empty());
+        assert!(!complete(&at("failed", 1.0)) && complete(&download(A, 1.0)));
+    }
+
     #[test]
     fn a_row_is_rewritten_for_real_changes_only() {
         let a = download(A, 0.5);
@@ -567,5 +717,9 @@ mod tests {
         assert!(same(&a, &b));
         b.progress = 0.6;
         assert!(!same(&a, &b));
+        // A row stored before the product's status was kept is written once, to add it.
+        let mut older = a.clone();
+        older.status = None;
+        assert!(!same(&older, &a));
     }
 }

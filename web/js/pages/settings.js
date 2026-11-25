@@ -10,7 +10,7 @@
 
   /* Words for ids the API uses. Anything not listed reads as the API names it. */
   const COUNT = {
-    titles: 'titles', files: 'files', queue: 'in queue', shows: 'shows', episodes: 'episodes', torrents: 'torrents', active: 'active',
+    titles: 'titles', files: 'files', queue: 'in queue', shows: 'shows', episodes: 'episodes', torrents: 'torrents', downloads: 'downloads', active: 'active',
     indexers: 'indexers', failing: 'failing', flows: 'flows', running: 'running', requests: 'requests', pending: 'pending', cached: 'cached',
     libraries: 'libraries', playing: 'playing', people: 'people',
   };
@@ -171,10 +171,10 @@
       /* ====================================================== panels */
       const PANELS = {};
 
-      /* ------------------------------------------- general: the Plex server */
+      /* ------------------------------------------- general: the media server */
       PANELS.server = async slot => {
         const d = await integrationsData();
-        const plex = d.integrations.find(i => i.type === 'plex');
+        const plex = MQ.mediaServer(d.integrations);
         if (!plex) { slot.innerHTML = String(MQ.callout('No media server', '', 'warn', html`<a class="mq-btn mq-btn--sm" href="#tab=integrations">Integrations</a>`)); return; }
         const libs = (await get('libraries.json'))?.libraries || ws.libraries || [];
         slot.innerHTML = String(html`<section class="mq-panel st-group"><header class="st-ghead"><div><h3>Media server</h3></div><a class="mq-btn mq-btn--sm" href="#tab=integrations&open=${encodeURIComponent(plex.id)}">${icon('plug', 'mq-icon--sm')}Connection</a></header>
@@ -750,7 +750,7 @@
         if (e.target.closest('[data-add-channel]')) { MQ.notify.add(); return; }
         if (e.target.closest('[data-export]')) { exportConfig(); return; }
         if (e.target.closest('[data-sync-plex]')) {
-          integrationsData().then(d => { const plex = d.integrations.find(i => i.type === 'plex'); if (!plex) { MQ.toast('No media server', 'warn'); return; } if (!MQ.live) return; MQ.send('POST', `/integrations/${encodeURIComponent(plex.id)}/sync`).then(r => MQ.toast(r.ok ? 'Library sync started' : r.data?.detail || r.data?.title || "Couldn't start sync", r.ok ? 'ok' : 'bad')); });
+          integrationsData().then(d => { const plex = MQ.mediaServer(d.integrations); if (!plex) { MQ.toast('No media server', 'warn'); return; } if (!MQ.live) return; MQ.send('POST', `/integrations/${encodeURIComponent(plex.id)}/sync`).then(r => MQ.toast(r.ok ? 'Library sync started' : r.data?.detail || r.data?.title || "Couldn't start sync", r.ok ? 'ok' : 'bad')); });
           return;
         }
       });

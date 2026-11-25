@@ -232,7 +232,7 @@ pub struct Activity {
 /// One download the server tracks.
 #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
 pub struct QueueRow {
-    /// `q-<torrent hash>`.
+    /// `q-<download id>`: a torrent's hash, a usenet client's job id, lower case.
     pub id: String,
     /// `movie` or `show`.
     pub kind: String,
@@ -263,7 +263,8 @@ pub struct QueueRow {
     pub client: Option<String>,
     /// The manager that owns the download.
     pub manager: Option<String>,
-    /// `downloading`, `importing`, `seeding` or `unassigned` (no manager owns it).
+    /// `downloading`, `importing`, `seeding` (a torrent that is done), `completed` and `failed`
+    /// (a usenet download its client is done with), or `unassigned` (no manager owns it).
     pub stage: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attention: Option<QueueAttention>,
@@ -277,7 +278,7 @@ pub struct QueueRow {
     /// Bytes downloaded.
     pub done: i64,
     /// While it downloads, as the client last said: bytes per second, seconds left, and the
-    /// seeds and peers it is connected to.
+    /// seeds and peers a torrent is connected to.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speed: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]

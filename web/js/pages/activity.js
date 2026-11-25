@@ -7,7 +7,9 @@
   const { html, raw, icon, fmt, $, $$ } = MQ;
 
   const stageOf = q => (q.attention ? 'attention' : q.stage);
-  const TONE = { searching: 'info', downloading: 'info', importing: 'info', processing: 'proc', seeding: 'ok', attention: 'bad', failed: 'bad', unassigned: 'warn' };
+  const TONE = { searching: 'info', downloading: 'info', importing: 'info', processing: 'proc', seeding: 'ok', completed: 'ok', attention: 'bad', failed: 'bad', unassigned: 'warn' };
+  /* No longer in motion: a torrent that seeds, a usenet download its client is done with. */
+  const done = q => ['seeding', 'completed', 'failed'].includes(q.stage);
   const EVENT = { grabbed: ['Grabbed', 'info'], imported: ['Imported', 'ok'], upgraded: ['Upgraded', 'ok'], processed: ['Processed', 'proc'], failed: ['Failed', 'bad'], removed: ['Removed', 'mute'] };
   const epLine = x => (x.episode ? html`<span class="mq-cell-two"><b class="mq-coord">${fmt.ep(x.episode.season, x.episode.number)}</b><small>${x.episode.title || ''}</small></span>` : x.pack ? html`<span class="mq-cell-two"><b style="font-weight:550">Season ${x.pack.season}</b><small>Full season</small></span>` : '');
   const epText = x => (x.episode ? `${fmt.ep(x.episode.season, x.episode.number)} ${x.episode.title || ''}` : x.pack ? `Season ${x.pack.season}` : '');
@@ -179,7 +181,7 @@
       const runs = [];
       let queueRead = !live;
       const headMeta = () => {
-        const moving = data.queue.filter(q => q.stage !== 'seeding').length;
+        const moving = data.queue.filter(q => !done(q)).length;
         const attention = data.queue.filter(q => q.attention).length;
         const speed = data.queue.reduce((n, q) => n + (q.speed || 0), 0);
         return MQ.join([queueRead ? `${moving} active` : '', queueRead && attention ? `${attention} need attention` : '', queueRead && speed ? fmt.speed(speed) : '', proc?.counts?.open ? `${proc.counts.open} processing` : ''], ', ');
@@ -196,8 +198,10 @@
       const SETS = {
         queue: {
           part: 'queue', rows: data.queue, dflt: 'motion', api: 'GET /api/v1/activity/queue',
-          chips: [['motion', 'Active', q => q.stage !== 'seeding'], ['downloading', 'Downloading', q => !q.attention && ['downloading', 'searching'].includes(q.stage)], ['importing', 'Importing', q => !q.attention && q.stage === 'importing'],
-            ['processing', 'Processing', q => !q.attention && q.stage === 'processing'], ['attention', 'Needs attention', q => !!q.attention, 'bad'], ['seeding', 'Seeding', q => q.stage === 'seeding']],
+          /* A chip with a fifth entry is shown only while it counts something: the done usenet downloads. */
+          chips: [['motion', 'Active', q => !done(q)], ['downloading', 'Downloading', q => !q.attention && ['downloading', 'searching'].includes(q.stage)], ['importing', 'Importing', q => !q.attention && q.stage === 'importing'],
+            ['processing', 'Processing', q => !q.attention && q.stage === 'processing'], ['attention', 'Needs attention', q => !!q.attention, 'bad'], ['seeding', 'Seeding', q => q.stage === 'seeding'],
+            ['completed', 'Completed', q => q.stage === 'completed', '', true], ['failed', 'Failed', q => q.stage === 'failed', 'bad', true]],
           columns: queueColumns, sort: { key: 'added', dir: 'desc' }, onRow: queueDrawer, search: q => `${q.title.title} ${q.release} ${epText(q)} ${q.indexer} ${q.client} ${q.group}`,
           summary: rows => { const sp = rows.reduce((n, q) => n + (q.speed || 0), 0); return [count(rows.filter(q => !q.attention && q.stage === 'downloading').length, 'downloading', 'downloading'), count(rows.filter(q => q.attention).length, 'needs attention', 'need attention'), sp ? fmt.speed(sp) : '']; },
           empty: { title: 'Queue is empty' },
@@ -290,7 +294,7 @@
       let tabsCtl = null;
       const countTabs = () => {
         if (!tabsCtl) return;
-        if (SETS.queue.state === 'ready') tabsCtl.setCount('queue', data.queue.filter(q => q.stage !== 'seeding').length, data.queue.some(q => q.attention) ? 'bad' : '');
+        if (SETS.queue.state === 'ready') tabsCtl.setCount('queue', data.queue.filter(q => !done(q)).length, data.queue.some(q => q.attention) ? 'bad' : '');
         if (SETS.wanted.state === 'ready') tabsCtl.setCount('wanted', data.wanted.filter(w => !notOut(w)).length);
       };
       function loadPart(set) {
@@ -357,7 +361,7 @@
           const inKind = kind === 'all' ? base : by(kind);
           /* A set that knows the server's totals shows them, as long as nothing narrows the view to what is loaded. */
           const whole = set.counts && !words.length && kind === 'all';
-          $('#chips', view).innerHTML = String(MQ.join(set.chips.map(c => { const n = whole ? set.counts[c[0]] ?? inKind.filter(c[2]).length : inKind.filter(c[2]).length; return html`<button class="mq-chip" data-chip="${c[0]}" aria-pressed="${c === chip}">${c[3] && n ? html`<span class="mq-dot" data-tone="${c[3]}"></span>` : ''}${c[1]}<small>${n}</small></button>`; })));
+          $('#chips', view).innerHTML = String(MQ.join(set.chips.map(c => { const n = whole ? set.counts[c[0]] ?? inKind.filter(c[2]).length : inKind.filter(c[2]).length; if (c[4] && !n && c !== chip) return ''; return html`<button class="mq-chip" data-chip="${c[0]}" aria-pressed="${c === chip}">${c[3] && n ? html`<span class="mq-dot" data-tone="${c[3]}"></span>` : ''}${c[1]}<small>${n}</small></button>`; })));
           for (const k of Object.keys(tables)) {
             const rows = by(k).filter(chip[2]);
             tables[k].update(rows);
@@ -425,7 +429,7 @@
       /* Live, the Queue count starts from the workspace's and the Wanted count arrives with its part. */
       const wsc = MQ.workspace?.counts || {};
       tabsCtl = MQ.tabs.mount($('#tabs', root), [
-        { id: 'queue', label: 'Queue', count: live ? wsc.queue ?? null : data.queue.filter(q => q.stage !== 'seeding').length, tone: (live ? wsc.attention : data.queue.some(q => q.attention)) ? 'bad' : '' },
+        { id: 'queue', label: 'Queue', count: live ? wsc.queue ?? null : data.queue.filter(q => !done(q)).length, tone: (live ? wsc.attention : data.queue.some(q => q.attention)) ? 'bad' : '' },
         { id: 'history', label: 'History' },
         { id: 'wanted', label: 'Wanted', count: live ? null : data.wanted.filter(w => !notOut(w)).length },
         proc && { id: 'processing', label: 'Processing', count: proc.counts?.open || 0, tone: proc.counts?.stuck ? 'warn' : '' },

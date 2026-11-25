@@ -132,8 +132,12 @@ fn held_of(row: CopyRow, tags: &[String]) -> Held {
 
 /// The files of a download to import as they are: those the manager matched to a title (a
 /// movie, or a show's episodes) and gave a quality, never a sample. A movie takes its largest
-/// file alone. A file without the download's id gets it.
-pub fn files_to_import(kind: TitleKind, hash: &str, offer: Vec<ImportFile>) -> Vec<ImportFile> {
+/// file alone. A file without the download's id gets it as the manager wrote it.
+pub fn files_to_import(
+    kind: TitleKind,
+    download_id: &str,
+    offer: Vec<ImportFile>,
+) -> Vec<ImportFile> {
     let mut usable: Vec<ImportFile> = offer
         .into_iter()
         .filter(|f| f.title_id.is_some() && f.quality.is_some())
@@ -145,7 +149,7 @@ pub fn files_to_import(kind: TitleKind, hash: &str, offer: Vec<ImportFile>) -> V
         })
         .map(|mut f| {
             if f.download_id.is_none() {
-                f.download_id = Some(hash.trim().to_ascii_uppercase());
+                f.download_id = Some(download_id.trim().to_string());
             }
             f
         })
@@ -597,7 +601,8 @@ impl Asker<'_> {
     }
 
     /// Import a download the manager refused, as it is: the files its manual import offers,
-    /// in the import mode its download client allows.
+    /// in the import mode its download client allows. The manager is asked by the download id
+    /// its queue entry carries, in the manager's own case: its lookups match the id exactly.
     pub async fn import(&self, hash: &str) -> Result<ActAnswer, AcquireError> {
         let (d, owner) = self.owned(hash).await?;
         let engine = self.manager(&owner)?;
@@ -609,11 +614,12 @@ impl Asker<'_> {
         let entry = entries
             .first()
             .ok_or_else(|| NotFound(format!("Not in the queue of {name}.")))?;
+        let written = &entry.download_id_as_written;
         let offer = engine
-            .import_offer(&d.hash)
+            .import_offer(written)
             .await
             .map_err(self.upstream(&owner))?;
-        let files = files_to_import(engine.engine().kind, &d.hash, offer);
+        let files = files_to_import(engine.engine().kind, written, offer);
         if files.is_empty() {
             return Err(NotOffered(format!(
                 "No file of this download for {name} to import."
@@ -870,6 +876,16 @@ mod tests {
         assert_eq!(picked[0].path, "/downloads/The Devil Wears Prada.mkv");
         assert_eq!(picked[0].download_id.as_deref(), Some(hash));
         assert_eq!(picked[0].title_id, Some(4806));
+        // A usenet id keeps the case its manager wrote it in.
+        let usenet = files_to_import(
+            TitleKind::Movie,
+            " SABnzbd_nzo_x7f3k2ab ",
+            vec![file.clone()],
+        );
+        assert_eq!(
+            usenet[0].download_id.as_deref(),
+            Some("SABnzbd_nzo_x7f3k2ab")
+        );
         // A show takes every file that names its episodes.
         let episode = ImportFile {
             episode_ids: vec![16846],

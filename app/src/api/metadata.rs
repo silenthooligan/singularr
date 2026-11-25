@@ -4,7 +4,7 @@
 //!
 //! The records come from TMDB through `metadata::records` (cached in the module's table). What
 //! the library has is added here, above every module it reads: each card's `state`; a title's
-//! `library` (from the catalog and the Plex server's read model), `history` (the journal),
+//! `library` (from the catalog and the media servers' read model), `history` (the journal),
 //! `queue` (the downloads), `requests` and `processing` (the runs of the processing services on
 //! its files, with each file marked by the run that made it or works on it); a season's episodes
 //! with their files from the catalog's copies. Every route needs a caller with `read`.
@@ -17,11 +17,11 @@ use crate::catalog::model::{CopyQuery, CopyView, TitleDetail, TitleKind};
 use crate::catalog::service as catalog;
 use crate::catalog::store::{self as catalog_store, LibraryName, TitleServerRow};
 use crate::core::auth::Caller;
-use crate::core::config::{Config, IntegrationType};
+use crate::core::config::Config;
 use crate::core::error::{AppError, AppResult};
 use crate::core::model::{Event, EventQuery};
-use crate::core::outbound::encode_component;
 use crate::core::schema::ProblemDoc;
+use crate::engines::MediaServer;
 use crate::lifecycle::model::Download;
 use crate::lifecycle::store as downloads_store;
 use crate::metadata::MetadataProvider;
@@ -41,6 +41,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use singularr_core::Policy;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 use utoipa::OpenApi;
 
 type ApiResult<T> = Result<Json<T>, AppError>;
@@ -207,8 +208,8 @@ fn root_name(title_folder: &str) -> Option<String> {
     folder_name(parent)
 }
 
-/// The libraries by id, to name where a title and each of its files are: the Plex section
-/// when one holds it, else the manager's library.
+/// The libraries by id, to name where a title and each of its files are: the media server's
+/// section when one holds it, else the manager's library.
 pub struct Libraries(Vec<LibraryName>);
 
 impl Libraries {
@@ -266,22 +267,25 @@ impl Libraries {
         }
     }
 
-    /// The address of a server item in Plex's web app, when the server's machine identifier
-    /// is known.
-    fn plex_link(&self, row: &TitleServerRow, web: &str) -> Option<PlexLink> {
+    /// The address of a server item in its media server's web app, when that server is
+    /// configured and can make one (Plex's needs the server's machine identifier).
+    fn server_link(
+        &self,
+        row: &TitleServerRow,
+        servers: &[Arc<dyn MediaServer>],
+    ) -> Option<PlexLink> {
         let machine = row
             .library_id
             .as_deref()
             .and_then(|id| self.get(id))
-            .and_then(|l| l.machine_id.as_deref())?;
-        let key = format!("/library/metadata/{}", row.rating_key);
+            .and_then(|l| l.machine_id.as_deref());
+        let link = servers
+            .iter()
+            .find(|s| s.id() == row.server)?
+            .item_link(machine, &row.rating_key)?;
         Some(PlexLink {
-            url: format!(
-                "{web}/#!/server/{}/details?key={}",
-                encode_component(machine),
-                encode_component(&key)
-            ),
-            key,
+            url: link.url,
+            key: link.key,
         })
     }
 }
@@ -445,15 +449,15 @@ fn held_state(detail: &TitleDetail, card_state: Option<&str>) -> String {
     card_state.unwrap_or("missing").to_string()
 }
 
-/// What the library has of a title, from its catalog detail and what the Plex server says
-/// about it (`server`, the most played item first).
+/// What the library has of a title, from its catalog detail and what the media servers say
+/// about it (`server`, the most played item first); `servers` make the item's link.
 fn library_facts(
     detail: &TitleDetail,
     state: &str,
     policy: &Policy,
     libs: &Libraries,
     server: &[TitleServerRow],
-    plex_web: &str,
+    servers: &[Arc<dyn MediaServer>],
 ) -> LibraryFacts {
     let engine = detail.engines.first();
     let is_movie = detail.kind == TitleKind::Movie.as_str();
@@ -546,12 +550,12 @@ fn library_facts(
             count: server.iter().map(|s| s.plays).sum(),
             last: server.iter().filter_map(|s| s.last_played).max(),
         }),
-        plex: first_server.and_then(|s| libs.plex_link(s, plex_web)),
+        plex: first_server.and_then(|s| libs.server_link(s, servers)),
     }
 }
 
-/// Rotten Tomatoes as Plex reports it: a rating 0 to 10 whose image key is Rotten Tomatoes',
-/// as a percentage.
+/// Rotten Tomatoes as a media server reports it: a rating 0 to 10 whose image key is Rotten
+/// Tomatoes', as a percentage.
 pub fn rotten_tomatoes(row: &catalog_store::TitleServerRow) -> Option<RottenTomatoes> {
     let rt = |rating: Option<f64>, image: &Option<String>| {
         image
@@ -657,18 +661,38 @@ fn integration_name(config: &Config, id: &str) -> String {
         .unwrap_or_else(|| id.to_string())
 }
 
+/// Where one download of a title stands on the title's page, in agreement with Activity
+/// (`labels::queue_stage`): `importing` (done, for its manager to take), `failed` (a usenet
+/// download its client gave up on), `paused` or `queued` (finer words where Activity reads
+/// downloading), else `downloading`. A torrent is done once all of it is there. A usenet
+/// download is done once its client completed it. A client checking or unpacking a download
+/// is still at work on it.
+pub fn title_queue_stage(d: &Download) -> &'static str {
+    if crate::lifecycle::downloads::complete(d) {
+        return "importing";
+    }
+    match d.status.as_deref() {
+        Some("failed") if d.usenet() => "failed",
+        Some("paused") => "paused",
+        Some("queued") => "queued",
+        Some(_) => "downloading",
+        // A row stored before the product's status was kept: by qBittorrent's word for it.
+        None => {
+            let state = d.state.as_str();
+            if state.starts_with("paused") || state.starts_with("stopped") {
+                "paused"
+            } else if state.starts_with("queued") || state == "metaDL" || state == "checkingDL" {
+                "queued"
+            } else {
+                "downloading"
+            }
+        }
+    }
+}
+
 /// One download that is not done, as a line of the title's queue.
 fn queue_item(d: &Download, kind: &str, config: &Config) -> QueueItem {
-    let state = d.state.as_str();
-    let stage = if d.progress >= 1.0 {
-        "importing"
-    } else if state.starts_with("paused") || state.starts_with("stopped") {
-        "paused"
-    } else if state.starts_with("queued") || state == "metaDL" || state == "checkingDL" {
-        "queued"
-    } else {
-        "downloading"
-    };
+    let stage = title_queue_stage(d);
     let progress = (d.progress.clamp(0.0, 1.0) * 1000.0).round() / 10.0;
     QueueItem {
         id: d.hash.clone(),
@@ -680,11 +704,7 @@ fn queue_item(d: &Download, kind: &str, config: &Config) -> QueueItem {
         done: (d.size_bytes as f64 * d.progress.clamp(0.0, 1.0)) as i64,
         added: d.added_at,
         manager: d.owner.as_deref().map(|o| integration_name(config, o)),
-        client: config
-            .integrations
-            .iter()
-            .find(|i| i.kind == IntegrationType::Qbittorrent)
-            .map(|i| i.name.clone()),
+        client: (!d.client.is_empty()).then(|| integration_name(config, &d.client)),
         attention: d.stuck,
         reason: d.stuck_reason.clone(),
     }
@@ -720,7 +740,7 @@ fn title_request(r: &requests_store::TitleRequestRow, kind: TitleKind) -> TitleR
 
 /// A rich title record: facts, ratings, release dates, cast and crew (up to 40 each, with the
 /// totals), videos, keywords, the collection, where to watch, recommendations and similar
-/// titles, with what the library has (files, seasons, plays, the Plex item), the title's
+/// titles, with what the library has (files, seasons, plays, the media server's item), the title's
 /// history, its downloads, its requests, and what the processing services ran on its files.
 #[utoipa::path(get, path = "/api/v1/metadata/titles/{kind}/{tmdb}", tag = "metadata",
     params(("kind" = String, Path, description = "`movie` or `show`"), ("tmdb" = i64, Path, description = "The TMDB id")),
@@ -757,7 +777,7 @@ async fn title_record(
             &state.policy.current().policy,
             &libs,
             &server,
-            &state.config.plex_web_url,
+            &state.engines.media_servers,
         );
         // Each file with what processing did or does to it.
         if let Some(editions) = library.editions.as_mut() {
@@ -1165,7 +1185,119 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engines::DownloadStatus;
     use chrono::Utc;
+
+    fn in_queue(protocol: &str, state: &str, status: Option<&str>, progress: f64) -> Download {
+        Download {
+            hash: "A1".to_string(),
+            client: "client".to_string(),
+            protocol: protocol.to_string(),
+            item_id: None,
+            name: "Release".to_string(),
+            category: None,
+            state: state.to_string(),
+            status: status.map(str::to_string),
+            progress,
+            size_bytes: 1,
+            added_at: None,
+            completed_at: None,
+            seeding_seconds: 0,
+            save_path: None,
+            owner: Some("radarr".to_string()),
+            owner_source: Some("queue".to_string()),
+            title_id: Some(1),
+            title: None,
+            queue_status: None,
+            queue_state: Some("downloading".to_string()),
+            queue_health: None,
+            queue_messages: serde_json::json!([]),
+            stuck: false,
+            stuck_reason: None,
+            orphan: false,
+            orphan_reason: None,
+            first_seen_at: Utc::now(),
+            updated_at: Utc::now(),
+            speed_bytes: None,
+            eta_seconds: None,
+            seeds: None,
+            peers: None,
+            indexer: None,
+        }
+    }
+
+    /// The title page reads a qBittorrent download as it read it before other clients came,
+    /// by qBittorrent's state. For every client it agrees with Activity: a word of its own
+    /// (paused, queued) only where Activity reads downloading.
+    #[test]
+    fn the_title_page_reads_a_download_as_activity_does() {
+        fn before(state: &str, progress: f64) -> &'static str {
+            if progress >= 1.0 {
+                "importing"
+            } else if state.starts_with("paused") || state.starts_with("stopped") {
+                "paused"
+            } else if state.starts_with("queued") || state == "metaDL" || state == "checkingDL" {
+                "queued"
+            } else {
+                "downloading"
+            }
+        }
+        for state in [
+            "downloading",
+            "forcedDL",
+            "forcedMetaDL",
+            "metaDL",
+            "queuedDL",
+            "queuedUP",
+            "stalledDL",
+            "pausedDL",
+            "stoppedDL",
+            "pausedUP",
+            "stoppedUP",
+            "uploading",
+            "forcedUP",
+            "stalledUP",
+            "checkingDL",
+            "checkingUP",
+            "checkingResumeData",
+            "moving",
+            "error",
+            "missingFiles",
+            "unknown",
+        ] {
+            for progress in [0.0, 0.5, 1.0] {
+                let status = crate::engines::qbit::status_of(state, progress);
+                let row = in_queue("torrent", state, Some(status.as_str()), progress);
+                let stored_before = in_queue("torrent", state, None, progress);
+                for d in [row, stored_before] {
+                    assert_eq!(
+                        title_queue_stage(&d),
+                        before(state, progress),
+                        "{state} at {progress}, status {:?}",
+                        d.status
+                    );
+                }
+            }
+        }
+        for status in DownloadStatus::ALL {
+            for (protocol, progress) in [
+                ("torrent", 0.5),
+                ("torrent", 1.0),
+                ("usenet", 0.5),
+                ("usenet", 1.0),
+            ] {
+                let d = in_queue(protocol, "word", Some(status.as_str()), progress);
+                let title = title_queue_stage(&d);
+                let activity =
+                    labels::queue_stage(false, progress, true, d.usenet(), Some(status.as_str()));
+                assert!(
+                    title == activity
+                        || (activity == "downloading" && matches!(title, "paused" | "queued")),
+                    "{protocol} {status:?} at {progress}: {title} here, {activity} on Activity"
+                );
+            }
+        }
+    }
 
     #[test]
     fn ids_kinds_runtimes_and_posters_are_read() {
@@ -1262,17 +1394,32 @@ mod tests {
             libs.place("radarr", Some("/elsewhere/Heat (1995)"), None).1,
             "Radarr"
         );
-        let link = libs.plex_link(&row, "https://app.plex.tv/desktop").unwrap();
+        // The item's link comes from its server's adapter: Plex's web app, by machine id.
+        let plex = crate::engines::plex::Plex::new(
+            &crate::core::config::MediaServerConfig {
+                id: "plex".into(),
+                kind: crate::core::config::MediaServerKind::Plex,
+                url: Some("http://10.0.0.30:32400".into()),
+                secret: Some("token".into()),
+                web_url: None,
+            },
+            crate::core::outbound::Outbound::with_transport(
+                crate::core::outbound::Allowlist::default(),
+                crate::core::outbound::recorded::Recorded::new(),
+            ),
+        )
+        .unwrap()
+        .with_web("https://app.plex.tv/desktop");
+        let servers: Vec<Arc<dyn MediaServer>> = vec![Arc::new(plex)];
+        let link = libs.server_link(&row, &servers).unwrap();
         assert_eq!(link.key, "/library/metadata/77");
         assert_eq!(
             link.url,
             "https://app.plex.tv/desktop/#!/server/abc123/details?key=%2Flibrary%2Fmetadata%2F77"
         );
         let unknown = server_row("78", "radarr");
-        assert!(
-            libs.plex_link(&unknown, "https://app.plex.tv/desktop")
-                .is_none()
-        );
+        assert!(libs.server_link(&unknown, &servers).is_none());
+        assert!(libs.server_link(&row, &[]).is_none());
     }
 
     #[test]

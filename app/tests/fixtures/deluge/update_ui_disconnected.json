@@ -1,0 +1,14 @@
+{
+ "result": {
+  "connected": false,
+  "torrents": null,
+  "filters": null,
+  "stats": {
+   "max_download": null,
+   "max_upload": null,
+   "max_num_connections": null
+  }
+ },
+ "error": null,
+ "id": 5
+}

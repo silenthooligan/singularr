@@ -47,8 +47,8 @@
 
       /* ------------------------------------------------------- steps */
       async function serverStep(body) {
-        const plex = integrations().find(i => i.type === 'plex');
-        const t = types.get('plex') || { fields: [] };
+        const plex = MQ.mediaServer(integrations());
+        const t = types.get(plex?.type || 'plex') || { fields: [] };
         let g;
         if (plex) {
           const det = MQ.live ? await MQ.api('/integrations/' + encodeURIComponent(plex.id)) : await MQ.maybe(`integrations/${plex.id}.json`);
@@ -111,7 +111,7 @@
       }
       function doneStep(body) {
         const all = integrations();
-        const plex = all.find(i => i.type === 'plex');
+        const plex = MQ.mediaServer(all);
         const methods = fields.find(f => f.key === 'access.methods');
         body.innerHTML = String(html`<div class="su-done">${icon('check', 'mq-icon--lg')}<div><b>Ready</b></div></div>
           <dl class="su-summary">${[

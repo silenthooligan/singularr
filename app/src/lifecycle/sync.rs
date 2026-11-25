@@ -17,7 +17,7 @@ use crate::core::journal::Journal;
 use crate::core::observe;
 use crate::core::units;
 use crate::engines::service::{EngineSet, PassOk, pass_result};
-use crate::engines::{Downloader, LibraryEngine};
+use crate::engines::{DownloadClient, LibraryEngine, Protocol};
 use futures::StreamExt;
 use serde_json::json;
 use sqlx::PgPool;
@@ -116,14 +116,16 @@ pub fn spawn(deps: SyncDeps) -> SyncHandle {
             book.clone(),
         )));
     }
-    if let Some(downloader) = deps.engines.downloader.clone() {
+    // Each download client on its own loop: torrents and usenet downloads, each pass touching
+    // that client's rows alone.
+    for client in &deps.engines.download_clients {
         tasks.push(tokio::spawn(downloads_loop(
             deps.clone(),
-            downloader,
+            client.clone(),
             book.clone(),
         )));
     }
-    if let Some(server) = deps.engines.media_server.clone() {
+    for server in deps.engines.media_servers.iter().cloned() {
         tasks.push(tokio::spawn(super::server::server_loop(
             deps.clone(),
             server,
@@ -403,20 +405,28 @@ async fn history_loop(deps: SyncDeps, engine: Arc<dyn LibraryEngine>, book: Book
     }
 }
 
-async fn downloads_loop(deps: SyncDeps, downloader: Arc<dyn Downloader>, book: Book) {
-    let id = downloader.id().to_string();
-    let job = jobs::registry().register(JobSpec::of(&id, "downloads", deps.config.qbit));
+/// What one pass of a download client counted: its torrents, or a usenet client's downloads.
+pub fn downloads_counts(protocol: Protocol, listed: usize, settled: bool) -> serde_json::Value {
+    match protocol {
+        Protocol::Torrent => json!({ "torrents": listed, "ownership_settled": settled }),
+        Protocol::Usenet => json!({ "downloads": listed, "ownership_settled": settled }),
+    }
+}
+
+async fn downloads_loop(deps: SyncDeps, client: Arc<dyn DownloadClient>, book: Book) {
+    let id = client.id().to_string();
+    let job = jobs::registry().register(JobSpec::of(&id, "downloads", deps.config.downloads));
     job.wait(jitter(deps.config.jitter)).await;
     loop {
         let started = job.begin();
-        let outcome = match downloader.torrents().await {
-            Ok(torrents) => {
+        let outcome = match client.listing().await {
+            Ok(listing) => {
                 let latency = started.elapsed();
                 let claims = book.lock().unwrap().claims.clone();
-                match reconcile(&deps.pool, &deps.journal, torrents, &claims).await {
+                match reconcile(&deps.pool, &deps.journal, &id, listing, &claims).await {
                     Ok(r) => Ok(PassOk::new(
                         latency,
-                        json!({ "torrents": r.listed, "ownership_settled": claims.complete }),
+                        downloads_counts(client.protocol(), r.listed, claims.complete),
                     )),
                     Err(e) => Err(format!("the downloads could not be stored: {e}")),
                 }
@@ -424,7 +434,7 @@ async fn downloads_loop(deps: SyncDeps, downloader: Arc<dyn Downloader>, book: B
             Err(e) => Err(e.to_string()),
         };
         report(&deps, &job, &id, "downloads", started, outcome).await;
-        job.wait(deps.config.qbit).await;
+        job.wait(deps.config.downloads).await;
     }
 }
 
@@ -524,5 +534,19 @@ mod tests {
         for _ in 0..200 {
             assert!(jitter(Duration::from_secs(20)) <= Duration::from_secs(20));
         }
+    }
+
+    /// A torrent client's pass counts torrents, as qBittorrent's always did; a usenet client's
+    /// counts downloads.
+    #[test]
+    fn a_pass_counts_in_its_protocol_s_word() {
+        assert_eq!(
+            downloads_counts(Protocol::Torrent, 4, true),
+            json!({"torrents": 4, "ownership_settled": true})
+        );
+        assert_eq!(
+            downloads_counts(Protocol::Usenet, 2, false),
+            json!({"downloads": 2, "ownership_settled": false})
+        );
     }
 }

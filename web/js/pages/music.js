@@ -1,6 +1,6 @@
 /* Music: covers first. Albums as a grid of square covers (or the table), artists as round photos
-   (or the table). A card or a row opens the album or the artist page. Albums that Plex files under
-   no album name (missing tags) stay in the list, after the tagged ones, with a view of their own. */
+   (or the table). A card or a row opens the album or the artist page. Albums that the media server
+   files under no album name (missing tags) stay in the list, after the tagged ones, with a view of their own. */
 (() => {
   'use strict';
   const { html, raw, icon, fmt, $ } = MQ;

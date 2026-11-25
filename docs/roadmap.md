@@ -40,8 +40,8 @@ a time.
 
 | Kind | 0.1 (beta) | Next |
 |---|---|---|
-| Media servers and players | Plex: libraries, items, sessions, plays, images, viewer sign-in | Jellyfin, Emby, Kodi as a player |
-| Download clients | qBittorrent | Transmission, Deluge, SABnzbd, NZBGet |
+| Media servers and players | Plex: libraries, items, sessions, plays, images, viewer sign-in | on main: Jellyfin and Emby (read only; Emby untested against a real server); then Kodi as a player, viewer sign-in for Jellyfin and Emby |
+| Download clients | qBittorrent | on main: Transmission, Deluge, SABnzbd, NZBGet (read only) |
 | Indexers | through the managers | Prowlarr, Jackett, Torznab and Newznab (stage 2) |
 | Transcoders | Tdarr: flows, workers, libraries, rules | others on the same layer |
 | Requests | Seerr | Singularr (stage 3) |

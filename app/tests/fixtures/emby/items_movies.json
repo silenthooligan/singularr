@@ -1,0 +1,147 @@
+{
+ "Items": [
+  {
+   "Name": "Big Buck Bunny",
+   "ServerId": "7b6a8c9d0e1f42a3b4c5d6e7f8091a2b",
+   "Id": "4321",
+   "DateCreated": "2025-03-04T09:20:11.0000000Z",
+   "Container": "mkv",
+   "PremiereDate": "2008-01-01T00:00:00.0000000Z",
+   "CriticRating": 77,
+   "OfficialRating": "PG",
+   "CommunityRating": 6.8,
+   "RunTimeTicks": 5964000000,
+   "ProductionYear": 2008,
+   "ProviderIds": {
+    "Tmdb": "10378",
+    "Imdb": "tt1254207"
+   },
+   "IsFolder": false,
+   "Type": "Movie",
+   "UserData": {
+    "PlaybackPositionTicks": 0,
+    "PlayCount": 2,
+    "IsFavorite": false,
+    "LastPlayedDate": "2026-11-20T21:04:11.0000000Z",
+    "Played": true
+   },
+   "MediaType": "Video",
+   "Path": "/data/movies/Big Buck Bunny (2008)/Big Buck Bunny (2008).mkv",
+   "MediaSources": [
+    {
+     "Protocol": "File",
+     "Id": "mediasource_4321",
+     "Path": "/data/movies/Big Buck Bunny (2008)/Big Buck Bunny (2008).mkv",
+     "Type": "Default",
+     "Container": "mkv",
+     "Size": 727344128,
+     "Name": "Big Buck Bunny",
+     "RunTimeTicks": 5964000000,
+     "Bitrate": 9756000,
+     "MediaStreams": [
+      {
+       "Codec": "h264",
+       "Language": "und",
+       "IsInterlaced": false,
+       "BitRate": 9564000,
+       "BitDepth": 8,
+       "IsDefault": true,
+       "IsForced": false,
+       "Height": 1080,
+       "Width": 1920,
+       "Type": "Video",
+       "Index": 0,
+       "IsExternal": false
+      },
+      {
+       "Codec": "aac",
+       "Language": "eng",
+       "BitRate": 192000,
+       "Channels": 2,
+       "IsDefault": true,
+       "IsForced": false,
+       "Type": "Audio",
+       "Index": 1,
+       "IsExternal": false
+      }
+     ]
+    }
+   ],
+   "ImageTags": {
+    "Primary": "4f5e6d7c8b9a0f1e2d3c4b5a69788796"
+   }
+  },
+  {
+   "Name": "Sintel",
+   "ServerId": "7b6a8c9d0e1f42a3b4c5d6e7f8091a2b",
+   "Id": "4322",
+   "DateCreated": "2025-03-04T09:20:11.0000000Z",
+   "Container": "mkv",
+   "PremiereDate": "2010-01-01T00:00:00.0000000Z",
+   "CriticRating": 55,
+   "OfficialRating": "PG",
+   "CommunityRating": 6.8,
+   "RunTimeTicks": 8880000000,
+   "ProductionYear": 2010,
+   "ProviderIds": {
+    "Tmdb": "45745",
+    "Imdb": "tt1727587"
+   },
+   "IsFolder": false,
+   "Type": "Movie",
+   "UserData": {
+    "PlaybackPositionTicks": 0,
+    "PlayCount": 0,
+    "IsFavorite": false,
+    "LastPlayedDate": "2026-11-20T21:04:11.0000000Z",
+    "Played": false
+   },
+   "MediaType": "Video",
+   "Path": "/data/movies/Sintel (2010)/Sintel (2010).mkv",
+   "MediaSources": [
+    {
+     "Protocol": "File",
+     "Id": "mediasource_4322",
+     "Path": "/data/movies/Sintel (2010)/Sintel (2010).mkv",
+     "Type": "Default",
+     "Container": "mkv",
+     "Size": 1076887552,
+     "Name": "Sintel",
+     "RunTimeTicks": 8880000000,
+     "Bitrate": 9692000,
+     "MediaStreams": [
+      {
+       "Codec": "h264",
+       "Language": "und",
+       "IsInterlaced": false,
+       "BitRate": 9500000,
+       "BitDepth": 8,
+       "IsDefault": true,
+       "IsForced": false,
+       "Height": 1080,
+       "Width": 1920,
+       "Type": "Video",
+       "Index": 0,
+       "IsExternal": false
+      },
+      {
+       "Codec": "aac",
+       "Language": "eng",
+       "BitRate": 192000,
+       "Channels": 2,
+       "IsDefault": true,
+       "IsForced": false,
+       "Type": "Audio",
+       "Index": 1,
+       "IsExternal": false
+      }
+     ]
+    }
+   ],
+   "ImageTags": {
+    "Primary": "5e6d7c8b9a0f1e2d3c4b5a6978879605"
+   }
+  }
+ ],
+ "TotalRecordCount": 2
+}

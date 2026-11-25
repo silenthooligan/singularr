@@ -824,7 +824,13 @@ pub fn summary(e: &Event, names: &Names) -> String {
             let gone = list(&b["catalog"], "engines");
             let copies = int(&b["catalog"], "copies").unwrap_or(0);
             let titles = int(&b["catalog"], "titles").unwrap_or(0);
-            if gone.is_empty() {
+            let set_aside = int(b, "downloads_set_aside").unwrap_or(0);
+            if gone.is_empty() && set_aside > 0 {
+                format!(
+                    "Set aside: {}",
+                    units::counted(set_aside, "download", "downloads")
+                )
+            } else if gone.is_empty() {
                 "Data of unlisted integrations removed".to_string()
             } else {
                 format!(

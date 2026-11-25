@@ -306,12 +306,13 @@ pub struct HistoryItem {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(utoipa::ToSchema))]
 pub struct QueueItem {
-    /// The torrent hash.
+    /// The download id: a torrent's hash, a usenet client's job id.
     pub id: String,
     pub kind: String,
     /// The release name.
     pub release: String,
-    /// `downloading`, `importing`, `paused` or `queued`.
+    /// `downloading`, `importing`, `paused`, `queued`, or `failed` (a usenet download its
+    /// client gave up on).
     pub stage: String,
     /// 0 to 100.
     pub progress: f64,
@@ -364,7 +365,7 @@ pub struct TitleRequest {
     pub target: String,
 }
 
-/// Plays on the Plex server: how many, and the last one.
+/// Plays on the media servers: how many, and the last one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(utoipa::ToSchema))]
 pub struct Plays {
@@ -372,8 +373,9 @@ pub struct Plays {
     pub last: Option<DateTime<Utc>>,
 }
 
-/// The title on the Plex server: its item key, and the address that opens it in Plex's web
-/// app (built from the server's machine identifier and the key).
+/// The title on its media server: its item key, and the address that opens it in the server's
+/// web app (Plex's from the server's machine identifier and the key; Jellyfin's and Emby's at
+/// the server's own address). The field keeps the name `plex` for every server.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(utoipa::ToSchema))]
 pub struct PlexLink {
@@ -390,9 +392,10 @@ pub struct LibraryFacts {
     /// `available`, `partial`, `downloading`, `requested` or `missing`.
     pub state: String,
     pub monitored: bool,
-    /// The name of the library the title is in: the Plex section, else the manager's.
+    /// The name of the library the title is in: the media server's section, else the
+    /// manager's.
     pub library: String,
-    /// That library's id (`plex-1`, or the manager's id).
+    /// That library's id (`plex-1`, `<media server>-<section>`, or the manager's id).
     pub library_id: String,
     pub profile: Option<String>,
     pub path: Option<String>,
@@ -416,9 +419,9 @@ pub struct LibraryFacts {
     /// A show: the specials (season 0), counted apart and never in `have` or `total`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub specials: Option<Specials>,
-    /// Plays on the Plex server; null when the server does not know the title.
+    /// Plays on the media servers; null when no server knows the title.
     pub plays: Option<Plays>,
-    /// The item on the Plex server, when the server pass has matched it.
+    /// The item on its media server, when a server pass has matched it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plex: Option<PlexLink>,
 }
@@ -743,11 +746,11 @@ pub struct CollectionCard {
 #[cfg_attr(feature = "ssr", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct AlbumCard {
-    /// `album-<rating key>`.
+    /// `album-<item key>`, or `album-<server>_<item key>` on a media server other than the first.
     pub id: String,
     pub title: String,
     pub artist: Option<String>,
-    /// `artist-<rating key>`.
+    /// `artist-<item key>`, or `artist-<server>_<item key>`.
     pub artist_id: Option<String>,
     pub year: Option<i32>,
     /// An address the browser can load.
@@ -758,7 +761,7 @@ pub struct AlbumCard {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(utoipa::ToSchema))]
 pub struct ArtistCard {
-    /// `artist-<rating key>`.
+    /// `artist-<item key>`, or `artist-<server>_<item key>`.
     pub id: String,
     pub name: String,
     /// An address the browser can load.

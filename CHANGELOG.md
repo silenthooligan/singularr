@@ -3,6 +3,15 @@
 Versions follow semantic versioning. Releases before 1.0 are betas. A minor release before 1.0 may
 change settings or behavior.
 
+## Unreleased
+
+- Media server layer: Plex, Jellyfin and Emby behind one port; read only; plays recorded from each server's sessions. Emby untested against a real server.
+- Download client layer: qBittorrent, Transmission, Deluge, SABnzbd and NZBGet behind one port; read only; usenet jobs in Activity and matched to the managers' queues.
+- Settings: `JELLYFIN_*`, `EMBY_*`, `TRANSMISSION_*`, `DELUGE_*`, `SABNZBD_*`, `NZBGET_*`; `SINGULARR_SYNC_DOWNLOADS_SECS` (the older `SINGULARR_SYNC_QBIT_SECS` still works).
+- Outbound allowlist: rules per origin and base path; GETs restricted per adapter; strict JSON bodies.
+- Singularr Requests refuses to start with any variable named like a secret (`*_API_KEY`, `*_TOKEN`, `*_PASS`).
+- Migrations 0019 (download clients) and 0020 (open plays).
+
 ## 0.1.0 (beta)
 
 First public release.

@@ -616,9 +616,11 @@ pub async fn replace_server_music(
     Ok(())
 }
 
-/// One album of the server with what its tracks add up to.
+/// One album of a media server with what its tracks add up to.
 #[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
 pub struct ServerAlbumRow {
+    /// The media server's integration id.
+    pub server: String,
     pub rating_key: String,
     pub artist_key: Option<String>,
     pub artist: Option<String>,
@@ -646,13 +648,14 @@ pub struct ServerAlbumRow {
     pub file: Option<String>,
 }
 
-/// The albums of the server, or the one with this rating key.
+/// The albums of the media servers, or the ones with this rating key.
 pub async fn server_albums_where(
     pool: &PgPool,
     rating_key: Option<&str>,
 ) -> Result<Vec<ServerAlbumRow>, sqlx::Error> {
     sqlx::query_as::<_, ServerAlbumRow>(
-        "SELECT a.rating_key, a.artist_key, a.artist, a.title, a.year, a.released, a.genres,
+        "SELECT a.server, a.rating_key, a.artist_key, a.artist, a.title, a.year, a.released,
+                a.genres,
                 a.label, a.thumb, a.added_at, a.plays, count(t.rating_key) AS tracks,
                 COALESCE(sum(t.duration_ms), 0)::bigint AS duration_ms,
                 COALESCE(sum(t.size_bytes), 0)::bigint AS size_bytes,
@@ -681,9 +684,11 @@ pub async fn server_albums(pool: &PgPool) -> Result<Vec<ServerAlbumRow>, sqlx::E
     server_albums_where(pool, None).await
 }
 
-/// One artist of the server with their albums, tracks and size.
+/// One artist of a media server with their albums, tracks and size.
 #[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
 pub struct ServerArtistRow {
+    /// The media server's integration id.
+    pub server: String,
     pub rating_key: String,
     pub name: String,
     pub genres: Vec<String>,
@@ -698,8 +703,8 @@ pub struct ServerArtistRow {
 
 pub async fn server_artists(pool: &PgPool) -> Result<Vec<ServerArtistRow>, sqlx::Error> {
     sqlx::query_as::<_, ServerArtistRow>(
-        "SELECT ar.rating_key, ar.name, ar.genres, ar.countries, ar.summary, ar.thumb,
-                ar.added_at,
+        "SELECT ar.server, ar.rating_key, ar.name, ar.genres, ar.countries, ar.summary,
+                ar.thumb, ar.added_at,
                 (SELECT count(*) FROM server_albums a
                  WHERE a.server = ar.server AND a.artist_key = ar.rating_key) AS albums,
                 (SELECT count(*) FROM server_tracks t JOIN server_albums a
@@ -729,37 +734,48 @@ pub struct ServerTrackRow {
     pub file: Option<String>,
 }
 
-/// An album's tracks in disc and track order.
+/// An album's tracks on its media server, in disc and track order.
 pub async fn server_album_tracks(
     pool: &PgPool,
+    server: &str,
     album_key: &str,
 ) -> Result<Vec<ServerTrackRow>, sqlx::Error> {
     sqlx::query_as::<_, ServerTrackRow>(
         "SELECT number, disc, title, artist, duration_ms, codec, bitrate, size_bytes, file
-         FROM server_tracks WHERE album_key = $1
+         FROM server_tracks WHERE server = $1 AND album_key = $2
          ORDER BY disc NULLS FIRST, number NULLS LAST, title, rating_key",
     )
+    .bind(server)
     .bind(album_key)
     .fetch_all(pool)
     .await
 }
 
-/// The server's image path of an album (`album`) or an artist (`artist`).
+/// The image of an album (`album`) or an artist (`artist`), as (the media server that holds it,
+/// its image path there): on `server` when it is named, else on `first` (the first media
+/// server) when that one holds the key, else on any server that does.
 pub async fn server_thumb(
     pool: &PgPool,
     kind: &str,
+    server: Option<&str>,
+    first: Option<&str>,
     rating_key: &str,
-) -> Result<Option<String>, sqlx::Error> {
+) -> Result<Option<(String, String)>, sqlx::Error> {
     let sql = if kind == "artist" {
-        "SELECT thumb FROM server_artists WHERE rating_key = $1 ORDER BY server LIMIT 1"
+        "SELECT server, thumb FROM server_artists
+         WHERE rating_key = $1 AND thumb IS NOT NULL AND ($2::text IS NULL OR server = $2)
+         ORDER BY server IS DISTINCT FROM $3, server LIMIT 1"
     } else {
-        "SELECT thumb FROM server_albums WHERE rating_key = $1 ORDER BY server LIMIT 1"
+        "SELECT server, thumb FROM server_albums
+         WHERE rating_key = $1 AND thumb IS NOT NULL AND ($2::text IS NULL OR server = $2)
+         ORDER BY server IS DISTINCT FROM $3, server LIMIT 1"
     };
-    Ok(sqlx::query_scalar::<_, Option<String>>(sql)
+    sqlx::query_as::<_, (String, String)>(sql)
         .bind(rating_key)
+        .bind(server)
+        .bind(first)
         .fetch_optional(pool)
-        .await?
-        .flatten())
+        .await
 }
 
 /// Every file the server's music names.

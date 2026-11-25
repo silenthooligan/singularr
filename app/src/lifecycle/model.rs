@@ -3,16 +3,36 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-/// One torrent in the download client, with the arr that owns it and what that arr says.
+/// One download in a download client (a torrent, or a usenet download), with the arr that owns
+/// it and what that arr says. A download is one client's: the key is the client and the id.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(utoipa::ToSchema, sqlx::FromRow))]
 pub struct Download {
-    /// The torrent hash, upper case.
+    /// The id the managers know the download by, upper case: a torrent's hash, a usenet
+    /// client's job id (SABnzbd's `nzo_id`, NZBGet's `drone` parameter or `NZBID`).
     pub hash: String,
+    /// The download client that lists it, by integration id.
+    #[serde(default)]
+    #[cfg_attr(feature = "ssr", sqlx(default))]
+    pub client: String,
+    /// `torrent` or `usenet`.
+    #[serde(default = "torrent")]
+    #[cfg_attr(feature = "ssr", sqlx(default))]
+    pub protocol: String,
+    /// The client's own id of it, as the client writes it.
+    #[serde(default)]
+    #[cfg_attr(feature = "ssr", sqlx(default))]
+    pub item_id: Option<String>,
     pub name: String,
     pub category: Option<String>,
-    /// The client's state: `downloading`, `uploading`, `stalledDL`, `pausedUP`, ...
+    /// The client's own word for where it stands: `downloading`, `stalledDL`, `seed`,
+    /// `Paused`, `PP_QUEUED`, ...
     pub state: String,
+    /// The same in the product's words: `queued`, `downloading`, `stalled`, `paused`,
+    /// `checking`, `unpacking`, `seeding`, `completed` or `failed`.
+    #[serde(default)]
+    #[cfg_attr(feature = "ssr", sqlx(default))]
+    pub status: Option<String>,
     /// 0 to 1.
     pub progress: f64,
     pub size_bytes: i64,
@@ -60,6 +80,17 @@ pub struct Download {
     pub indexer: Option<String>,
 }
 
+fn torrent() -> String {
+    "torrent".to_string()
+}
+
+impl Download {
+    /// A usenet download. It ends once its client is done with it.
+    pub fn usenet(&self) -> bool {
+        self.protocol == "usenet"
+    }
+}
+
 /// Filters of `GET /api/v1/downloads`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ssr", derive(utoipa::IntoParams))]
@@ -67,6 +98,10 @@ pub struct Download {
 pub struct DownloadQuery {
     /// An engine id, or `none` for downloads no arr claims.
     pub owner: Option<String>,
+    /// The download client, by integration id.
+    pub client: Option<String>,
+    /// `torrent` or `usenet`.
+    pub protocol: Option<String>,
     /// The client's state, exactly as it reports it.
     pub state: Option<String>,
     pub category: Option<String>,
@@ -74,7 +109,7 @@ pub struct DownloadQuery {
     pub orphan: Option<bool>,
     /// `true`: still downloading. `false`: complete.
     pub active: Option<bool>,
-    /// Words of the torrent name.
+    /// Words of the download's name.
     pub q: Option<String>,
     /// `added` (default, newest first), `name`, `progress`, `size` or `state`. Prefix `-`
     /// to reverse.

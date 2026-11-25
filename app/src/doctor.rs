@@ -2,11 +2,12 @@
 //!
 //! One line per check: `OK`, `WARN` or `FAIL`, what was found, and for anything but `OK` a
 //! hint. The exit status is 1 when a check failed. Every call it makes to an engine is a
-//! read (and the qBittorrent sign-in), through the same outbound allowlist as the server.
+//! read (and a download client's sign-in), through the same outbound allowlist as the server.
 
-use singularr::core::config::{Config, redact_url};
+use singularr::core::config::{Config, Integration, redact_url};
 use singularr::core::outbound::Outbound;
 use singularr::core::{db, store, units};
+use singularr::engines::Protocol;
 use singularr::engines::service::{EngineSet, allowlist};
 use singularr::metadata::service::ProviderSet;
 use singularr::policy;
@@ -36,6 +37,22 @@ impl Report {
             println!("      fix: {hint}");
         }
         self.failed |= level == Level::Fail;
+    }
+}
+
+/// Where a download client's address and sign-in are set, as its source names them:
+/// `QBIT_URL, QBIT_USER and QBIT_PASS`.
+fn sign_in_vars(i: &Integration) -> String {
+    let user = i.kind.takes_user().then(|| {
+        if i.source == "environment" {
+            format!("{}_USER", i.url_var.trim_end_matches("_URL"))
+        } else {
+            format!("the `user` of integration {}", i.id)
+        }
+    });
+    match user {
+        Some(user) => format!("{}, {user} and {}", i.url_var, i.secret_var),
+        None => format!("{} and {}", i.url_var, i.secret_var),
     }
 }
 
@@ -177,8 +194,11 @@ pub async fn run() -> ExitCode {
     let engines = EngineSet::from_config(&config, &outbound);
     for slot in engines.slots.iter().filter(|s| !s.configured) {
         let var = slot.id.to_uppercase();
-        let hint = if slot.id == "qbittorrent" {
-            "Set QBIT_URL, QBIT_USER and QBIT_PASS".to_string()
+        let client = config
+            .integration(&slot.id)
+            .filter(|i| i.kind.client().is_some());
+        let hint = if let Some(i) = client {
+            format!("Set {}", sign_in_vars(i))
         } else if slot.kind == "hush" || slot.kind == "tdarr" {
             format!("Set {var}_URL")
         } else {
@@ -209,25 +229,28 @@ pub async fn run() -> ExitCode {
             ),
         }
     }
-    if let Some(downloader) = &engines.downloader {
+    for client in &engines.download_clients {
         let started = Instant::now();
-        match downloader.torrents().await {
-            Ok(torrents) => report.line(
-                Level::Ok,
-                downloader.id(),
-                &format!(
-                    "{}, {} ms",
-                    units::counted(torrents.len() as i64, "torrent", "torrents"),
-                    started.elapsed().as_millis()
-                ),
-                None,
-            ),
-            Err(e) => report.line(
-                Level::Fail,
-                downloader.id(),
-                &e.to_string(),
-                Some("Check QBIT_URL, QBIT_USER and QBIT_PASS"),
-            ),
+        match client.downloads().await {
+            Ok(listed) => {
+                let n = listed.len() as i64;
+                let words = match client.protocol() {
+                    Protocol::Torrent => units::counted(n, "torrent", "torrents"),
+                    Protocol::Usenet => units::counted(n, "download", "downloads"),
+                };
+                report.line(
+                    Level::Ok,
+                    client.id(),
+                    &format!("{words}, {} ms", started.elapsed().as_millis()),
+                    None,
+                );
+            }
+            Err(e) => {
+                let hint = config
+                    .integration(client.id())
+                    .map(|i| format!("Check {}", sign_in_vars(i)));
+                report.line(Level::Fail, client.id(), &e.to_string(), hint.as_deref());
+            }
         }
     }
 

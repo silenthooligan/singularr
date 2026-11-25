@@ -1,0 +1,213 @@
+{
+ "result": {
+  "connected": true,
+  "torrents": {
+   "ccf371c1d9835f9889212fdf033d29e605d91c22": {
+    "is_finished": false,
+    "save_path": "/downloads/radarr",
+    "tracker_host": "tracker.invalid",
+    "paused": true,
+    "progress": 0.0,
+    "upload_payload_rate": 0,
+    "total_size": 928672594,
+    "total_wanted": 928672594,
+    "num_seeds": 0,
+    "queue": 0,
+    "completed_time": 0,
+    "download_payload_rate": 0,
+    "download_location": "/downloads/radarr",
+    "message": "OK",
+    "time_added": 1795580310,
+    "seeding_time": 0,
+    "ratio": -1.0,
+    "hash": "ccf371c1d9835f9889212fdf033d29e605d91c22",
+    "name": "Big.Buck.Bunny.2008.1080p.BluRay.x264-FX",
+    "total_done": 0,
+    "state": "Paused",
+    "eta": 0,
+    "num_peers": 0,
+    "label": "radarr"
+   },
+   "1218a374ecbefee1ce843ae15c9f6b06c4e1cdf5": {
+    "is_finished": false,
+    "save_path": "/downloads",
+    "tracker_host": "tracker.invalid",
+    "paused": true,
+    "progress": 0.0,
+    "upload_payload_rate": 0,
+    "total_size": 790626304,
+    "total_wanted": 790626304,
+    "num_seeds": 0,
+    "queue": 1,
+    "completed_time": 0,
+    "download_payload_rate": 0,
+    "download_location": "/downloads",
+    "message": "OK",
+    "time_added": 1795580310,
+    "seeding_time": 0,
+    "ratio": -1.0,
+    "hash": "1218a374ecbefee1ce843ae15c9f6b06c4e1cdf5",
+    "name": "debian-13.2.0-amd64-netinst.iso",
+    "total_done": 0,
+    "state": "Paused",
+    "eta": 0,
+    "num_peers": 0,
+    "label": ""
+   },
+   "5f6d2c0c9d2a4b4f8e3a1c2b7d9e0f1a2b3c4d5e": {
+    "is_finished": false,
+    "save_path": "/downloads",
+    "tracker_host": "tracker.invalid",
+    "paused": true,
+    "progress": 0.0,
+    "upload_payload_rate": 0,
+    "total_size": 0,
+    "total_wanted": 0,
+    "num_seeds": 0,
+    "queue": 2,
+    "completed_time": 0,
+    "download_payload_rate": 0,
+    "download_location": "/downloads",
+    "message": "OK",
+    "time_added": 1795580310,
+    "seeding_time": 0,
+    "ratio": -1.0,
+    "hash": "5f6d2c0c9d2a4b4f8e3a1c2b7d9e0f1a2b3c4d5e",
+    "name": "ubuntu-24.04.3-desktop-amd64.iso",
+    "total_done": 0,
+    "state": "Paused",
+    "eta": 0,
+    "num_peers": 0,
+    "label": ""
+   },
+   "279f1de189fa1191fc9585c7835898dac4dd94dc": {
+    "state": "Seeding",
+    "seeding_time": 1,
+    "download_payload_rate": 0,
+    "hash": "279f1de189fa1191fc9585c7835898dac4dd94dc",
+    "is_finished": true,
+    "message": "OK",
+    "num_peers": 0,
+    "num_seeds": 0,
+    "paused": false,
+    "progress": 100.0,
+    "save_path": "/downloads/sonarr",
+    "download_location": "/downloads/sonarr",
+    "time_added": 1795580966,
+    "total_done": 3145728,
+    "total_wanted": 3145728,
+    "tracker_host": "tracker.invalid",
+    "upload_payload_rate": 0,
+    "total_size": 3145728,
+    "eta": 0,
+    "queue": -1,
+    "ratio": 0.0,
+    "completed_time": 1795580966,
+    "name": "Elephants.Dream.2006.720p.WEB-DL.x264-FX.mkv",
+    "label": "sonarr"
+   }
+  },
+  "filters": {
+   "state": [
+    [
+     "All",
+     4
+    ],
+    [
+     "Active",
+     0
+    ],
+    [
+     "Allocating",
+     0
+    ],
+    [
+     "Checking",
+     0
+    ],
+    [
+     "Downloading",
+     0
+    ],
+    [
+     "Seeding",
+     1
+    ],
+    [
+     "Paused",
+     3
+    ],
+    [
+     "Error",
+     0
+    ],
+    [
+     "Queued",
+     0
+    ],
+    [
+     "Moving",
+     0
+    ]
+   ],
+   "tracker_host": [
+    [
+     "All",
+     4
+    ],
+    [
+     "Error",
+     0
+    ],
+    [
+     "tracker.invalid",
+     4
+    ]
+   ],
+   "owner": [
+    [
+     "",
+     0
+    ],
+    [
+     "localclient",
+     4
+    ]
+   ],
+   "label": [
+    [
+     "",
+     2
+    ],
+    [
+     "All",
+     4
+    ],
+    [
+     "radarr",
+     1
+    ],
+    [
+     "sonarr",
+     1
+    ]
+   ]
+  },
+  "stats": {
+   "max_download": -1.0,
+   "max_upload": -1.0,
+   "max_num_connections": 200,
+   "num_connections": 0,
+   "upload_rate": 0.0,
+   "download_rate": 0.0,
+   "download_protocol_rate": 0.0,
+   "upload_protocol_rate": 0.0,
+   "dht_nodes": 0,
+   "has_incoming_connections": 0,
+   "free_space": 34404696064,
+   "external_ip": null
+  }
+ },
+ "error": null,
+ "id": 317
+}

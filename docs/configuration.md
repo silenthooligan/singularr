@@ -42,15 +42,26 @@ its files, shuts down or restarts a service, or changes a service's settings.
 
 | Setting | Meaning |
 |---|---|
-| `PLEX_URL`, `PLEX_TOKEN` | the Plex server: libraries, ratings, plays, music, sessions and images. Read only |
+| `PLEX_URL`, `PLEX_TOKEN` | the Plex server (id `plex`): libraries, ratings, plays, music, sessions and images. Read only |
+| `JELLYFIN_URL`, `JELLYFIN_API_KEY` | a Jellyfin server (id `jellyfin`): libraries, ratings, plays, music, sessions, users and images. The key is an API key from the server's dashboard. Read only |
+| `EMBY_URL`, `EMBY_API_KEY` | an Emby server (id `emby`), read the same way as Jellyfin. Read only. Not tried against a real Emby server yet: its tests read answers made from Emby's API reference |
+| `JELLYFIN_WEB_URL`, `EMBY_WEB_URL` | where people open the server's web app, for the links to its items, when that is not the address Singularr reads it at. Default: the server's address |
 | `RADARR_URL`, `RADARR_API_KEY`, `RADARR_NAME` | Radarr (id `radarr`). With write access: search, grab, import a refused download, remove a download |
 | `SONARR_URL`, `SONARR_API_KEY`, `SONARR_NAME` | Sonarr (id `sonarr`), the same as Radarr |
 | `QBIT_URL`, `QBIT_USER`, `QBIT_PASS` | qBittorrent (id `qbittorrent`). Without a user and password Singularr does not sign in |
+| `TRANSMISSION_URL`, `TRANSMISSION_USER`, `TRANSMISSION_PASS` | Transmission (id `transmission`): its torrents through its RPC. The user and password are needed only when its RPC asks for them |
+| `DELUGE_URL`, `DELUGE_PASS` | Deluge (id `deluge`): its torrents through its Web UI, signed in with the web password. The Web UI must be connected to its daemon. The category is the Label plugin's label |
+| `SABNZBD_URL`, `SABNZBD_API_KEY` | SABnzbd (id `sabnzbd`): its queue and the jobs of its history that finished in the last 7 days, at most 100 |
+| `NZBGET_URL`, `NZBGET_USER`, `NZBGET_PASS` | NZBGet (id `nzbget`): its queue, the jobs of its history that finished in the last 7 days (at most 100) and its download rate |
 | `SEERR_URL`, `SEERR_API_KEY` | Seerr (id `seerr`): requests and their accounts |
 | `TAUTULLI_URL`, `TAUTULLI_API_KEY` | Tautulli (id `tautulli`): its play history imports into Statistics |
 | `TDARR_URL`, `TDARR_API_KEY` | Tdarr (id `tdarr`): nodes, workers, libraries, flows and reports. With write access: worker limits, pause, cancel, requeue, scan, and a library's flow |
 | `PROWLARR_URL`, `PROWLARR_API_KEY` | listed as an integration. Not read yet |
 | `<TYPE>_ACCESS` | `read` or `act` for that integration, set by the environment. Without it, the switch in Settings, Integrations decides |
+
+A download client the configuration stops listing (its variables lost, its id renamed) keeps its
+downloads for 30 days, out of every list. Its return finds them as they were. Two download
+clients at one address are one client: the first is read.
 
 A setup with more than one integration of a type (a second Radarr for 4K, for example) lists its
 integrations in the instance file named by `SINGULARR_INSTANCE`:
@@ -64,14 +75,21 @@ portal_url = "https://requests.example.org"
 
 [[integration]]
 id = "radarr-4k"             # a-z, 0-9 and -, unique; also the id of its library
-type = "radarr"              # plex, radarr, sonarr, qbittorrent, prowlarr, tdarr, seerr, tautulli
+type = "radarr"              # plex, jellyfin, emby, radarr, sonarr, qbittorrent, transmission,
+                             # deluge, sabnzbd, nzbget, prowlarr, tdarr, hush, seerr, tautulli
 name = "Radarr 4K"
 url = "http://radarr-4k:7878"
 secret = "RADARR_4K_API_KEY" # the variable with the key (default <ID>_API_KEY)
+# web_url = "https://watch.example.org" # jellyfin and emby only: where its items open
 ```
 
 The file contains no secrets: `secret` names the environment variable. Unknown keys and types stop the
 start.
+
+Singularr reads one media server of each type: the first Plex, Jellyfin and Emby server the
+configuration lists. Each one has its own libraries, server pass and sessions. Its plays count in
+Statistics. An album or artist of the first media server has the id `album-<key>`. One of another
+server has `album-<server>_<key>`.
 
 ## Metadata and search
 
@@ -82,7 +100,7 @@ start.
 | `SINGULARR_WATCH_REGION` | `US` | the region of release dates, certifications and where to watch |
 | `SINGULARR_SEARCH_URL`, `SINGULARR_SEARCH_KEY` | unset | a Meilisearch for search, used when both are set. Otherwise search is built in (PostgreSQL, typo tolerant with the `pg_trgm` extension) |
 | `SINGULARR_SEARCH_PREFIX` | `singularr_` | the start of every Meilisearch index name |
-| `SINGULARR_PLEX_WEB_URL` | `https://app.plex.tv/desktop` | Plex's web app, for a title's Plex link |
+| `SINGULARR_PLEX_WEB_URL` | `https://app.plex.tv/desktop` | Plex's web app, for a title's Plex link. Jellyfin and Emby titles open in the server's own web app (`JELLYFIN_WEB_URL`, `EMBY_WEB_URL`) |
 
 ## Policy and editions
 
@@ -117,11 +135,11 @@ start.
 | `SINGULARR_SYNC_FILES_FULL_SECS` | 21600 | a full pass over every show's episode files |
 | `SINGULARR_SYNC_FILES_CONCURRENCY` | 2 | shows read at once (1 to 4) |
 | `SINGULARR_SYNC_QUEUE_SECS` | 60 | the managers' queues |
-| `SINGULARR_SYNC_QBIT_SECS` | 30 | qBittorrent |
+| `SINGULARR_SYNC_DOWNLOADS_SECS` | 30 | every download client, each read on its own. `SINGULARR_SYNC_QBIT_SECS` is the older name |
 | `SINGULARR_SYNC_HISTORY_SECS` | 900 | the newest page of each manager's grab history |
 | `SINGULARR_SYNC_HISTORY_MAX_PAGES` | 40 | pages of history read at the first start |
 | `SINGULARR_SYNC_REQUESTS_SECS` | 300 | Seerr's requests |
-| `SINGULARR_SYNC_SERVER_SECS` | 3600 | the Plex server |
+| `SINGULARR_SYNC_SERVER_SECS` | 3600 | each media server's libraries, items and music |
 | `SINGULARR_SYNC_PROCESSING_SECS` | 60 | the processing services |
 | `SINGULARR_SYNC_JITTER_SECS` | 20 | a random delay before each loop's first pass |
 | `SINGULARR_HTTP_TIMEOUT_SECS` | 30 | the time limit of an outbound call |
@@ -129,9 +147,10 @@ start.
 ## Singularr Requests
 
 The portal (`SINGULARR_FACE=requests`) runs as its own process with its own database role. It refuses
-to start when a setting of the full process is present: `DATABASE_URL`, `SINGULARR_INSTANCE`, an
-integration secret, `SINGULARR_TVDB_KEY`, `SINGULARR_SEARCH_KEY`, `SINGULARR_EDGE_TOKEN` or
-`SINGULARR_OWNER_EMAILS`.
+to start when a setting of the full process is present: `DATABASE_URL`, `SINGULARR_INSTANCE`,
+`SINGULARR_TVDB_KEY`, `SINGULARR_SEARCH_KEY`, `SINGULARR_EDGE_TOKEN`, `SINGULARR_OWNER_EMAILS`, or any
+variable whose name ends `_API_KEY`, `_TOKEN` or `_PASS` (every integration secret does) other than
+`SINGULARR_TMDB_TOKEN`.
 
 | Setting | Default | Meaning |
 |---|---|---|

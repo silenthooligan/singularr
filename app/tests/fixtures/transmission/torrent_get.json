@@ -1,0 +1,172 @@
+{
+ "arguments": {
+  "torrents": [
+   {
+    "addedDate": 1795580281,
+    "doneDate": 0,
+    "downloadDir": "/downloads/complete",
+    "downloadedEver": 0,
+    "error": 0,
+    "errorString": "",
+    "eta": -1,
+    "hashString": "1218a374ecbefee1ce843ae15c9f6b06c4e1cdf5",
+    "haveValid": 0,
+    "id": 1,
+    "isFinished": false,
+    "isStalled": false,
+    "labels": [],
+    "leftUntilDone": 790626304,
+    "metadataPercentComplete": 1.0,
+    "name": "debian-13.2.0-amd64-netinst.iso",
+    "peersConnected": 0,
+    "peersGettingFromUs": 0,
+    "peersSendingToUs": 0,
+    "percentDone": 0.0,
+    "queuePosition": 0,
+    "rateDownload": 0,
+    "rateUpload": 0,
+    "secondsSeeding": 0,
+    "sizeWhenDone": 790626304,
+    "status": 0,
+    "totalSize": 790626304,
+    "trackers": [
+     {
+      "announce": "http://tracker.invalid:6969/announce",
+      "id": 0,
+      "scrape": "http://tracker.invalid:6969/scrape",
+      "sitename": "tracker",
+      "tier": 0
+     }
+    ],
+    "uploadRatio": 0.0,
+    "uploadedEver": 0
+   },
+   {
+    "addedDate": 1795580281,
+    "doneDate": 0,
+    "downloadDir": "/downloads/complete/radarr",
+    "downloadedEver": 0,
+    "error": 0,
+    "errorString": "",
+    "eta": -1,
+    "hashString": "ccf371c1d9835f9889212fdf033d29e605d91c22",
+    "haveValid": 0,
+    "id": 2,
+    "isFinished": false,
+    "isStalled": false,
+    "labels": [
+     "radarr"
+    ],
+    "leftUntilDone": 928672594,
+    "metadataPercentComplete": 1.0,
+    "name": "Big.Buck.Bunny.2008.1080p.BluRay.x264-FX",
+    "peersConnected": 0,
+    "peersGettingFromUs": 0,
+    "peersSendingToUs": 0,
+    "percentDone": 0.0,
+    "queuePosition": 1,
+    "rateDownload": 0,
+    "rateUpload": 0,
+    "secondsSeeding": 0,
+    "sizeWhenDone": 928672594,
+    "status": 0,
+    "totalSize": 928672594,
+    "trackers": [
+     {
+      "announce": "http://tracker.invalid:6969/announce",
+      "id": 1,
+      "scrape": "http://tracker.invalid:6969/scrape",
+      "sitename": "tracker",
+      "tier": 0
+     }
+    ],
+    "uploadRatio": 0.0,
+    "uploadedEver": 0
+   },
+   {
+    "addedDate": 1795580281,
+    "doneDate": 0,
+    "downloadDir": "/downloads/complete",
+    "downloadedEver": 0,
+    "error": 0,
+    "errorString": "",
+    "eta": -1,
+    "hashString": "5f6d2c0c9d2a4b4f8e3a1c2b7d9e0f1a2b3c4d5e",
+    "haveValid": 0,
+    "id": 3,
+    "isFinished": false,
+    "isStalled": false,
+    "labels": [],
+    "leftUntilDone": 0,
+    "metadataPercentComplete": 0.0,
+    "name": "ubuntu-24.04.3-desktop-amd64.iso",
+    "peersConnected": 0,
+    "peersGettingFromUs": 0,
+    "peersSendingToUs": 0,
+    "percentDone": 0.0,
+    "queuePosition": 2,
+    "rateDownload": 0,
+    "rateUpload": 0,
+    "secondsSeeding": 0,
+    "sizeWhenDone": 0,
+    "status": 0,
+    "totalSize": 0,
+    "trackers": [
+     {
+      "announce": "http://tracker.invalid:6969/announce",
+      "id": 2,
+      "scrape": "http://tracker.invalid:6969/scrape",
+      "sitename": "tracker",
+      "tier": 0
+     }
+    ],
+    "uploadRatio": -1.0,
+    "uploadedEver": 0
+   },
+   {
+    "addedDate": 1795580946,
+    "doneDate": 1795580946,
+    "downloadDir": "/downloads/complete/sonarr",
+    "downloadedEver": 0,
+    "error": 0,
+    "errorString": "",
+    "eta": -1,
+    "hashString": "279f1de189fa1191fc9585c7835898dac4dd94dc",
+    "haveValid": 3145728,
+    "id": 4,
+    "isFinished": false,
+    "isStalled": false,
+    "labels": [
+     "sonarr"
+    ],
+    "leftUntilDone": 0,
+    "metadataPercentComplete": 1.0,
+    "name": "Elephants.Dream.2006.720p.WEB-DL.x264-FX.mkv",
+    "peersConnected": 0,
+    "peersGettingFromUs": 0,
+    "peersSendingToUs": 0,
+    "percentDone": 1.0,
+    "queuePosition": 3,
+    "rateDownload": 0,
+    "rateUpload": 0,
+    "secondsSeeding": 2,
+    "sizeWhenDone": 3145728,
+    "status": 6,
+    "totalSize": 3145728,
+    "trackers": [
+     {
+      "announce": "http://tracker.invalid:6969/announce",
+      "id": 3,
+      "scrape": "http://tracker.invalid:6969/scrape",
+      "sitename": "tracker",
+      "tier": 0
+     }
+    ],
+    "uploadRatio": 0.0,
+    "uploadedEver": 0
+   }
+  ]
+ },
+ "result": "success",
+ "tag": 9
+}

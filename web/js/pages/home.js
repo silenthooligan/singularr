@@ -1,5 +1,5 @@
 /* Home: the server at a glance. Tiles with the counts that matter; what needs attention; requests
-   waiting and the queue, each with movies and shows apart; what is playing (from the Plex server
+   waiting and the queue, each with movies and shows apart; what is playing (from the media servers
    when live); what is coming this week, shows and movies apart; storage and integrations; and
    what was added lately, movies and episodes in rows of their own. Every line leads to the
    thing it names. */
@@ -8,7 +8,7 @@
   const { html, raw, icon, fmt, $ } = MQ;
   const DAY = 864e5;
   const dot = raw('<span class="faint">·</span>');
-  const TONE = { searching: 'info', downloading: 'info', importing: 'info', processing: 'proc', seeding: 'ok', attention: 'bad', failed: 'bad' };
+  const TONE = { searching: 'info', downloading: 'info', importing: 'info', processing: 'proc', seeding: 'ok', completed: 'ok', attention: 'bad', failed: 'bad' };
   const KINDS = [['movie', 'Movies', 'movie'], ['show', 'Shows', 'show']];
   const REL = { theaters: 'In theaters', digital: 'Digital release', physical: 'Disc release' };
   const dayKey = d => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
@@ -220,7 +220,7 @@
   }
 
   /* ---------------------------------------------------------- playing now */
-  /* Live: the Plex server's sessions. They name a title, not an id, so a row links where it can. */
+  /* Live: the media servers' sessions. A session carries the name of its title and no catalog id. A row links where it can. */
   function fromSessions(r) {
     return (r?.sessions || []).map((s, i) => ({
       id: 's-live-' + i, player: s.player || '', progress: s.progress ?? 0, paused: s.state === 'paused',
@@ -331,7 +331,7 @@
       const queue = act?.queue || [];
       const waitIds = new Set(home.requests || []);
       const d = {
-        home, queue, moving: queue.filter(q => q.stage !== 'seeding'), real, ws, queueKnown: !!act, requestsKnown: !!req,
+        home, queue, moving: queue.filter(q => !['seeding', 'completed', 'failed'].includes(q.stage)), real, ws, queueKnown: !!act, requestsKnown: !!req,
         waiting: (req?.requests || []).filter(r => r.title && (r.status === 'requested' || r.status === 'pending' || waitIds.has(r.id))).sort((a, b) => new Date(b.at) - new Date(a.at)),
       };
       /* Playing now: the server's sessions when live, the sample's in the demo. */
@@ -344,7 +344,7 @@
       }) : null;
       const playing = carded && (!live || carded.length >= sessions.sessions.length) ? carded : live ? fromSessions(sessions) : MQ.live ? [] : home.nowPlaying || [];
       const statList = (real && Array.isArray(home.stats) ? home.stats : statsFromWorkspace(ws)).map(s => (s.id === 'playing' && live ? { ...s, value: playing.length, detail: '' } : s));
-      const plex = (ws.integrations || []).find(i => i.type === 'plex');
+      const plex = MQ.mediaServer(ws.integrations);
       const version = String(ws.server?.version || plex?.version || '').split('-')[0];
 
       root.innerHTML = String(html`<div class="mq-wrap">${MQ.head({ title: 'Home', meta: MQ.join([ws.server?.name, version ? `${plex?.name || 'Media server'} ${version}` : ''], ' · ') })}

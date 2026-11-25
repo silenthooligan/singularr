@@ -341,9 +341,9 @@
     const [who, ints, libs, sum] = await Promise.all([api('/whoami'), api('/integrations'), api('/libraries'), api('/summary')]);
     if (!who) return null;
     const all = libs?.items || [];
-    const managers = Object.fromEntries(all.filter(l => l.integration !== 'plex').map(l => [l.id, l]));
+    const managers = Object.fromEntries(all.filter(l => l.section_key == null).map(l => [l.id, l]));
     const order = { movie: 0, show: 1, music: 2 };
-    const libraries = all.filter(l => l.integration === 'plex').map(l => {
+    const libraries = all.filter(l => l.section_key != null).map(l => {
       const m = managers[l.managed_by] || {};
       /* A video section no manager looks after is a plain video library. A section whose counts this stand-in cannot know has none, so no page prints a zero for it. */
       const kind = l.kind === 'movie' && !l.managed_by ? 'homevideo' : l.kind;
@@ -422,7 +422,7 @@
   const STATES = {
     available: ['Available', 'ok'], partial: ['Partial', 'ok', 1], requested: ['Requested', 'warn'], pending: ['Pending', 'warn'],
     approved: ['Approved', 'info'], searching: ['Searching', 'info'], downloading: ['Downloading', 'info'], importing: ['Importing', 'info'],
-    processing: ['Processing', 'proc'], seeding: ['Seeding', 'mute'], missing: ['Missing', 'mute', 1], unaired: ['Not aired', 'mute'],
+    processing: ['Processing', 'proc'], seeding: ['Seeding', 'mute'], completed: ['Completed', 'mute'], missing: ['Missing', 'mute', 1], unaired: ['Not aired', 'mute'],
     attention: ['Needs attention', 'bad'], stuck: ['Stuck', 'bad'], failed: ['Failed', 'bad'], declined: ['Declined', 'mute'],
     unassigned: ['Unassigned', 'warn'], queued: ['Queued', 'info'], monitored: ['Monitored', 'info'], unmonitored: ['Unmonitored', 'mute', 1],
     ok: ['Healthy', 'ok'], warn: ['Degraded', 'warn'], down: ['Offline', 'bad'], continuing: ['Continuing', 'ok'], ended: ['Ended', 'mute'], upcoming: ['Upcoming', 'info'],
@@ -656,9 +656,13 @@
     MQ.toast(ok ? (what ? `${fmt.cap(String(what).replace(/^(the|an?) /i, ''))} copied` : 'Copied') : "Couldn't copy", ok ? 'ok' : 'warn');
     return ok;
   };
+  /** The media server types. */
+  const MEDIA_SERVERS = (MQ.MEDIA_SERVERS = ['plex', 'jellyfin', 'emby']);
+  /** The first media server among integrations (Plex, Jellyfin or Emby), or undefined. */
+  MQ.mediaServer = list => (list || []).find(i => i && MEDIA_SERVERS.includes(i.type));
   /* What a control needs before it can act: the integration of a group, found by the type of its record (or by its
      group, where the record carries one). The order is the one a name is taken in. */
-  const NEED = { manager: ['radarr', 'sonarr'], requests: ['seerr'], downloads: ['qbittorrent'], server: ['plex'], processing: ['hush', 'tdarr'] };
+  const NEED = { manager: ['radarr', 'sonarr'], requests: ['seerr'], downloads: ['qbittorrent', 'transmission', 'deluge', 'sabnzbd', 'nzbget'], server: MEDIA_SERVERS, processing: ['hush', 'tdarr'] };
   /** The tooltip of a control that cannot act. needs: 'manager' (kind 'movie' or 'show' picks the manager of that kind;
       without a kind every manager is named), 'requests', 'downloads', 'server' or 'processing'. It reads "Needs write
       access to Radarr" when an integration of that group is configured and read-only, and "Not available" otherwise:

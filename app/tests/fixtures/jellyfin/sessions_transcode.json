@@ -1,0 +1,142 @@
+[
+ {
+  "PlayState": {
+   "PositionTicks": 1350000000,
+   "CanSeek": true,
+   "IsPaused": true,
+   "IsMuted": false,
+   "VolumeLevel": 100,
+   "AudioStreamIndex": 1,
+   "MediaSourceId": "c541e7545e58b28cd4d0da7aac89d7e8",
+   "PlayMethod": "Transcode",
+   "RepeatMode": "RepeatNone",
+   "PlaybackOrder": "Default"
+  },
+  "AdditionalUsers": [],
+  "RemoteEndPoint": "10.0.0.20",
+  "PlayableMediaTypes": [],
+  "Id": "0f4c1d2e3b5a69788796a5b4c3d2e1f0",
+  "UserId": "554d873d210d499b877a54bdda50a3c1",
+  "UserName": "admin",
+  "Client": "Jellyfin Android TV",
+  "LastActivityDate": "2026-11-25T04:33:31.6143295Z",
+  "LastPlaybackCheckIn": "2026-11-25T04:27:26.5900783Z",
+  "DeviceName": "Living Room",
+  "DeviceId": "fixtures-device-4",
+  "ApplicationVersion": "0.18.11",
+  "NowPlayingItem": {
+   "Name": "Caminandes: Llama Drama",
+   "ServerId": "f0b3381645f04afb9a0e392e74b6a1b0",
+   "Id": "c541e7545e58b28cd4d0da7aac89d7e8",
+   "DateCreated": "2019-11-28T06:12:12.0000000Z",
+   "Container": "mov,mp4,m4a,3gp,3g2,mj2",
+   "PremiereDate": "2013-02-10T00:00:00.0000000Z",
+   "Path": "/media/Movies/Blender Foundation/Caminandes Llama Drama/Caminandes Llama Drama (2013).mp4",
+   "ChannelId": null,
+   "Genres": [
+    "Animation",
+    "Family",
+    "Comedy"
+   ],
+   "CommunityRating": 6.9,
+   "RunTimeTicks": 900005440,
+   "ProductionYear": 2013,
+   "ProviderIds": {
+    "Imdb": "tt6059374",
+    "Tmdb": "253777",
+    "TmdbCollection": "339473"
+   },
+   "IsFolder": false,
+   "Type": "Movie",
+   "UserData": {
+    "Rating": 10,
+    "PlaybackPositionTicks": 0,
+    "PlayCount": 6,
+    "IsFavorite": true,
+    "Likes": true,
+    "LastPlayedDate": "2026-11-25T01:12:10.6558553Z",
+    "Played": true,
+    "Key": "c541e754-5e58-b28c-d4d0-da7aac89d7e8",
+    "ItemId": "c541e7545e58b28cd4d0da7aac89d7e8"
+   },
+   "VideoType": "VideoFile",
+   "ImageTags": {
+    "Primary": "8eda7db1cc18d804f4aa9a2c0c377b52"
+   },
+   "LocationType": "FileSystem",
+   "MediaType": "Video",
+   "MediaStreams": [
+    {
+     "Codec": "h264",
+     "Language": "und",
+     "TimeBase": "1/48",
+     "VideoRange": "SDR",
+     "VideoRangeType": "SDR",
+     "DisplayTitle": "1080p H264 SDR",
+     "IsInterlaced": false,
+     "BitRate": 2925730,
+     "BitDepth": 8,
+     "RefFrames": 1,
+     "IsDefault": true,
+     "IsForced": false,
+     "Height": 1080,
+     "Width": 1920,
+     "AverageFrameRate": 24,
+     "Profile": "High",
+     "Type": "Video",
+     "AspectRatio": "16:9",
+     "Index": 0,
+     "IsExternal": false,
+     "PixelFormat": "yuv420p",
+     "Level": 40
+    },
+    {
+     "Codec": "aac",
+     "Language": "und",
+     "TimeBase": "1/44100",
+     "VideoRange": "Unknown",
+     "VideoRangeType": "Unknown",
+     "DisplayTitle": "IsoMedia File Produced by Google, 5-11-2011 - AAC - Stereo - Default",
+     "IsInterlaced": false,
+     "BitRate": 191999,
+     "IsDefault": true,
+     "IsForced": false,
+     "Profile": "LC",
+     "Type": "Audio",
+     "Index": 1,
+     "IsExternal": false,
+     "Channels": 2,
+     "SampleRate": 44100,
+     "ChannelLayout": "stereo",
+     "Level": 0
+    }
+   ],
+   "Height": 1080
+  },
+  "IsActive": true,
+  "SupportsMediaControl": false,
+  "SupportsRemoteControl": false,
+  "NowPlayingQueue": [],
+  "HasCustomDeviceName": false,
+  "ServerId": "f0b3381645f04afb9a0e392e74b6a1b0",
+  "UserPrimaryImageTag": "6f04f86b8bc21df4b638617ab76e0ec1",
+  "SupportedCommands": [],
+  "TranscodingInfo": {
+   "AudioCodec": "aac",
+   "VideoCodec": "h264",
+   "Container": "ts",
+   "IsVideoDirect": false,
+   "IsAudioDirect": true,
+   "Bitrate": 2616000,
+   "Framerate": 24,
+   "CompletionPercentage": 41.2,
+   "Width": 1280,
+   "Height": 720,
+   "AudioChannels": 2,
+   "HardwareAccelerationType": "none",
+   "TranscodeReasons": [
+    "VideoBitrateNotSupported"
+   ]
+  }
+ }
+]

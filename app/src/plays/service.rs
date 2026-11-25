@@ -2,16 +2,20 @@
 //!
 //! Three sources tell of plays, and each play is one row whoever told of it:
 //!
-//! - **Sessions** ([`live_pass`]): the media server's sessions, read every few seconds while
-//!   something plays and every minute while nothing does. A session is a play from its first
-//!   reading; a session that is gone is a finished play. The only source of how a new play is
-//!   delivered (direct play, direct stream or transcode, with the resolutions and bitrates).
-//! - **The media server's history** ([`server_history_pass`]): what it marked as played, with
-//!   who and on which device, newest first. The whole history at the first pass, then the
-//!   entries newer than the newest read.
+//! - **Sessions** ([`live_pass`]): each media server's sessions (Plex, Jellyfin, Emby, through
+//!   the one port), read every few seconds while something plays and every minute while nothing
+//!   does. A session is a play from its first reading; a session that is gone is a finished
+//!   play. A session's id names its play while that play is open: the same id read after the
+//!   play ended starts another. Sessions are the only source of how a new play is delivered
+//!   (direct play, direct stream or transcode, with the resolutions and bitrates). Every server
+//!   has them: the statistics hold for any server without its history or Tautulli.
+//! - **The media server's history** ([`server_history_pass`]), for a server that keeps one
+//!   ([`MediaServer::keeps_history`]): what it marked as played, with who and on which device,
+//!   newest first. The whole history at the first pass, then the entries newer than the newest
+//!   read.
 //! - **Tautulli** ([`tautulli_pass`]), when one is configured: years of plays with durations,
-//!   devices and delivery. All of it at the first pass and every day, the newest days on every
-//!   other pass.
+//!   devices and delivery on the Plex server. All of it at the first pass and every day, the
+//!   newest days on every other pass.
 //!
 //! [`absorb`] writes what a source says: onto the stored play the source's own id names, else
 //! onto the stored play it is another reading of (`model::closeness`), merged so that the
@@ -169,23 +173,36 @@ pub struct Absorbed {
     pub changed: usize,
 }
 
-/// Records made ready to store: linked to the catalog titles of their items, without
-/// addresses unless the setting keeps them, and none older than plays are kept.
+/// The media server whose items a play's keys are: the play's own server, except for a play
+/// Tautulli told of while no Plex server was configured. Its server is Tautulli's id. Its keys
+/// are those of the Plex server Tautulli reads, once one is configured.
+fn items_server(deps: &PlaysDeps, server: &str) -> String {
+    match (&deps.engines.play_history, deps.engines.plex_server()) {
+        (Some(history), Some(plex)) if history.id() == server => plex.id().to_string(),
+        _ => server.to_string(),
+    }
+}
+
+/// Records made ready to store: linked to the catalog titles of their items (each item by its
+/// server and its key: two servers can hold one key), without addresses unless the setting keeps
+/// them, and none older than plays are kept.
 async fn prepare(
     deps: &PlaysDeps,
     records: Vec<PlayRecord>,
 ) -> Result<Vec<PlayRecord>, sqlx::Error> {
-    let keys: Vec<String> = records
+    let items: Vec<(String, String)> = records
         .iter()
         .filter(|r| r.title_id.is_none())
-        .filter_map(|r| r.item_key().map(str::to_string))
+        .filter_map(|r| Some((items_server(deps, &r.server), r.item_key()?.to_string())))
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
-    let titles: HashMap<String, i64> = catalog_store::server_item_titles(&deps.pool, &keys)
-        .await?
-        .into_iter()
-        .collect();
+    let titles: HashMap<(String, String), i64> =
+        catalog_store::server_items_titles(&deps.pool, &items)
+            .await?
+            .into_iter()
+            .map(|(server, key, title)| ((server, key), title))
+            .collect();
     let keep = keep_addresses(&deps.settings);
     let cutoff = keep_days(&deps.settings).map(|d| Utc::now() - chrono::Duration::days(d));
     Ok(records
@@ -193,7 +210,11 @@ async fn prepare(
         .filter(|r| cutoff.is_none_or(|c| r.started_at >= c))
         .map(|mut r| {
             if r.title_id.is_none() {
-                r.title_id = r.item_key().and_then(|k| titles.get(k).copied());
+                let server = items_server(deps, &r.server);
+                let found = r
+                    .item_key()
+                    .and_then(|k| titles.get(&(server, k.to_string())).copied());
+                r.title_id = found;
             }
             if keep { r } else { r.without_addresses() }
         })
@@ -338,16 +359,16 @@ pub async fn tautulli_pass(
     let info = history.status().await.map_err(|e| e.to_string())?;
     let took = started.elapsed();
     let users = history.users().await.map_err(|e| e.to_string())?;
+    // Tautulli tells of a Plex server's plays. Without a Plex server they are Tautulli's own.
+    // They link to the catalog through the Plex server once one is configured.
     let server = deps
         .engines
-        .media_server
-        .as_ref()
+        .plex_server()
         .map(|s| s.id().to_string())
         .unwrap_or_else(|| history.id().to_string());
     let owner = deps
         .engines
-        .media_server
-        .as_ref()
+        .plex_server()
         .and_then(|_| users.iter().find(|u| u.admin).map(|u| u.id));
     let after = if whole {
         None
@@ -391,9 +412,28 @@ pub async fn tautulli_pass(
 /// Link plays to the catalog titles the catalog has learned since they were written, forget
 /// addresses unless the setting keeps them, and forget plays older than the setting keeps.
 pub async fn housekeeping(deps: &PlaysDeps) -> Result<(), sqlx::Error> {
-    let keys = store::unlinked_keys(&deps.pool).await?;
-    if !keys.is_empty() {
-        let found = catalog_store::server_item_titles(&deps.pool, &keys).await?;
+    let unlinked = store::unlinked_items(&deps.pool).await?;
+    if !unlinked.is_empty() {
+        // Each item is asked of the server its keys are, and linked by the plays' own server.
+        let asked: Vec<(String, String)> = unlinked
+            .iter()
+            .map(|(server, key)| (items_server(deps, server), key.clone()))
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        let titles: HashMap<(String, String), i64> =
+            catalog_store::server_items_titles(&deps.pool, &asked)
+                .await?
+                .into_iter()
+                .map(|(server, key, title)| ((server, key), title))
+                .collect();
+        let found: Vec<(String, String, i64)> = unlinked
+            .into_iter()
+            .filter_map(|(server, key)| {
+                let title = *titles.get(&(items_server(deps, &server), key.clone()))?;
+                Some((server, key, title))
+            })
+            .collect();
         store::link(&deps.pool, &found).await?;
     }
     if !keep_addresses(&deps.settings) {
@@ -405,12 +445,15 @@ pub async fn housekeeping(deps: &PlaysDeps) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-/// The loops: the sessions and the history of the media server, and Tautulli's plays.
+/// The loops: the sessions of each media server, the history of each that keeps one, and
+/// Tautulli's plays.
 pub fn spawn(deps: PlaysDeps) -> Vec<JoinHandle<()>> {
     let mut out = Vec::new();
-    if let Some(server) = deps.engines.media_server.clone() {
+    for server in deps.engines.media_servers.iter().cloned() {
         out.push(tokio::spawn(live_loop(deps.clone(), server.clone())));
-        out.push(tokio::spawn(history_loop(deps.clone(), server)));
+        if server.keeps_history() {
+            out.push(tokio::spawn(history_loop(deps.clone(), server)));
+        }
     }
     if let Some(history) = deps.engines.play_history.clone() {
         out.push(tokio::spawn(tautulli_loop(deps, history)));

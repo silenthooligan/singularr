@@ -1,7 +1,7 @@
 {
   "name": "Singularr",
   "short_name": "Singularr",
-  "description": "A self-hosted workspace for Plex media management",
+  "description": "A self-hosted workspace for media management",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -10,7 +10,7 @@ Rules for every string a person sees in Singularr: the web client and anything t
 4. **Buttons are verbs**: Save, Test, Retry, Add channel, Clear filters, Send. A destructive button names what it destroys: Delete file.
 5. **Errors are short and offer the way on**: Couldn't load Activity, with Retry. No route path, status code or internal name in the visible line. The technical detail may sit in a tooltip or a disclosure.
 6. **Help text only where a control needs it**: one line, twelve words at most, about the setting. Not about how the product works, what it used to do, or what it will do later.
-7. **Status is one or two words** from a fixed set: Available, Missing, Partial, Downloading, Importing, Processing, Queued, Working, Waiting, Stuck, Failed, Refused, Imported, Requested, Approved, Declined, Healthy, Degraded, Offline.
+7. **Status is one or two words** from a fixed set: Available, Missing, Partial, Downloading, Importing, Processing, Queued, Working, Waiting, Stuck, Failed, Refused, Imported, Completed, Requested, Approved, Declined, Healthy, Degraded, Offline.
 8. **Tooltips name the control** in six words or fewer: Row height, Columns, API request.
 9. **Confirmations**: the title is the action as a question (Remove this request?), one line of consequence at most, buttons Cancel and the verb.
 10. **A control that cannot act** is disabled and its tooltip says what it needs in a few words: Needs write access to Radarr. It does not open a toast that explains.

@@ -128,23 +128,30 @@ pub async fn calendars(state: &AppState, from: NaiveDate, to: NaiveDate) -> Arc<
     .await
 }
 
-/// What plays on the media server now; `None` when none is configured. A server that does
-/// not answer plays nothing as far as the page knows, and is asked again soon.
+/// What plays on the media servers now, server by server; `None` when none is configured. A
+/// server that does not answer plays nothing as far as the page knows. It is asked again soon.
 pub async fn sessions(state: &AppState) -> Arc<Option<Vec<ServerSession>>> {
     state
         .pages
         .sessions
         .make(|| async {
-            let Some(server) = state.engines.media_server.as_ref() else {
+            let servers = &state.engines.media_servers;
+            if servers.is_empty() {
                 return (None, SESSIONS_KEEP);
-            };
-            match server.sessions().await {
-                Ok(list) => (Some(list), SESSIONS_KEEP),
-                Err(err) => {
-                    tracing::warn!(server = server.id(), error = %err, "the sessions could not be read");
-                    (Some(Vec::new()), PARTIAL_KEEP)
+            }
+            let asked = join_all(servers.iter().map(|server| server.sessions())).await;
+            let mut all = Vec::new();
+            let mut keep = SESSIONS_KEEP;
+            for (server, answer) in servers.iter().zip(asked) {
+                match answer {
+                    Ok(list) => all.extend(list),
+                    Err(err) => {
+                        tracing::warn!(server = server.id(), error = %err, "the sessions could not be read");
+                        keep = PARTIAL_KEEP;
+                    }
                 }
             }
+            (Some(all), keep)
         })
         .await
 }

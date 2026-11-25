@@ -7,24 +7,66 @@
 //! own history of plays, paged the same way, newest first), `/accounts` and `/devices` (the
 //! names behind that history), `/library/metadata/{key}` (the file of an item that is being
 //! transcoded), and `/photo/:/transcode` (an image resized by the server, for album covers and
-//! artist photos).
+//! artist photos). Plex starts work on some of its GETs (a library scan, a watched mark). These
+//! paths are the only GETs the way out lets through ([`calls`]).
 //!
 //! Answers are read leniently: a field of an unexpected shape is no value, and an item without
 //! a rating key is left out.
 
 use super::{
-    Delivery, EngineError, ItemMedia, MediaServer, ServerAccount, ServerAlbum, ServerArtist,
-    ServerDevice, ServerIdentity, ServerImage, ServerItem, ServerPlay, ServerPlayPage,
-    ServerSection, ServerSession, ServerTrack, ServerVideo,
+    Delivery, EngineError, ItemLink, ItemMedia, MediaServer, ServerAccount, ServerAlbum,
+    ServerArtist, ServerDevice, ServerIdentity, ServerImage, ServerItem, ServerPlay,
+    ServerPlayPage, ServerSection, ServerSession, ServerTrack, ServerVideo, height_word,
 };
-use crate::core::config::PlexConfig;
-use crate::core::outbound::{OutRequest, Outbound, encode_component, expect_ok};
+use crate::core::config::MediaServerConfig;
+use crate::core::outbound::{Calls, OutRequest, Outbound, encode_component, expect_ok};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
 /// The kind of engine the Plex server is, in the engine list.
 pub const KIND: &str = "plex";
+/// Plex's web app, where an item's link opens unless the installation names another
+/// (`SINGULARR_PLEX_WEB_URL`).
+pub const WEB_APP: &str = "https://app.plex.tv/desktop";
+
+/// The calls the adapter sends, the only GETs Plex is sent: the paths above, each with any
+/// query.
+pub fn calls() -> Calls {
+    [
+        "/",
+        "/library/sections",
+        "/library/sections/{id}/all",
+        "/status/sessions",
+        "/status/sessions/history/all",
+        "/accounts",
+        "/devices",
+        "/library/metadata/{id}",
+        "/photo/:/transcode",
+    ]
+    .into_iter()
+    .fold(Calls::default(), |calls, path| calls.get(path))
+}
+
+/// The address of an item in Plex's web app: the server's machine identifier and the item's
+/// key under `web`.
+pub fn item_link(web: &str, machine_id: &str, rating_key: &str) -> ItemLink {
+    let key = format!("/library/metadata/{rating_key}");
+    ItemLink {
+        url: format!(
+            "{}/#!/server/{}/details?key={}",
+            web.trim_end_matches('/'),
+            encode_component(machine_id),
+            encode_component(&key)
+        ),
+        key,
+    }
+}
+
+/// A rating key as Plex makes them: one to ten digits, as the declared paths take them.
+fn is_key(rating_key: &str) -> bool {
+    (1..=10).contains(&rating_key.len()) && rating_key.chars().all(|c| c.is_ascii_digit())
+}
 /// Items asked for per page, and the most pages read of one section.
 const PAGE: usize = 500;
 const MAX_PAGES: usize = 200;
@@ -40,6 +82,8 @@ pub struct Plex {
     id: String,
     base: String,
     token: String,
+    /// Plex's web app, for an item's link.
+    web: String,
     out: Outbound,
 }
 
@@ -254,18 +298,6 @@ pub fn resolution_word(raw: &str) -> Option<String> {
     }
 }
 
-/// The resolution a picture of this height reads as.
-fn height_word(height: i64) -> Option<String> {
-    let word = match height {
-        h if h >= 1500 => "4K",
-        h if h >= 900 => "1080p",
-        h if h >= 650 => "720p",
-        h if h > 0 => "SD",
-        _ => return None,
-    };
-    Some(word.to_string())
-}
-
 /// One stream's decision in the product's words.
 fn decision_word(raw: &str) -> Option<String> {
     let word = match raw.trim().to_ascii_lowercase().as_str() {
@@ -362,6 +394,7 @@ pub fn session(v: &Value) -> Option<ServerSession> {
         text(player, "remotePublicAddress").or_else(|| text(player, "address"))
     };
     Some(ServerSession {
+        server: String::new(),
         kind: text(v, "type").unwrap_or_default(),
         title: text(v, "title")?,
         show: text(v, "grandparentTitle"),
@@ -491,13 +524,20 @@ pub fn item_media(v: &Value) -> Option<ItemMedia> {
 
 impl Plex {
     /// `None` when the integration has no address or no token.
-    pub fn new(config: &PlexConfig, out: Outbound) -> Option<Self> {
+    pub fn new(config: &MediaServerConfig, out: Outbound) -> Option<Self> {
         Some(Plex {
             id: config.id.clone(),
             base: config.url.clone()?,
-            token: config.token.clone()?,
+            token: config.secret.clone()?,
+            web: WEB_APP.to_string(),
             out,
         })
+    }
+
+    /// The same adapter with items opening in the web app at `web`.
+    pub fn with_web(mut self, web: &str) -> Plex {
+        self.web = web.trim_end_matches('/').to_string();
+        self
     }
 
     fn request(&self, path: &str) -> OutRequest {
@@ -560,6 +600,23 @@ impl MediaServer for Plex {
         &self.id
     }
 
+    fn kind(&self) -> &'static str {
+        KIND
+    }
+
+    fn keeps_history(&self) -> bool {
+        true
+    }
+
+    fn item_thumb(&self, rating_key: &str) -> Option<String> {
+        is_key(rating_key).then(|| format!("/library/metadata/{rating_key}/thumb"))
+    }
+
+    fn item_link(&self, machine_id: Option<&str>, rating_key: &str) -> Option<ItemLink> {
+        let machine = machine_id.filter(|m| !m.is_empty())?;
+        is_key(rating_key).then(|| item_link(&self.web, machine, rating_key))
+    }
+
     async fn identity(&self) -> Result<ServerIdentity, EngineError> {
         Ok(identity(&self.get("identity", "/").await?))
     }
@@ -613,6 +670,10 @@ impl MediaServer for Plex {
         Ok(metadata(&self.get("sessions", "/status/sessions").await?)
             .iter()
             .filter_map(session)
+            .map(|s| ServerSession {
+                server: self.id.clone(),
+                ..s
+            })
             .collect())
     }
 
@@ -639,7 +700,7 @@ impl MediaServer for Plex {
     }
 
     async fn item_media(&self, rating_key: &str) -> Result<Option<ItemMedia>, EngineError> {
-        if rating_key.is_empty() || !rating_key.chars().all(|c| c.is_ascii_digit()) {
+        if !is_key(rating_key) {
             return Ok(None);
         }
         Ok(item_media(
@@ -698,15 +759,94 @@ mod tests {
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
     }
 
+    /// The adapter over recorded answers, held to the calls it declares.
     fn plex(recorded: Arc<Recorded>) -> Plex {
         let mut allow = Allowlist::default();
-        allow.allow_engine("plex", BASE, &[]).unwrap();
-        let config = PlexConfig {
+        allow.allow_integration("plex", BASE, calls()).unwrap();
+        let config = MediaServerConfig {
             id: "plex".to_string(),
+            kind: crate::core::config::MediaServerKind::Plex,
             url: Some(BASE.to_string()),
-            token: Some("test-token".to_string()),
+            secret: Some("test-token".to_string()),
+            web_url: None,
         };
         Plex::new(&config, Outbound::with_transport(allow, recorded)).unwrap()
+    }
+
+    /// Plex starts work on some GETs: the adapter's own paths pass, those do not.
+    #[tokio::test]
+    async fn plex_is_sent_its_declared_reads_and_nothing_else() {
+        let mut allow = Allowlist::default();
+        allow.allow_integration("plex", BASE, calls()).unwrap();
+        for path in [
+            "/",
+            "/library/sections",
+            "/library/sections/6/all?includeGuids=1&type=9&X-Plex-Container-Start=0",
+            "/status/sessions",
+            "/status/sessions/history/all?sort=viewedAt:desc",
+            "/accounts",
+            "/devices",
+            "/library/metadata/109882",
+            "/photo/:/transcode?url=%2Flibrary%2Fmetadata%2F1%2Fthumb&width=300",
+        ] {
+            assert!(
+                allow.check(Method::Get, &format!("{BASE}{path}")).is_ok(),
+                "{path}"
+            );
+        }
+        for path in [
+            "/library/sections/1/refresh",
+            "/:/scrobble?key=109882&identifier=com.plexapp.plugins.library",
+            "/:/unscrobble?key=109882",
+            "/library/optimize",
+            "/butler/StartTasks",
+            "/library/metadata/109882/refresh",
+            "/library/sections/1/emptyTrash",
+        ] {
+            assert!(
+                allow.check(Method::Get, &format!("{BASE}{path}")).is_err(),
+                "{path} must be refused"
+            );
+        }
+        for method in [Method::Post, Method::Put, Method::Delete] {
+            assert!(
+                allow
+                    .check(method, &format!("{BASE}/library/sections"))
+                    .is_err()
+            );
+        }
+        // An image goes through the declared transcoder; a key Plex cannot have makes none.
+        let recorded = Recorded::new();
+        recorded.answer_with(
+            Method::Get,
+            &format!("{BASE}/photo/:/transcode"),
+            200,
+            "jpeg",
+            &[("content-type", "image/jpeg")],
+        );
+        let p = plex(recorded.clone());
+        let thumb = p.item_thumb("29499").unwrap();
+        assert_eq!(thumb, "/library/metadata/29499/thumb");
+        let image = p.photo(&thumb, 200).await.unwrap();
+        assert_eq!(image.content_type, "image/jpeg");
+        assert!(p.item_thumb("1/../x").is_none() && p.item_thumb("").is_none());
+        // An item opens in Plex's web app by the server's machine identifier.
+        let link = p.item_link(Some("abc123"), "77").unwrap();
+        assert_eq!(link.key, "/library/metadata/77");
+        assert_eq!(
+            link.url,
+            "https://app.plex.tv/desktop/#!/server/abc123/details?key=%2Flibrary%2Fmetadata%2F77"
+        );
+        assert!(p.item_link(None, "77").is_none());
+        let other = plex(Recorded::new()).with_web("https://plex.example.org/web/");
+        assert!(
+            other
+                .item_link(Some("abc123"), "77")
+                .unwrap()
+                .url
+                .starts_with("https://plex.example.org/web/#!/server/abc123/")
+        );
+        assert_eq!((p.kind(), p.keeps_history()), ("plex", true));
     }
 
     #[tokio::test]
@@ -773,6 +913,7 @@ mod tests {
         assert!(items[1].last_played.is_some());
         let sessions = p.sessions().await.unwrap();
         assert_eq!(sessions.len(), 2);
+        assert!(sessions.iter().all(|s| s.server == "plex"));
         assert_eq!(
             (sessions[0].person.as_deref(), sessions[0].decision.as_str()),
             (Some("friend"), "transcode")

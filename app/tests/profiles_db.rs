@@ -269,11 +269,7 @@ fn app_state(pool: &PgPool, journal: Journal, extra: &[(&'static str, &'static s
         home_movies: Arc::new(HomeMovies::new(&config.home_movies.root)),
         settings,
         pages: Default::default(),
-        search: Arc::new(singularr::search::Search::new(
-            pool.clone(),
-            &config.search,
-            &out,
-        )),
+        search: Arc::new(singularr::search::Search::new(pool.clone(), &config, &out)),
         notify: singularr::notify::service::Notifier::new(
             pool.clone(),
             journal.clone(),
@@ -611,9 +607,9 @@ async fn the_routes_read_change_and_refuse_as_the_source_says() {
 
     // Unlisted: what the download client holds that no list names.
     sqlx::query(
-        "INSERT INTO downloads (hash, name, state) VALUES
-           ('h1', 'Movie.2020.1080p.WEB-DL.DDP5.1.H.264-SMURF', 'downloading'),
-           ('h2', 'Movie.2021.1080p.WEB-DL.DDP5.1.H.264-AAA', 'downloading')",
+        "INSERT INTO downloads (client, hash, name, state) VALUES
+           ('qbittorrent', 'h1', 'Movie.2020.1080p.WEB-DL.DDP5.1.H.264-SMURF', 'downloading'),
+           ('qbittorrent', 'h2', 'Movie.2021.1080p.WEB-DL.DDP5.1.H.264-AAA', 'downloading')",
     )
     .execute(&t.pool)
     .await

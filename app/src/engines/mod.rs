@@ -1,8 +1,9 @@
 //! Engines behind ports. An engine is another program Singularr talks to: the Radarr and Sonarr
-//! integrations (legacy, read in stage 1), qBittorrent, Seerr, the Plex server, the
-//! processing services (a worker such as Tdarr, a bridge such as HUSH) and a play history
-//! (Tautulli). An adapter is created per configured integration; nothing here names an
-//! instance.
+//! integrations (legacy, read in stage 1), the download clients (qBittorrent, Transmission,
+//! Deluge, SABnzbd, NZBGet), Seerr, the media servers (Plex, Jellyfin, Emby, each behind
+//! [`MediaServer`]), the processing services (a worker such as
+//! Tdarr, a bridge such as HUSH) and a play history (Tautulli). An adapter is created per
+//! configured integration; nothing here names an instance.
 //!
 //! Singularr reads every engine and acts on one only by permission. What it may do with an
 //! integration is its access (`access`): `read` by default, `act` where the owner allows it
@@ -18,11 +19,21 @@ pub mod access;
 #[cfg(feature = "ssr")]
 pub mod arr;
 #[cfg(feature = "ssr")]
+pub mod clients;
+#[cfg(feature = "ssr")]
+pub mod deluge;
+#[cfg(feature = "ssr")]
 pub mod hush;
+#[cfg(feature = "ssr")]
+pub mod jellyfin;
+#[cfg(feature = "ssr")]
+pub mod nzbget;
 #[cfg(feature = "ssr")]
 pub mod plex;
 #[cfg(feature = "ssr")]
 pub mod qbit;
+#[cfg(feature = "ssr")]
+pub mod sabnzbd;
 #[cfg(feature = "ssr")]
 pub mod seerr;
 #[cfg(feature = "ssr")]
@@ -33,6 +44,8 @@ pub mod store;
 pub mod tautulli;
 #[cfg(feature = "ssr")]
 pub mod tdarr;
+#[cfg(feature = "ssr")]
+pub mod transmission;
 
 #[cfg(feature = "ssr")]
 pub use ports::*;
@@ -77,7 +90,8 @@ mod ports {
         /// download belongs to.
         pub engine_title_id: Option<i64>,
         pub title: String,
-        /// The torrent hash, upper case.
+        /// The download client's id of the download, upper case: a torrent's hash, a usenet
+        /// client's job id ([`ClientDownload::download_id`]).
         pub download_id: Option<String>,
         pub status: Option<String>,
         /// `downloading`, `importPending`, `importBlocked`, `failedPending`, ...
@@ -92,7 +106,7 @@ mod ports {
     /// One page of an arr's grab history, newest first.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct GrabPage {
-        /// Download ids (torrent hashes), upper case.
+        /// Download ids (torrent hashes, usenet job ids), upper case.
         pub download_ids: Vec<String>,
         pub records: usize,
         pub total_records: i64,
@@ -250,6 +264,9 @@ mod ports {
         pub engine_title_id: Option<i64>,
         /// Upper case.
         pub download_id: String,
+        /// The download id as the manager wrote it. The manager's own lookups (the manual
+        /// import, the download a command names) match it exactly. Usenet ids are lower case.
+        pub download_id_as_written: String,
         pub title: String,
         /// `torrent` or `usenet`.
         pub protocol: Option<String>,
@@ -275,6 +292,7 @@ mod ports {
         pub quality: Option<Value>,
         pub languages: Value,
         pub release_group: Option<String>,
+        /// As the manager wrote it.
         pub download_id: Option<String>,
         pub indexer_flags: i64,
         /// Sonarr's word for what the release holds: `singleEpisode`, `seasonPack`.
@@ -409,12 +427,13 @@ mod ports {
         ) -> Result<Vec<ManagerEpisode>, EngineError> {
             Ok(Vec::new())
         }
-        /// The queue entries of one download (a pack can be one per episode), read now.
+        /// The queue entries of one download (a pack can be one per episode), read now. The
+        /// id matches in any case.
         async fn queue_entries(&self, _download_id: &str) -> Result<Vec<QueueEntry>, EngineError> {
             Ok(Vec::new())
         }
         /// What a manual import offers for one download: its files, each with the manager's
-        /// reading and why it would not import it.
+        /// reading and why it would not import it. The id goes as the manager wrote it.
         async fn import_offer(&self, _download_id: &str) -> Result<Vec<ImportFile>, EngineError> {
             Ok(Vec::new())
         }
@@ -425,34 +444,154 @@ mod ports {
         }
     }
 
-    /// One torrent as the download client reports it.
+    /// How a download travels: a torrent from its peers, or a usenet download from news
+    /// servers.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Protocol {
+        Torrent,
+        Usenet,
+    }
+
+    impl Protocol {
+        /// The managers' word. A release and a queue entry carry it too.
+        pub fn as_str(self) -> &'static str {
+            match self {
+                Protocol::Torrent => "torrent",
+                Protocol::Usenet => "usenet",
+            }
+        }
+    }
+
+    /// Where a download stands in its client, in the product's words. The client's own word
+    /// stays beside it ([`ClientDownload::state`]).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum DownloadStatus {
+        /// It waits for its turn.
+        Queued,
+        Downloading,
+        /// It wants data and none arrives.
+        Stalled,
+        Paused,
+        /// The client checks the data it holds: a hash check, a par2 verify or repair.
+        Checking,
+        /// The client works on what it downloaded: unpacks, renames, moves it, or runs a
+        /// script on it.
+        Unpacking,
+        /// Complete, and shared with peers.
+        Seeding,
+        /// Complete, with nothing left to do in the client.
+        Completed,
+        /// The client gave up on it, or reports an error with its files.
+        Failed,
+    }
+
+    impl DownloadStatus {
+        pub const ALL: [DownloadStatus; 9] = [
+            DownloadStatus::Queued,
+            DownloadStatus::Downloading,
+            DownloadStatus::Stalled,
+            DownloadStatus::Paused,
+            DownloadStatus::Checking,
+            DownloadStatus::Unpacking,
+            DownloadStatus::Seeding,
+            DownloadStatus::Completed,
+            DownloadStatus::Failed,
+        ];
+
+        pub fn as_str(self) -> &'static str {
+            match self {
+                DownloadStatus::Queued => "queued",
+                DownloadStatus::Downloading => "downloading",
+                DownloadStatus::Stalled => "stalled",
+                DownloadStatus::Paused => "paused",
+                DownloadStatus::Checking => "checking",
+                DownloadStatus::Unpacking => "unpacking",
+                DownloadStatus::Seeding => "seeding",
+                DownloadStatus::Completed => "completed",
+                DownloadStatus::Failed => "failed",
+            }
+        }
+    }
+
+    /// One download as its client lists it: a torrent, or a usenet download. What only a
+    /// torrent has (seeds, peers, a ratio, time seeding) is absent, or 0, for a usenet one.
     #[derive(Debug, Clone, PartialEq)]
-    pub struct Torrent {
-        /// Upper case.
-        pub hash: String,
+    pub struct ClientDownload {
+        /// The client's own id of it, as the client writes it: a torrent's hash, SABnzbd's
+        /// `nzo_id`, NZBGet's `NZBID`.
+        pub id: String,
+        /// The id a manager knows it by, upper case: what the manager's queue and grab history
+        /// name as `downloadId`. A torrent's hash, SABnzbd's `nzo_id`, and for NZBGet the
+        /// `drone` parameter a manager gives the downloads it grabs, else the `NZBID`.
+        pub download_id: String,
+        pub protocol: Protocol,
         pub name: String,
+        /// The client's category or label.
         pub category: Option<String>,
+        pub status: DownloadStatus,
+        /// The client's own word for where it stands: `stalledDL`, `seed`, `Paused`,
+        /// `PP_QUEUED`.
         pub state: String,
         /// 0 to 1.
         pub progress: f64,
         pub size_bytes: i64,
+        /// The bytes of it the client holds, when it says.
+        pub downloaded_bytes: Option<i64>,
         pub added_at: Option<DateTime<Utc>>,
         pub completed_at: Option<DateTime<Utc>>,
-        pub seeding_seconds: i64,
         pub save_path: Option<String>,
-        /// Bytes per second down, seconds left (absent when the client cannot tell), and the
-        /// seeds and peers it is connected to.
+        /// Bytes per second down and up, and seconds left; absent when the client cannot tell.
         pub speed: Option<i32>,
+        pub upload_speed: Option<i32>,
         pub eta: Option<i32>,
+        /// Where it comes from as the client knows it: a torrent's tracker, by host.
+        pub tracker: Option<String>,
+        /// The seeds and peers a torrent is connected to, its share ratio, and how long it
+        /// seeded.
         pub seeds: Option<i32>,
         pub peers: Option<i32>,
+        pub ratio: Option<f64>,
+        pub seeding_seconds: i64,
     }
 
-    /// The download client, read-only in stage 1: list, nothing else.
+    /// What a download client lists in one pass: its downloads, and the edge of the history it
+    /// is read over. A finished download that completed before `finished_since` is past that
+    /// edge. It is not listed. Its absence is no removal. A torrent client lists every
+    /// torrent it holds and has no edge.
+    #[derive(Debug, Clone, Default)]
+    pub struct ClientListing {
+        pub downloads: Vec<ClientDownload>,
+        pub finished_since: Option<DateTime<Utc>>,
+    }
+
+    impl From<Vec<ClientDownload>> for ClientListing {
+        fn from(downloads: Vec<ClientDownload>) -> Self {
+            ClientListing {
+                downloads,
+                finished_since: None,
+            }
+        }
+    }
+
+    /// A download client: torrents (qBittorrent, Transmission, Deluge) or usenet downloads
+    /// (SABnzbd, NZBGet). Read-only: it lists its downloads. Each adapter declares the calls it
+    /// sends ([`crate::core::outbound::Calls`]), every one a read, and no action.
     #[async_trait]
-    pub trait Downloader: Send + Sync {
+    pub trait DownloadClient: Send + Sync {
+        /// The integration id.
         fn id(&self) -> &str;
-        async fn torrents(&self) -> Result<Vec<Torrent>, EngineError>;
+        /// The integration type: `qbittorrent`, `transmission`, `deluge`, `sabnzbd`, `nzbget`.
+        fn kind(&self) -> &'static str;
+        fn protocol(&self) -> Protocol;
+        /// Every download it lists now: a torrent client's torrents; a usenet client's queue
+        /// and the jobs of its history that finished in the last
+        /// [`clients::HISTORY_DAYS`](crate::engines::clients::HISTORY_DAYS) days. The managers
+        /// import from that history.
+        async fn downloads(&self) -> Result<Vec<ClientDownload>, EngineError>;
+        /// The same downloads with the edge of the history read. A torrent client has none.
+        async fn listing(&self) -> Result<ClientListing, EngineError> {
+            Ok(self.downloads().await?.into())
+        }
     }
 
     /// One request on a Seerr site. The requester is a display name: the adapter never
@@ -563,11 +702,13 @@ mod ports {
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct ServerIdentity {
         pub name: String,
-        /// The server's machine identifier: the address of an item in Plex's web app names it.
+        /// The server's own identifier: the address of an item in the server's web app names
+        /// it (Plex's machine identifier, the server id of Jellyfin and Emby).
         pub machine_id: Option<String>,
         pub version: Option<String>,
         pub platform: Option<String>,
-        /// The server's owner has Plex Pass (editions in one item need it).
+        /// The server's owner has Plex Pass (editions in one item need it). False for every
+        /// other server.
         pub plex_pass: bool,
     }
 
@@ -575,7 +716,8 @@ mod ports {
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct ServerSection {
         pub key: String,
-        /// `movie`, `show`, `artist` (music) or `photo`.
+        /// `movie`, `show`, `music`, `homevideo` or `photo`; Plex says `artist` for music and
+        /// marks personal media by its agent (`lifecycle::server::section_kind` reads both).
         pub kind: String,
         pub title: String,
         pub agent: Option<String>,
@@ -676,6 +818,9 @@ mod ports {
     /// Something playing now.
     #[derive(Debug, Clone, PartialEq)]
     pub struct ServerSession {
+        /// The media server it plays on, by its integration id: its keys are that server's.
+        /// The adapter sets it; a session read from an answer alone has none.
+        pub server: String,
         /// `movie`, `episode`, `track`.
         pub kind: String,
         pub title: String,
@@ -683,7 +828,7 @@ mod ports {
         pub show: Option<String>,
         pub season: Option<i32>,
         pub episode: Option<i32>,
-        /// The person watching (their Plex name).
+        /// The person watching, by their name on the server.
         pub person: Option<String>,
         pub player: Option<String>,
         /// `playing`, `paused`, `buffering`.
@@ -768,6 +913,18 @@ mod ports {
         pub platform: Option<String>,
     }
 
+    /// The resolution a picture of this height reads as: `4K`, `1080p`, `720p`, `SD`.
+    pub fn height_word(height: i64) -> Option<String> {
+        let word = match height {
+            h if h >= 1500 => "4K",
+            h if h >= 900 => "1080p",
+            h if h >= 650 => "720p",
+            h if h > 0 => "SD",
+            _ => return None,
+        };
+        Some(word.to_string())
+    }
+
     /// The resolution and bitrate of an item's own file.
     #[derive(Debug, Clone, Default, PartialEq, Eq)]
     pub struct ItemMedia {
@@ -801,11 +958,26 @@ mod ports {
         pub bytes: Vec<u8>,
     }
 
-    /// The media server (Plex), read-only: what it is, its libraries and their items, music,
-    /// what is playing, and images resized by the server.
+    /// Where an item of the media server opens in the server's own web app.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct ItemLink {
+        /// The item as the server's web app names it: Plex's `/library/metadata/109882`, the
+        /// item id of Jellyfin and Emby.
+        pub key: String,
+        pub url: String,
+    }
+
+    /// A media server (Plex, Jellyfin, Emby), read-only: what it is, its libraries and their
+    /// items with their provider ids and files, music, what is playing, its accounts, and
+    /// images resized by the server. Each server has an adapter of its own behind this port;
+    /// the passes, the pages and the plays read every server the same way. What only some
+    /// servers keep (a history of plays, the devices behind it) has a default of none.
     #[async_trait]
     pub trait MediaServer: Send + Sync {
+        /// The integration id.
         fn id(&self) -> &str;
+        /// The integration type: `plex`, `jellyfin`, `emby`.
+        fn kind(&self) -> &'static str;
         async fn identity(&self) -> Result<ServerIdentity, EngineError>;
         async fn sections(&self) -> Result<Vec<ServerSection>, EngineError>;
         /// The movies or shows of a movie or show section.
@@ -814,12 +986,27 @@ mod ports {
         async fn albums(&self, section: &str) -> Result<Vec<ServerAlbum>, EngineError>;
         async fn tracks(&self, section: &str) -> Result<Vec<ServerTrack>, EngineError>;
         async fn sessions(&self) -> Result<Vec<ServerSession>, EngineError>;
-        /// One page of the server's history of plays, newest first.
-        async fn history(&self, start: u32, size: u32) -> Result<ServerPlayPage, EngineError>;
+        /// The server keeps a history of plays that can be read ([`MediaServer::history`],
+        /// with [`MediaServer::devices`] behind it). Plays are recorded from the sessions of
+        /// every server, whether or not it keeps one.
+        fn keeps_history(&self) -> bool {
+            false
+        }
+        /// One page of the server's history of plays, newest first. Empty for a server that
+        /// keeps none.
+        async fn history(&self, _start: u32, _size: u32) -> Result<ServerPlayPage, EngineError> {
+            Ok(ServerPlayPage {
+                plays: Vec::new(),
+                total: 0,
+            })
+        }
         /// The server's accounts, by id and name.
         async fn accounts(&self) -> Result<Vec<ServerAccount>, EngineError>;
-        /// The devices that have played from the server.
-        async fn devices(&self) -> Result<Vec<ServerDevice>, EngineError>;
+        /// The devices that have played from the server. Empty for a server whose history
+        /// names none.
+        async fn devices(&self) -> Result<Vec<ServerDevice>, EngineError> {
+            Ok(Vec::new())
+        }
         /// What an item's own file is: the source of a stream that is transcoded. `None` when
         /// the server has no such item.
         async fn item_media(&self, rating_key: &str) -> Result<Option<ItemMedia>, EngineError>;
@@ -827,6 +1014,12 @@ mod ports {
         async fn videos(&self, section: &str) -> Result<Vec<ServerVideo>, EngineError>;
         /// An image of the server (`thumb` as an item names it), resized to `size` pixels.
         async fn photo(&self, thumb: &str, size: u32) -> Result<ServerImage, EngineError>;
+        /// The image of an item by its key, as [`MediaServer::photo`] takes it. `None` for a
+        /// key the server cannot have.
+        fn item_thumb(&self, rating_key: &str) -> Option<String>;
+        /// Where an item opens in the server's own web app; `machine_id` is the server's own
+        /// identifier, when its identity named one. `None` when no address can be made.
+        fn item_link(&self, machine_id: Option<&str>, rating_key: &str) -> Option<ItemLink>;
     }
 
     /// A person as a play history names them. `admin`: the media server's owner.

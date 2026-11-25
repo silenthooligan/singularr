@@ -1,0 +1,122 @@
+{
+ "history": {
+  "total_size": "4.0 M",
+  "month_size": "4.0 M",
+  "week_size": "4.0 M",
+  "day_size": "4.0 M",
+  "slots": [
+   {
+    "completed": 1795580820,
+    "name": "Tears.of.Steel.S01E02.1080p.WEB-DL.x264-FX",
+    "nzb_name": "Tears.of.Steel.S01E02.1080p.WEB-DL.x264-FX.nzb",
+    "category": "tv",
+    "pp": "D",
+    "script": "None",
+    "report": "",
+    "url": null,
+    "status": "Completed",
+    "nzo_id": "93ac82c7-ffaf-41c7-a11a-06af0e456887",
+    "storage": "/config/Downloads/complete/Tears.of.Steel.S01E02.1080p.WEB-DL.x264-FX/Tears.of.Steel.S01E02.1080p.WEB-DL.x264-FX.mkv",
+    "path": "/config/Downloads/incomplete/Tears.of.Steel.S01E02.1080p.WEB-DL.x264-FX",
+    "script_line": "",
+    "download_time": 0,
+    "postproc_time": 0,
+    "stage_log": [
+     {
+      "name": "Source",
+      "actions": [
+       "Tears.of.Steel.S01E02.1080p.WEB-DL.x264-FX.nzb"
+      ]
+     },
+     {
+      "name": "Download",
+      "actions": [
+       ""
+      ]
+     },
+     {
+      "name": "Servers",
+      "actions": [
+       "nserv=3.1 MB"
+      ]
+     },
+     {
+      "name": "Repair",
+      "actions": [
+       "Trying RAR renamer",
+       "[Tears.of.Steel.S01E02.1080p.WEB-DL.x264-FX] No par2 sets"
+      ]
+     }
+    ],
+    "downloaded": 3145728,
+    "completeness": null,
+    "fail_message": "",
+    "url_info": "",
+    "bytes": 3145728,
+    "meta": null,
+    "series": null,
+    "md5sum": "d33b335b332c22d82102ad9e5f458bdc",
+    "password": null,
+    "duplicate_key": "tears of steel/1/2",
+    "archive": false,
+    "time_added": 1795580819,
+    "size": "3.0 MB",
+    "action_line": "",
+    "loaded": false,
+    "retry": false
+   },
+   {
+    "completed": 1795580820,
+    "name": "Cosmos.Laundromat.2015.720p.WEB-DL.x264-FX",
+    "nzb_name": "Cosmos.Laundromat.2015.720p.WEB-DL.x264-FX.nzb",
+    "category": "movies",
+    "pp": "D",
+    "script": "None",
+    "report": "",
+    "url": null,
+    "status": "Failed",
+    "nzo_id": "ae549c12-74ac-4cf8-b54b-7988205bac15",
+    "storage": "/config/Downloads/incomplete/Cosmos.Laundromat.2015.720p.WEB-DL.x264-FX",
+    "path": "/config/Downloads/incomplete/Cosmos.Laundromat.2015.720p.WEB-DL.x264-FX",
+    "script_line": "",
+    "download_time": 0,
+    "postproc_time": 0,
+    "stage_log": [
+     {
+      "name": "Source",
+      "actions": [
+       "Cosmos.Laundromat.2015.720p.WEB-DL.x264-FX.nzb"
+      ]
+     },
+     {
+      "name": "Download",
+      "actions": [
+       "3 articles were missing",
+       "Download failed - Not on your server(s) - https://sabnzbd.org/not-complete"
+      ]
+     }
+    ],
+    "downloaded": 0,
+    "completeness": null,
+    "fail_message": "Download failed - Not on your server(s) - https://sabnzbd.org/not-complete",
+    "url_info": "",
+    "bytes": 0,
+    "meta": null,
+    "series": null,
+    "md5sum": "6e0cb298399f1b67958cabfc30996bee",
+    "password": null,
+    "duplicate_key": "cosmos laundromat",
+    "archive": false,
+    "time_added": 1795580819,
+    "size": "0 B",
+    "action_line": "",
+    "loaded": false,
+    "retry": true
+   }
+  ],
+  "ppslots": 0,
+  "noofslots": 2,
+  "last_history_update": 10,
+  "version": "5.1.3"
+ }
+}

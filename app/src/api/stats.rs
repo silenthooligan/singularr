@@ -100,7 +100,7 @@ pub struct OverviewQuery {
     pub days: Option<String>,
     /// `movie`, `show` or `music`.
     pub kind: Option<String>,
-    /// A library by its id: `plex-1`.
+    /// A library by its id: `plex-1`, `<media server>-<section>`.
     pub library: Option<String>,
     /// A person by the media server's account id.
     pub person: Option<i64>,
@@ -589,17 +589,17 @@ async fn range(
     ))
 }
 
-/// The sources the installation reads plays from.
+/// The sources the installation reads plays from: each media server, then the play history.
 fn sources(state: &AppState) -> Vec<StatsSource> {
     let mut out = Vec::new();
-    if let Some(server) = &state.engines.media_server
-        && let Some(i) = state.config.integration(server.id())
-    {
-        out.push(StatsSource {
-            id: i.id.clone(),
-            kind: "server".to_string(),
-            name: i.name.clone(),
-        });
+    for server in &state.engines.media_servers {
+        if let Some(i) = state.config.integration(server.id()) {
+            out.push(StatsSource {
+                id: i.id.clone(),
+                kind: "server".to_string(),
+                name: i.name.clone(),
+            });
+        }
     }
     if let Some(history) = &state.engines.play_history
         && let Some(i) = state.config.integration(history.id())
@@ -850,7 +850,7 @@ pub async fn title_plays(
     caller: &Caller,
     title_id: Option<i64>,
 ) -> AppResult<Option<TitlePlays>> {
-    if state.engines.media_server.is_none() && state.engines.play_history.is_none() {
+    if state.engines.media_servers.is_empty() && state.engines.play_history.is_none() {
         return Ok(None);
     }
     let Some(id) = title_id else {

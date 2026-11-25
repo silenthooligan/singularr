@@ -2350,18 +2350,26 @@ pub async fn episode_names_of(
     .await
 }
 
-/// The catalog titles of these items of the media server, by the server's keys.
-pub async fn server_item_titles(
+/// The catalog titles of these items of the media servers, each item as (server, key): two
+/// servers may use one key for two items. Answers (server, key, title). No lookup goes by the
+/// key alone.
+pub async fn server_items_titles(
     pool: &PgPool,
-    rating_keys: &[String],
-) -> Result<Vec<(String, i64)>, sqlx::Error> {
-    if rating_keys.is_empty() {
+    items: &[(String, String)],
+) -> Result<Vec<(String, String, i64)>, sqlx::Error> {
+    if items.is_empty() {
         return Ok(Vec::new());
     }
-    sqlx::query_as::<_, (String, i64)>(
-        "SELECT rating_key, title_id FROM title_server WHERE rating_key = ANY($1)",
+    let servers: Vec<String> = items.iter().map(|(s, _)| s.clone()).collect();
+    let keys: Vec<String> = items.iter().map(|(_, k)| k.clone()).collect();
+    sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT ts.server, ts.rating_key, ts.title_id
+         FROM title_server ts
+         JOIN unnest($1::text[], $2::text[]) AS i(server, key)
+           ON ts.server = i.server AND ts.rating_key = i.key",
     )
-    .bind(rating_keys.to_vec())
+    .bind(servers)
+    .bind(keys)
     .fetch_all(pool)
     .await
 }

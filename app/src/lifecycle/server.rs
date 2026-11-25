@@ -1,4 +1,5 @@
-//! The server pass: what the Plex server says, read every hour (`SINGULARR_SYNC_SERVER_SECS`).
+//! The server pass: what a media server says, read every hour (`SINGULARR_SYNC_SERVER_SECS`).
+//! Each media server (Plex, Jellyfin, Emby) has a pass of its own, through the same port.
 //!
 //! One pass reads the server's identity, its sections (written as libraries, each mapped to
 //! the Radarr or Sonarr integration whose folders it holds), the items of every movie and show
@@ -29,10 +30,11 @@ fn folder_name(path: &str) -> Option<String> {
         .filter(|n| !n.is_empty())
 }
 
-/// The kind of library a section is: `movie`, `show`, `music`, `homevideo` (a movie section
-/// with no metadata agent: personal media) or `photo`.
+/// The kind of library a section is: `movie`, `show`, `music`, `homevideo` (personal media) or
+/// `photo`. Plex says `artist` for music and marks personal media by its agent (a movie section
+/// with no metadata agent); the other adapters give the kind in these words already.
 pub fn section_kind(s: &ServerSection) -> String {
-    // The server's two agents for personal media: the current one and the one before it.
+    // Plex's two agents for personal media: the current one and the one before it.
     let personal = matches!(
         s.agent.as_deref(),
         Some("tv.plex.agents.none" | "com.plexapp.agents.none")

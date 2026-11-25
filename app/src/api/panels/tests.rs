@@ -240,6 +240,58 @@ fn the_types_and_groups_are_data() {
     assert!(tmdb.detail.contains("SINGULARR_TMDB_TOKEN"));
 }
 
+/// The five download clients are types of one group, each read, any number of each, each with
+/// the sign-in its program takes and nothing to change in it.
+#[test]
+fn the_download_clients_are_types_of_one_group() {
+    let kinds = kinds();
+    for (id, label, fields) in [
+        (
+            "qbittorrent",
+            "qBittorrent",
+            &["address", "username", "password", "syncEvery"][..],
+        ),
+        (
+            "transmission",
+            "Transmission",
+            &["address", "username", "password", "syncEvery"][..],
+        ),
+        (
+            "deluge",
+            "Deluge",
+            &["address", "password", "syncEvery"][..],
+        ),
+        (
+            "sabnzbd",
+            "SABnzbd",
+            &["address", "apiKey", "syncEvery"][..],
+        ),
+        (
+            "nzbget",
+            "NZBGet",
+            &["address", "username", "password", "syncEvery"][..],
+        ),
+    ] {
+        let k = kinds.iter().find(|k| k.kind == id).unwrap();
+        assert_eq!(
+            (k.label.as_str(), k.group.as_str(), k.max),
+            (label, "downloads", None)
+        );
+        assert!(
+            k.available && !k.reads.is_empty() && k.writes.is_empty(),
+            "{id}"
+        );
+        assert_eq!(
+            k.fields.iter().map(|f| f.key.as_str()).collect::<Vec<_>>(),
+            fields,
+            "{id}"
+        );
+    }
+    assert_eq!(secret_label(IntegrationType::Sabnzbd), "API key");
+    assert_eq!(secret_label(IntegrationType::Deluge), "Password");
+    assert_eq!(secret_label(IntegrationType::Plex), "Token");
+}
+
 fn library(id: &str, kind: &str, section: Option<&str>, managed_by: Option<&str>) -> Library {
     Library {
         id: id.to_string(),

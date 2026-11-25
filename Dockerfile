@@ -13,8 +13,8 @@
 #
 # The toolchain is the nightly that rust-toolchain.toml asks for, pinned to one date here so a build
 # does not change with the day it runs (RUSTUP_TOOLCHAIN wins over the file).
-ARG RUST_IMAGE=rust:1-trixie
-ARG RUNTIME_IMAGE=debian:trixie-slim
+ARG RUST_IMAGE=rust:1-trixie@sha256:e84068000361bf3d4a5ba2b7647f62893528b1eb9f847d7a23b493f5ce8ea254
+ARG RUNTIME_IMAGE=debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 ARG RUST_NIGHTLY=nightly-2026-11-21
 
 FROM ${RUST_IMAGE} AS toolchain

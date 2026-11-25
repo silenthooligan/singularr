@@ -27,6 +27,9 @@ pub struct Action {
 
 /// The actions the adapter of a type declares. None: Singularr can only read the type.
 pub fn actions_of(kind: IntegrationType) -> &'static [Action] {
+    if let Some(client) = kind.client() {
+        return super::clients::actions(client);
+    }
     match kind {
         IntegrationType::Hush => super::hush::ACTIONS,
         IntegrationType::Tdarr => super::tdarr::ACTIONS,

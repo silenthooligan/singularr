@@ -24,8 +24,8 @@ covers the library, the quality rules and the interface. Each release verdict li
 
 Singularr connects to services by kind: media servers, download clients, indexers and transcoders.
 Each kind has one layer. Each service has an adapter on its layer. Version 0.1 works with Plex,
-qBittorrent and Tdarr. Adapters for Jellyfin, Emby, Kodi, Transmission, Deluge, SABnzbd and NZBGet are
-next.
+qBittorrent and Tdarr. The main branch adds read-only adapters for Jellyfin, Emby, Transmission,
+Deluge, SABnzbd and NZBGet for the next release. Kodi is next.
 
 ## Status
 

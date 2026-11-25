@@ -456,7 +456,7 @@ impl Modify for KeyScheme {
 #[openapi(
     info(
         title = "Singularr API",
-        description = "Singularr, a media manager for a Plex server. It reads the configured integrations (Radarr, Sonarr, qBittorrent, Seerr, the processing services), builds one catalog, scores every file with the policy in force, and reports. It acts on an integration only where the owner allows it (`access`), and the one act so far is sending a file to a processing flow. Errors are RFC 9457 problem documents. Lists take `page` and `per_page` (at most 200)."
+        description = "Singularr, a media manager for a media server (Plex, Jellyfin or Emby). It reads the configured integrations (the media servers, Radarr, Sonarr, the download clients, Seerr, the processing services), builds one catalog, scores every file with the policy in force, and reports. It acts on an integration only where the owner allows it (`access`), and the one act so far is sending a file to a processing flow. Errors are RFC 9457 problem documents. Lists take `page` and `per_page` (at most 200)."
     ),
     paths(
         health, whoami, overview, titles, title, title_copies, title_editions,

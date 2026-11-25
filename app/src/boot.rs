@@ -141,7 +141,7 @@ async fn serve_owner() -> Result<(), String> {
         .await
         .map_err(|e| format!("the rows of removed integrations could not be removed: {e}"))?;
     if !pruned.is_empty() {
-        tracing::warn!(report = ?pruned, "rows of integrations the configuration no longer lists were removed");
+        tracing::warn!(report = ?pruned, "rows of integrations the configuration no longer lists were removed or set aside");
     }
     singularr::api::state::sync_libraries(&pool, &config)
         .await
@@ -183,7 +183,7 @@ async fn serve_owner() -> Result<(), String> {
         Arc::new(ProviderSet::from_config(&config, &outbound).with_locale(settings.locale()));
     let search = Arc::new(singularr::search::Search::new(
         pool.clone(),
-        &config.search,
+        &config,
         &outbound,
     ));
     tracing::info!(provider = search.configured(), "search");

@@ -4,7 +4,8 @@
 //! still the placeholder `CHANGEME` counts as unset, so a fresh `.env` starts without calling
 //! an engine with a wrong key.
 //!
-//! The connections are **integrations**: typed (`plex`, `radarr`, `sonarr`, `qbittorrent`,
+//! The connections are **integrations**: typed (`plex`, `jellyfin`, `emby`, `radarr`, `sonarr`,
+//! the download clients `qbittorrent`, `transmission`, `deluge`, `sabnzbd` and `nzbget`,
 //! `prowlarr`, `tdarr`, `hush`, `seerr`, `tautulli`), any number per type, each with an id, a display name,
 //! an address and a secret. The code names no instance. A simple install lists them in the
 //! environment, one per type (`RADARR_URL` and `RADARR_API_KEY`); a larger one lists them in
@@ -27,9 +28,17 @@ pub const PLACEHOLDER: &str = "CHANGEME";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IntegrationType {
     Plex,
+    /// A Jellyfin server, read through its HTTP API with an API key.
+    Jellyfin,
+    /// An Emby server, read through its HTTP API with an API key.
+    Emby,
     Radarr,
     Sonarr,
     Qbittorrent,
+    Transmission,
+    Deluge,
+    Sabnzbd,
+    Nzbget,
     Prowlarr,
     Tdarr,
     /// The HUSH bridge: it stages files for a worker and imports what the worker made.
@@ -40,11 +49,17 @@ pub enum IntegrationType {
 }
 
 impl IntegrationType {
-    pub const ALL: [IntegrationType; 9] = [
+    pub const ALL: [IntegrationType; 15] = [
         IntegrationType::Plex,
+        IntegrationType::Jellyfin,
+        IntegrationType::Emby,
         IntegrationType::Radarr,
         IntegrationType::Sonarr,
         IntegrationType::Qbittorrent,
+        IntegrationType::Transmission,
+        IntegrationType::Deluge,
+        IntegrationType::Sabnzbd,
+        IntegrationType::Nzbget,
         IntegrationType::Prowlarr,
         IntegrationType::Tdarr,
         IntegrationType::Hush,
@@ -55,9 +70,15 @@ impl IntegrationType {
     pub fn as_str(self) -> &'static str {
         match self {
             IntegrationType::Plex => "plex",
+            IntegrationType::Jellyfin => "jellyfin",
+            IntegrationType::Emby => "emby",
             IntegrationType::Radarr => "radarr",
             IntegrationType::Sonarr => "sonarr",
             IntegrationType::Qbittorrent => "qbittorrent",
+            IntegrationType::Transmission => "transmission",
+            IntegrationType::Deluge => "deluge",
+            IntegrationType::Sabnzbd => "sabnzbd",
+            IntegrationType::Nzbget => "nzbget",
             IntegrationType::Prowlarr => "prowlarr",
             IntegrationType::Tdarr => "tdarr",
             IntegrationType::Hush => "hush",
@@ -78,9 +99,15 @@ impl IntegrationType {
     pub fn label(self) -> &'static str {
         match self {
             IntegrationType::Plex => "Plex",
+            IntegrationType::Jellyfin => "Jellyfin",
+            IntegrationType::Emby => "Emby",
             IntegrationType::Radarr => "Radarr",
             IntegrationType::Sonarr => "Sonarr",
             IntegrationType::Qbittorrent => "qBittorrent",
+            IntegrationType::Transmission => "Transmission",
+            IntegrationType::Deluge => "Deluge",
+            IntegrationType::Sabnzbd => "SABnzbd",
+            IntegrationType::Nzbget => "NZBGet",
             IntegrationType::Prowlarr => "Prowlarr",
             IntegrationType::Tdarr => "Tdarr",
             IntegrationType::Hush => "HUSH",
@@ -92,10 +119,16 @@ impl IntegrationType {
     /// What an integration of this type does, unless its entry says otherwise.
     pub fn default_role(self) -> &'static str {
         match self {
-            IntegrationType::Plex => "media server",
+            IntegrationType::Plex | IntegrationType::Jellyfin | IntegrationType::Emby => {
+                "media server"
+            }
             IntegrationType::Radarr => "movies",
             IntegrationType::Sonarr => "shows",
-            IntegrationType::Qbittorrent => "downloads",
+            IntegrationType::Qbittorrent
+            | IntegrationType::Transmission
+            | IntegrationType::Deluge
+            | IntegrationType::Sabnzbd
+            | IntegrationType::Nzbget => "downloads",
             IntegrationType::Prowlarr => "indexers",
             IntegrationType::Tdarr | IntegrationType::Hush => "processing",
             IntegrationType::Seerr => "requests",
@@ -108,9 +141,15 @@ impl IntegrationType {
     pub fn env_prefixes(self) -> &'static [&'static str] {
         match self {
             IntegrationType::Plex => &["PLEX"],
+            IntegrationType::Jellyfin => &["JELLYFIN"],
+            IntegrationType::Emby => &["EMBY"],
             IntegrationType::Radarr => &["RADARR"],
             IntegrationType::Sonarr => &["SONARR"],
             IntegrationType::Qbittorrent => &["QBIT"],
+            IntegrationType::Transmission => &["TRANSMISSION"],
+            IntegrationType::Deluge => &["DELUGE"],
+            IntegrationType::Sabnzbd => &["SABNZBD"],
+            IntegrationType::Nzbget => &["NZBGET"],
             IntegrationType::Prowlarr => &["PROWLARR"],
             IntegrationType::Tdarr => &["TDARR"],
             IntegrationType::Hush => &["HUSH"],
@@ -123,24 +162,58 @@ impl IntegrationType {
     pub fn secret_suffix(self) -> &'static str {
         match self {
             IntegrationType::Plex => "TOKEN",
-            IntegrationType::Qbittorrent => "PASS",
+            IntegrationType::Qbittorrent
+            | IntegrationType::Transmission
+            | IntegrationType::Deluge
+            | IntegrationType::Nzbget => "PASS",
             _ => "API_KEY",
         }
     }
 
-    /// qBittorrent can trust its subnet, and Tdarr and the HUSH bridge can run without a key,
-    /// so for them an address alone is a usable integration.
+    /// qBittorrent can trust its subnet, Transmission and NZBGet can run without a password, and
+    /// Tdarr and the HUSH bridge without a key, so for them an address alone is a usable
+    /// integration.
     pub fn secret_optional(self) -> bool {
         matches!(
             self,
-            IntegrationType::Qbittorrent | IntegrationType::Tdarr | IntegrationType::Hush
+            IntegrationType::Qbittorrent
+                | IntegrationType::Transmission
+                | IntegrationType::Nzbget
+                | IntegrationType::Tdarr
+                | IntegrationType::Hush
         )
+    }
+
+    /// The types that sign in with a user name beside their password.
+    pub fn takes_user(self) -> bool {
+        matches!(
+            self,
+            IntegrationType::Qbittorrent | IntegrationType::Transmission | IntegrationType::Nzbget
+        )
+    }
+
+    /// The download client of this type, for a type that is one.
+    pub fn client(self) -> Option<ClientKind> {
+        ClientKind::ALL
+            .into_iter()
+            .find(|c| c.integration() == self)
     }
 
     /// The types that process files after their import: a worker (Tdarr) and a bridge in
     /// front of one (HUSH).
     pub fn processes(self) -> bool {
         matches!(self, IntegrationType::Tdarr | IntegrationType::Hush)
+    }
+
+    /// The media server types: the servers that hold the libraries and play them.
+    pub fn serves_media(self) -> bool {
+        MediaServerKind::of(self).is_some()
+    }
+
+    /// The types whose items open in the server's own web app, at an address of its own when one
+    /// is set (`<PREFIX>_WEB_URL`, the instance file's `web_url`): Jellyfin and Emby. A Plex item opens in Plex's web app (`SINGULARR_PLEX_WEB_URL`).
+    pub fn has_web_app(self) -> bool {
+        matches!(self, IntegrationType::Jellyfin | IntegrationType::Emby)
     }
 }
 
@@ -155,7 +228,10 @@ pub struct Integration {
     pub role: String,
     /// The base address, without a trailing `/`.
     pub url: Option<String>,
-    /// The sign-in name (qBittorrent).
+    /// Where people open the server's web app, for the links to its items (Jellyfin, Emby):
+    /// `<PREFIX>_WEB_URL` or the instance file's `web_url`. `None`: at `url`.
+    pub web_url: Option<String>,
+    /// The sign-in name (qBittorrent, Transmission, NZBGet).
     pub user: Option<String>,
     pub secret: Option<String>,
     /// The variable the secret is read from.
@@ -225,32 +301,109 @@ impl ArrConfig {
     }
 }
 
-/// The Plex integration: its address and token.
-#[derive(Clone, PartialEq, Eq)]
-pub struct PlexConfig {
-    pub id: String,
-    pub url: Option<String>,
-    pub token: Option<String>,
+/// The kinds of media server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaServerKind {
+    Plex,
+    Jellyfin,
+    Emby,
 }
 
-impl PlexConfig {
-    pub fn configured(&self) -> bool {
-        self.url.is_some() && self.token.is_some()
+impl MediaServerKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MediaServerKind::Plex => "plex",
+            MediaServerKind::Jellyfin => "jellyfin",
+            MediaServerKind::Emby => "emby",
+        }
+    }
+
+    /// The media server kind of an integration type. `None` for a type that is no media server.
+    pub fn of(kind: IntegrationType) -> Option<MediaServerKind> {
+        match kind {
+            IntegrationType::Plex => Some(MediaServerKind::Plex),
+            IntegrationType::Jellyfin => Some(MediaServerKind::Jellyfin),
+            IntegrationType::Emby => Some(MediaServerKind::Emby),
+            _ => None,
+        }
     }
 }
 
-/// The download client integration.
+/// One media server integration (a Plex, Jellyfin or Emby server), as its adapter takes it:
+/// its address and its secret (Plex's token, the API key of Jellyfin and Emby).
 #[derive(Clone, PartialEq, Eq)]
-pub struct QbitConfig {
+pub struct MediaServerConfig {
     pub id: String,
+    pub kind: MediaServerKind,
     pub url: Option<String>,
-    pub user: Option<String>,
-    pub pass: Option<String>,
+    pub secret: Option<String>,
+    /// Where people open a Jellyfin or Emby server's web app, when that is not `url`: the
+    /// address of the links to its items.
+    pub web_url: Option<String>,
 }
 
-impl QbitConfig {
+impl MediaServerConfig {
     pub fn configured(&self) -> bool {
-        self.url.is_some()
+        self.url.is_some() && self.secret.is_some()
+    }
+}
+
+/// The kinds of download client: three for torrents, two for usenet downloads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientKind {
+    Qbittorrent,
+    Transmission,
+    Deluge,
+    Sabnzbd,
+    Nzbget,
+}
+
+impl ClientKind {
+    pub const ALL: [ClientKind; 5] = [
+        ClientKind::Qbittorrent,
+        ClientKind::Transmission,
+        ClientKind::Deluge,
+        ClientKind::Sabnzbd,
+        ClientKind::Nzbget,
+    ];
+
+    pub fn integration(self) -> IntegrationType {
+        match self {
+            ClientKind::Qbittorrent => IntegrationType::Qbittorrent,
+            ClientKind::Transmission => IntegrationType::Transmission,
+            ClientKind::Deluge => IntegrationType::Deluge,
+            ClientKind::Sabnzbd => IntegrationType::Sabnzbd,
+            ClientKind::Nzbget => IntegrationType::Nzbget,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        self.integration().as_str()
+    }
+
+    /// It downloads from usenet servers (SABnzbd, NZBGet).
+    pub fn usenet(self) -> bool {
+        matches!(self, ClientKind::Sabnzbd | ClientKind::Nzbget)
+    }
+}
+
+/// One download client integration, as its adapter takes it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct DownloadClientConfig {
+    /// The integration id.
+    pub id: String,
+    pub kind: ClientKind,
+    pub url: Option<String>,
+    /// The sign-in name, for a client that takes one.
+    pub user: Option<String>,
+    /// Its password, or SABnzbd's API key.
+    pub secret: Option<String>,
+}
+
+impl DownloadClientConfig {
+    /// It is asked: an address, and the secret where its type needs one.
+    pub fn configured(&self) -> bool {
+        self.url.is_some() && (self.secret.is_some() || self.kind.integration().secret_optional())
     }
 }
 
@@ -374,13 +527,14 @@ pub struct SyncConfig {
     pub files_full: Duration,
     pub files_concurrency: usize,
     pub queue: Duration,
-    pub qbit: Duration,
+    /// Every download client: its downloads.
+    pub downloads: Duration,
     pub history: Duration,
     pub history_max_pages: u32,
     pub jitter: Duration,
     /// Every request on the Seerr integration.
     pub requests: Duration,
-    /// The Plex server: sections, items, music.
+    /// Each media server: sections, items, music.
     pub server: Duration,
     /// The processing services: their jobs and their state.
     pub processing: Duration,
@@ -425,10 +579,12 @@ pub struct Config {
     pub integrations: Vec<Integration>,
     /// The Radarr and Sonarr integrations, as the arr adapter takes them.
     pub arrs: Vec<ArrConfig>,
-    /// The first Plex integration (this version reads one media server), when there is one.
-    pub plex: Option<PlexConfig>,
-    /// The first qBittorrent integration (this version reads one download client).
-    pub qbit: QbitConfig,
+    /// The media servers, in the configuration's order: the first integration of each media
+    /// server type (this version reads one Plex, one Jellyfin and one Emby server).
+    pub media_servers: Vec<MediaServerConfig>,
+    /// The download client integrations (qBittorrent, Transmission, Deluge, SABnzbd, NZBGet),
+    /// every one of them.
+    pub downloads: Vec<DownloadClientConfig>,
     /// The first Seerr integration (this version reads requests from one), when there is one.
     pub seerr: Vec<SeerrConfig>,
     /// The processing integrations (Tdarr, HUSH), every one of them.
@@ -503,15 +659,24 @@ impl Face {
 
 /// The variables of the full process that Singularr Requests refuses to start with: its
 /// database login, the instance file, every integration secret of the environment form, the
-/// edge token and the owner list.
+/// edge token and the owner list. It refuses any other variable named like a secret too
+/// ([`named_like_a_secret`]).
 pub const NOT_FOR_THE_FACE: &[&str] = &[
     "DATABASE_URL",
     "SINGULARR_INSTANCE",
     "PLEX_TOKEN",
+    "JELLYFIN_API_KEY",
+    "EMBY_API_KEY",
     "RADARR_API_KEY",
     "SONARR_API_KEY",
     "QBIT_USER",
     "QBIT_PASS",
+    "TRANSMISSION_USER",
+    "TRANSMISSION_PASS",
+    "DELUGE_PASS",
+    "SABNZBD_API_KEY",
+    "NZBGET_USER",
+    "NZBGET_PASS",
     "PROWLARR_API_KEY",
     "TDARR_API_KEY",
     "HUSH_API_KEY",
@@ -523,6 +688,20 @@ pub const NOT_FOR_THE_FACE: &[&str] = &[
     "SINGULARR_EDGE_TOKEN",
     "SINGULARR_OWNER_EMAILS",
 ];
+
+/// The one variable named like a secret that Singularr Requests reads: the TMDB read token.
+const FACE_TOKEN: &str = "SINGULARR_TMDB_TOKEN";
+
+/// A variable named like a secret: an API key, a token or a password, the endings every
+/// integration's secret has (`RADARR_4K_API_KEY`, `PLEX_TOKEN`, `QBIT_PASS`). Singularr Requests
+/// refuses to start with one set, the TMDB read token alone excepted. A secret of the full
+/// process reaches it under no such name, a file integration's included.
+pub fn named_like_a_secret(name: &str) -> bool {
+    name != FACE_TOKEN
+        && ["_API_KEY", "_TOKEN", "_PASS"]
+            .iter()
+            .any(|end| name.ends_with(end))
+}
 
 /// The whole environment of Singularr Requests: its database login (the role of `deploy/requests-role.sql`),
 /// its session secret, the TMDB read token and its public address. Nothing else.
@@ -544,11 +723,21 @@ impl RequestsFaceConfig {
     }
 
     pub fn from(env: &dyn Env) -> Result<RequestsFaceConfig, ConfigError> {
-        let present: Vec<&str> = NOT_FOR_THE_FACE
+        let mut present: Vec<String> = NOT_FOR_THE_FACE
             .iter()
             .copied()
             .filter(|name| set(env, name).is_some())
+            .map(str::to_string)
             .collect();
+        let mut named: Vec<String> = env
+            .names()
+            .into_iter()
+            .filter(|name| {
+                named_like_a_secret(name) && !present.contains(name) && set(env, name).is_some()
+            })
+            .collect();
+        named.sort();
+        present.extend(named);
         if !present.is_empty() {
             return Err(ConfigError::NotForTheFace(present.join(", ")));
         }
@@ -619,6 +808,8 @@ impl fmt::Display for RequestsFaceConfig {
 /// A source of variables, so tests do not touch the process environment.
 pub trait Env {
     fn get(&self, name: &str) -> Option<String>;
+    /// The name of every variable, for a check that goes by how names end.
+    fn names(&self) -> Vec<String>;
 }
 
 pub struct ProcessEnv;
@@ -627,11 +818,21 @@ impl Env for ProcessEnv {
     fn get(&self, name: &str) -> Option<String> {
         std::env::var(name).ok()
     }
+
+    fn names(&self) -> Vec<String> {
+        std::env::vars_os()
+            .filter_map(|(name, _)| name.into_string().ok())
+            .collect()
+    }
 }
 
 impl Env for BTreeMap<&str, &str> {
     fn get(&self, name: &str) -> Option<String> {
         BTreeMap::get(self, name).map(|v| v.to_string())
+    }
+
+    fn names(&self) -> Vec<String> {
+        self.keys().map(|name| name.to_string()).collect()
     }
 }
 
@@ -704,6 +905,8 @@ struct FileIntegration {
     name: Option<String>,
     role: Option<String>,
     url: Option<String>,
+    /// Where people open a Jellyfin or Emby server's web app.
+    web_url: Option<String>,
     user: Option<String>,
     /// The name of the environment variable that holds the secret.
     secret: Option<String>,
@@ -780,6 +983,23 @@ fn parse_instance(
                 "integration `{id}` has the address `{u}`, which is not http:// or https://"
             )));
         }
+        let web_url = entry
+            .web_url
+            .as_deref()
+            .map(base_url)
+            .filter(|u| !u.is_empty());
+        if let Some(u) = &web_url {
+            if !kind.has_web_app() {
+                return Err(bad(format!(
+                    "integration `{id}`: `web_url` is read for jellyfin and emby alone"
+                )));
+            }
+            if !(u.starts_with("http://") || u.starts_with("https://")) {
+                return Err(bad(format!(
+                    "integration `{id}`: the web address `{u}` is not http:// or https://"
+                )));
+            }
+        }
         let secret_var = match entry.secret.map(|s| s.trim().to_string()) {
             Some(var) if valid_var(&var) => var,
             Some(_) => {
@@ -811,6 +1031,7 @@ fn parse_instance(
                 .filter(|r| !r.is_empty())
                 .unwrap_or_else(|| kind.default_role().to_string()),
             url,
+            web_url,
             user: entry.user.filter(|u| !u.trim().is_empty()),
             secret: set(env, &secret_var),
             url_var: format!("the `url` of integration {id}"),
@@ -823,6 +1044,11 @@ fn parse_instance(
         });
     }
     Ok((file.workspace, out))
+}
+
+/// An address as two integrations are compared by: without a trailing `/`, in lower case.
+fn same_address(url: &str) -> String {
+    url.trim().trim_end_matches('/').to_ascii_lowercase()
 }
 
 /// The environment form: at most one integration per type, present when its address or its
@@ -838,8 +1064,7 @@ fn env_integrations(
         let Some(prefix) = kind.env_prefixes().iter().copied().find(|p| {
             set(env, &format!("{p}_URL")).is_some()
                 || set(env, &format!("{p}_{suffix}")).is_some()
-                || (kind == IntegrationType::Qbittorrent
-                    && set(env, &format!("{p}_USER")).is_some())
+                || (kind.takes_user() && set(env, &format!("{p}_USER")).is_some())
         }) else {
             continue;
         };
@@ -862,11 +1087,26 @@ fn env_integrations(
                 Access::Read
             })
         });
+        // Where people open a Jellyfin or Emby server's web app, when that is not the address
+        // Singularr reads it at.
+        let web_var = format!("{prefix}_WEB_URL");
+        let web_url = match set(env, &web_var).map(|u| base_url(&u)) {
+            Some(_) if !kind.has_web_app() => None,
+            Some(u) if u.starts_with("http://") || u.starts_with("https://") => Some(u),
+            Some(u) => {
+                warnings.push(format!(
+                    "{web_var}={u:?} is not an http:// or https:// address; item links open at {prefix}_URL"
+                ));
+                None
+            }
+            None => None,
+        };
         out.push(Integration {
             name: set(env, &format!("{prefix}_NAME")).unwrap_or_else(|| kind.label().to_string()),
             role: kind.default_role().to_string(),
             url: set(env, &format!("{prefix}_URL")).map(|u| base_url(&u)),
-            user: if kind == IntegrationType::Qbittorrent {
+            web_url,
+            user: if kind.takes_user() {
                 set(env, &format!("{prefix}_USER"))
             } else {
                 None
@@ -949,34 +1189,74 @@ impl Config {
             })
             .collect();
         let of = |kind: IntegrationType| integrations.iter().filter(move |i| i.kind == kind);
-        if of(IntegrationType::Plex).count() > 1 {
-            warnings.push("More than one Plex integration; the first is used".to_string());
+        // One server of each media server type is read: the first of its type, in the
+        // configuration's order.
+        for kind in IntegrationType::ALL
+            .into_iter()
+            .filter(|k| k.serves_media())
+        {
+            if of(kind).count() > 1 {
+                warnings.push(format!(
+                    "More than one {} integration; the first is used",
+                    kind.label()
+                ));
+            }
         }
-        let plex = of(IntegrationType::Plex).next().map(|i| PlexConfig {
-            id: i.id.clone(),
-            url: i.url.clone(),
-            token: i.secret.clone(),
-        });
-        if of(IntegrationType::Qbittorrent).count() > 1 {
-            warnings.push("More than one qBittorrent integration; the first is used".to_string());
-        }
-        let qbit = of(IntegrationType::Qbittorrent)
-            .next()
-            .map(|i| QbitConfig {
+        let mut media_servers: Vec<MediaServerConfig> = Vec::new();
+        for i in &integrations {
+            let Some(kind) = MediaServerKind::of(i.kind) else {
+                continue;
+            };
+            if media_servers.iter().any(|m| m.kind == kind) {
+                continue;
+            }
+            media_servers.push(MediaServerConfig {
                 id: i.id.clone(),
+                kind,
                 url: i.url.clone(),
-                user: i.user.clone(),
-                pass: i.secret.clone(),
-            })
-            .unwrap_or_else(|| {
-                warnings.push("No download client (QBIT_URL)".to_string());
-                QbitConfig {
-                    id: IntegrationType::Qbittorrent.as_str().to_string(),
-                    url: None,
-                    user: None,
-                    pass: None,
-                }
+                secret: i.secret.clone(),
+                web_url: i.web_url.clone(),
             });
+        }
+        // Every download client is read, of every type: torrents and usenet downloads side by
+        // side. Two integrations at one address would read one client twice and store each of
+        // its downloads twice. The first is read.
+        let mut downloads: Vec<DownloadClientConfig> = Vec::new();
+        for i in &integrations {
+            let Some(kind) = i.kind.client() else {
+                continue;
+            };
+            let address = i.url.as_deref().map(same_address);
+            let first = address.as_ref().and_then(|a| {
+                downloads
+                    .iter()
+                    .find(|d| d.url.as_deref().map(same_address).as_ref() == Some(a))
+            });
+            if let Some(first) = first {
+                let name = |id: &str| {
+                    integrations
+                        .iter()
+                        .find(|o| o.id == id)
+                        .map_or_else(|| id.to_string(), |o| o.name.clone())
+                };
+                warnings.push(format!(
+                    "{} has the address of {}: it is not read",
+                    i.name,
+                    name(&first.id)
+                ));
+                continue;
+            }
+            downloads.push(DownloadClientConfig {
+                id: i.id.clone(),
+                kind,
+                url: i.url.clone(),
+                user: i.user.clone().filter(|_| i.kind.takes_user()),
+                secret: i.secret.clone(),
+            });
+        }
+        if downloads.is_empty() {
+            warnings.push("No download client".to_string());
+        }
         if of(IntegrationType::Seerr).count() > 1 {
             warnings
                 .push("More than one Seerr integration; requests come from the first".to_string());
@@ -1032,8 +1312,8 @@ impl Config {
             list
         };
         // Seerr user ids. The older form `site:id` is read too: `plex:` and the id of a Seerr
-        // integration name the one request site; `jellyfin:` named a site this version does
-        // not serve.
+        // integration name the one request site; `jellyfin:` named a second Seerr site, which
+        // this version does not read.
         let mut owners: Vec<i64> = Vec::new();
         for entry in names("SINGULARR_REQUEST_OWNERS", "1") {
             let (prefix, id) = match entry.split_once(':') {
@@ -1043,7 +1323,7 @@ impl Config {
             let known = |p: &str| p == "plex" || seerr_ids.iter().any(|s| s == p);
             match (prefix, id.parse::<i64>().ok().filter(|n| *n > 0)) {
                 (Some("jellyfin"), _) => warnings.push(format!(
-                    "SINGULARR_REQUEST_OWNERS entry `{entry}` ignored: Jellyfin is not supported"
+                    "SINGULARR_REQUEST_OWNERS entry `{entry}` ignored: no second request site is read"
                 )),
                 (None, Some(n)) => owners.push(n),
                 (Some(p), Some(n)) if known(p) => owners.push(n),
@@ -1201,7 +1481,18 @@ impl Config {
                 .unwrap_or(2)
                 .clamp(1, 4),
             queue: seconds(env, "SINGULARR_SYNC_QUEUE_SECS", 60, 15, &mut warnings),
-            qbit: seconds(env, "SINGULARR_SYNC_QBIT_SECS", 30, 10, &mut warnings),
+            // `SINGULARR_SYNC_QBIT_SECS` is the older name and keeps working.
+            downloads: seconds(
+                env,
+                if set(env, "SINGULARR_SYNC_DOWNLOADS_SECS").is_some() {
+                    "SINGULARR_SYNC_DOWNLOADS_SECS"
+                } else {
+                    "SINGULARR_SYNC_QBIT_SECS"
+                },
+                30,
+                10,
+                &mut warnings,
+            ),
             history: seconds(env, "SINGULARR_SYNC_HISTORY_SECS", 900, 60, &mut warnings),
             history_max_pages: set(env, "SINGULARR_SYNC_HISTORY_MAX_PAGES")
                 .and_then(|v| v.parse::<u32>().ok())
@@ -1228,8 +1519,8 @@ impl Config {
             workspace,
             integrations,
             arrs,
-            plex,
-            qbit,
+            media_servers,
+            downloads,
             seerr,
             processors,
             tautulli,
@@ -1264,6 +1555,15 @@ impl Config {
 
     pub fn integration(&self, id: &str) -> Option<&Integration> {
         self.integrations.iter().find(|i| i.id == id)
+    }
+
+    /// The first configured media server, by its id: the first the engines read. Its albums and
+    /// artists have the short ids (`album-<key>`) a server's had before more than one was read.
+    pub fn first_media_server(&self) -> Option<&str> {
+        self.media_servers
+            .iter()
+            .find(|m| m.configured())
+            .map(|m| m.id.as_str())
     }
 
     /// The ids of every listed integration, configured or not.
@@ -1343,9 +1643,13 @@ impl fmt::Display for Config {
                 Some(access) => format!(", access {}", access.as_str()),
                 None => String::new(),
             };
+            let web = match &i.web_url {
+                Some(web) => format!(", web app at {web}"),
+                None => String::new(),
+            };
             writeln!(
                 f,
-                "  integration {:<16} {} \"{}\" at {} ({}{}, {key}{access}; from the {})",
+                "  integration {:<16} {} \"{}\" at {} ({}{}, {key}{access}{web}; from the {})",
                 i.id,
                 i.kind.as_str(),
                 i.name,
@@ -1461,7 +1765,11 @@ impl fmt::Display for Config {
             s.files_concurrency
         )?;
         writeln!(f, "  SINGULARR_SYNC_QUEUE_SECS      {}", s.queue.as_secs())?;
-        writeln!(f, "  SINGULARR_SYNC_QBIT_SECS       {}", s.qbit.as_secs())?;
+        writeln!(
+            f,
+            "  SINGULARR_SYNC_DOWNLOADS_SECS  {}",
+            s.downloads.as_secs()
+        )?;
         writeln!(
             f,
             "  SINGULARR_SYNC_HISTORY_SECS    {}",
@@ -1546,7 +1854,11 @@ mod tests {
         assert!(c.seerr[0].configured());
         let qbit = c.integration("qbittorrent").unwrap();
         assert_eq!(qbit.user.as_deref(), Some("admin"));
-        assert_eq!(c.qbit.id, "qbittorrent");
+        assert_eq!(c.downloads.len(), 1);
+        assert_eq!(
+            (c.downloads[0].id.as_str(), c.downloads[0].kind),
+            ("qbittorrent", ClientKind::Qbittorrent)
+        );
         // No Plex, no Prowlarr, no Tdarr: nothing set, nothing listed.
         assert!(c.integration("plex").is_none());
         let mut e = env();
@@ -1603,19 +1915,16 @@ mod tests {
             c.integration("radarr-4k").unwrap().secret_var,
             "RADARR_4K_API_KEY"
         );
-        // The file's download client comes first and is the one read.
-        assert_eq!(c.qbit.id, "downloads");
-        assert_eq!(c.qbit.pass.as_deref(), Some("pw"));
+        // Every download client is read, the file's first.
+        let clients: Vec<&str> = c.downloads.iter().map(|d| d.id.as_str()).collect();
+        assert_eq!(clients, vec!["downloads", "qbittorrent"]);
+        assert_eq!(c.downloads[0].secret.as_deref(), Some("pw"));
+        assert_eq!(c.downloads[0].user.as_deref(), Some("admin"));
         assert_eq!(c.workspace.name, "Home");
         assert_eq!(c.workspace.portal, "Home Requests");
         assert_eq!(
             c.workspace.url.as_deref(),
             Some("https://media.example.org")
-        );
-        assert!(
-            c.warnings
-                .iter()
-                .any(|w| w.contains("More than one qBittorrent"))
         );
         let text = c.to_string();
         for secret in ["4k-key", "torrent-password"] {
@@ -1624,7 +1933,7 @@ mod tests {
         // A secret written into the file is refused, and so are unknown keys and types.
         for bad in [
             "[[integration]]\nid = \"r\"\ntype = \"radarr\"\nsecret = \"0123abcd\"\n",
-            "[[integration]]\nid = \"r\"\ntype = \"jellyfin\"\n",
+            "[[integration]]\nid = \"r\"\ntype = \"kodi\"\n",
             "[[integration]]\nid = \"R\"\ntype = \"radarr\"\n",
             "[[integration]]\nid = \"r\"\ntype = \"radarr\"\napi_key = \"x\"\n",
             "[[integration]]\nid = \"r\"\ntype = \"radarr\"\n[[integration]]\nid = \"r\"\ntype = \"sonarr\"\n",
@@ -1712,6 +2021,170 @@ mod tests {
     }
 
     #[test]
+    fn media_servers_of_every_type_come_from_their_addresses_and_keys() {
+        let mut e = env();
+        e.insert("PLEX_URL", "http://10.0.0.30:32400");
+        e.insert("PLEX_TOKEN", "plex-token");
+        e.insert("JELLYFIN_URL", "http://10.0.0.31:8096/");
+        e.insert("JELLYFIN_API_KEY", "0123456789abcdef0123456789abcdef");
+        e.insert("JELLYFIN_WEB_URL", "https://watch.example.org/");
+        e.insert("EMBY_URL", "http://10.0.0.32:8096");
+        e.insert("EMBY_WEB_URL", "watch.example.org");
+        e.insert("EMBY_ACCESS", "read");
+        e.insert("RADARR_WEB_URL", "https://radarr.example.org");
+        let c = Config::from(&e).unwrap();
+        let ids: Vec<&str> = c.integrations.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "plex",
+                "jellyfin",
+                "emby",
+                "radarr",
+                "sonarr",
+                "qbittorrent",
+                "seerr"
+            ]
+        );
+        let jellyfin = c.integration("jellyfin").unwrap();
+        assert_eq!(
+            (
+                jellyfin.kind,
+                jellyfin.name.as_str(),
+                jellyfin.role.as_str(),
+                jellyfin.secret_var.as_str()
+            ),
+            (
+                IntegrationType::Jellyfin,
+                "Jellyfin",
+                "media server",
+                "JELLYFIN_API_KEY"
+            )
+        );
+        assert!(jellyfin.configured());
+        // Emby without its key is listed and not asked; its access variable is read like any.
+        let emby = c.integration("emby").unwrap();
+        assert_eq!(emby.missing().as_deref(), Some("EMBY_API_KEY is not set"));
+        assert_eq!(
+            (emby.access, emby.access_var.as_str()),
+            (Some(Access::Read), "EMBY_ACCESS")
+        );
+        let servers: Vec<(&str, MediaServerKind, bool)> = c
+            .media_servers
+            .iter()
+            .map(|m| (m.id.as_str(), m.kind, m.configured()))
+            .collect();
+        assert_eq!(
+            servers,
+            vec![
+                ("plex", MediaServerKind::Plex, true),
+                ("jellyfin", MediaServerKind::Jellyfin, true),
+                ("emby", MediaServerKind::Emby, false)
+            ]
+        );
+        assert_eq!(
+            c.media_servers[1].url.as_deref(),
+            Some("http://10.0.0.31:8096")
+        );
+        // Jellyfin's items open at its web address. Emby's is no http(s) address: its items open
+        // at its address, with a warning. A manager has no web app to name.
+        assert_eq!(
+            c.media_servers[1].web_url.as_deref(),
+            Some("https://watch.example.org")
+        );
+        assert_eq!(c.media_servers[2].web_url, None);
+        assert!(
+            c.warnings.iter().any(|w| w.starts_with("EMBY_WEB_URL=")),
+            "{:?}",
+            c.warnings
+        );
+        assert_eq!(c.integration("radarr").unwrap().web_url, None);
+        assert_eq!(c.media_servers[0].web_url, None);
+        let text = c.to_string();
+        assert!(
+            text.contains("JELLYFIN_API_KEY set (32 characters)"),
+            "{text}"
+        );
+        assert!(
+            text.contains("web app at https://watch.example.org"),
+            "{text}"
+        );
+        assert!(!text.contains("0123456789abcdef0123456789abcdef"));
+        assert!(NOT_FOR_THE_FACE.contains(&"JELLYFIN_API_KEY"));
+        assert!(NOT_FOR_THE_FACE.contains(&"EMBY_API_KEY"));
+        assert!(IntegrationType::Emby.serves_media() && !IntegrationType::Tautulli.serves_media());
+
+        // The instance file names the types `jellyfin` and `emby`; the first of each type is
+        // read. A second one is named in a warning.
+        let file = r#"
+            [[integration]]
+            id = "living-room"
+            type = "jellyfin"
+            url = "http://10.0.0.41:8096/jellyfin"
+
+            [[integration]]
+            id = "den"
+            type = "jellyfin"
+            url = "http://10.0.0.42:8096"
+
+            [[integration]]
+            id = "cabin"
+            type = "emby"
+            name = "Cabin"
+            url = "http://10.0.0.43:8096"
+            web_url = "https://cabin.example.org/"
+            secret = "CABIN_KEY"
+        "#;
+        let mut e = env();
+        e.insert("LIVING_ROOM_API_KEY", "k1");
+        e.insert("CABIN_KEY", "k2");
+        let c = Config::with_instance(&e, Some(("/x/instance.toml", file))).unwrap();
+        assert_eq!(
+            (
+                c.media_servers[0].web_url.as_deref(),
+                c.media_servers[1].web_url.as_deref()
+            ),
+            (None, Some("https://cabin.example.org"))
+        );
+        // A web address is read for Jellyfin and Emby alone: an http(s) one.
+        for (kind, web) in [
+            ("radarr", "https://radarr.example.org"),
+            ("jellyfin", "ftp://watch.example.org"),
+        ] {
+            let bad = format!(
+                "[[integration]]\nid = \"x\"\ntype = \"{kind}\"\nurl = \"http://10.0.0.44:7878\"\nweb_url = \"{web}\"\n"
+            );
+            assert!(
+                matches!(
+                    Config::with_instance(&e, Some(("/x/instance.toml", bad.as_str()))),
+                    Err(ConfigError::Instance { .. })
+                ),
+                "{kind} {web}"
+            );
+        }
+        let servers: Vec<(&str, MediaServerKind, bool)> = c
+            .media_servers
+            .iter()
+            .map(|m| (m.id.as_str(), m.kind, m.configured()))
+            .collect();
+        assert_eq!(
+            servers,
+            vec![
+                ("living-room", MediaServerKind::Jellyfin, true),
+                ("cabin", MediaServerKind::Emby, true)
+            ]
+        );
+        assert_eq!(c.integration("cabin").unwrap().name, "Cabin");
+        assert!(
+            c.warnings
+                .iter()
+                .any(|w| w == "More than one Jellyfin integration; the first is used"),
+            "{:?}",
+            c.warnings
+        );
+    }
+
+    #[test]
     fn tautulli_comes_from_its_address_and_its_key() {
         let mut e = env();
         e.insert("TAUTULLI_URL", "http://10.0.0.50:8181/");
@@ -1743,6 +2216,130 @@ mod tests {
         );
         // The portal refuses to start with it.
         assert!(NOT_FOR_THE_FACE.contains(&"TAUTULLI_API_KEY"));
+    }
+
+    #[test]
+    fn every_download_client_comes_from_its_variables_torrents_and_usenet_alike() {
+        let mut e = env();
+        e.insert("TRANSMISSION_URL", "http://10.0.0.62:9091/");
+        e.insert("TRANSMISSION_USER", "fx");
+        e.insert("DELUGE_URL", "http://10.0.0.62:8112");
+        e.insert("SABNZBD_URL", "http://10.0.0.63:8080");
+        e.insert("SABNZBD_API_KEY", "sab-secret-key");
+        e.insert("NZBGET_URL", "http://10.0.0.63:6789");
+        e.insert("NZBGET_USER", "nzbget");
+        e.insert("NZBGET_PASS", "nzbget-secret");
+        e.insert("SINGULARR_SYNC_DOWNLOADS_SECS", "45");
+        let c = Config::from(&e).unwrap();
+        let clients: Vec<(&str, ClientKind, bool)> = c
+            .downloads
+            .iter()
+            .map(|d| (d.id.as_str(), d.kind, d.configured()))
+            .collect();
+        assert_eq!(
+            clients,
+            vec![
+                ("qbittorrent", ClientKind::Qbittorrent, true),
+                ("transmission", ClientKind::Transmission, true),
+                ("deluge", ClientKind::Deluge, false),
+                ("sabnzbd", ClientKind::Sabnzbd, true),
+                ("nzbget", ClientKind::Nzbget, true),
+            ]
+        );
+        // Deluge signs in with a password alone. It is not asked without one.
+        let deluge = c.integration("deluge").unwrap();
+        assert_eq!(
+            (deluge.missing().as_deref(), deluge.name.as_str()),
+            (Some("DELUGE_PASS is not set"), "Deluge")
+        );
+        assert_eq!(c.downloads[2].user, None);
+        // Transmission and NZBGet take a user name; SABnzbd its key.
+        assert_eq!(c.downloads[1].user.as_deref(), Some("fx"));
+        assert_eq!(c.downloads[1].secret, None);
+        assert_eq!(
+            c.integration("sabnzbd").unwrap().secret_var,
+            "SABNZBD_API_KEY"
+        );
+        assert_eq!(c.integration("nzbget").unwrap().secret_var, "NZBGET_PASS");
+        assert!(ClientKind::Sabnzbd.usenet() && !ClientKind::Deluge.usenet());
+        for kind in ClientKind::ALL {
+            assert_eq!(kind.integration().client(), Some(kind));
+            assert_eq!(kind.integration().default_role(), "downloads");
+        }
+        assert_eq!(IntegrationType::Radarr.client(), None);
+        assert_eq!(c.sync.downloads, Duration::from_secs(45));
+        let text = c.to_string();
+        for secret in ["sab-secret-key", "nzbget-secret"] {
+            assert!(!text.contains(secret), "the printout leaks {secret}");
+        }
+        assert!(text.contains("SINGULARR_SYNC_DOWNLOADS_SECS  45"), "{text}");
+        // The older name of the interval keeps working; the product's name wins.
+        let mut older = env();
+        older.insert("SINGULARR_SYNC_QBIT_SECS", "40");
+        assert_eq!(
+            Config::from(&older).unwrap().sync.downloads,
+            Duration::from_secs(40)
+        );
+        older.insert("SINGULARR_SYNC_DOWNLOADS_SECS", "50");
+        assert_eq!(
+            Config::from(&older).unwrap().sync.downloads,
+            Duration::from_secs(50)
+        );
+        // The instance file names the new types. A user only counts where the type takes one.
+        let file = "[[integration]]\nid = \"usenet\"\ntype = \"sabnzbd\"\nurl = \"http://10.0.0.63:8080\"\nuser = \"ignored\"\n";
+        let mut e = env();
+        e.insert("USENET_API_KEY", "k");
+        let c = Config::with_instance(&e, Some(("/x/i.toml", file))).unwrap();
+        assert_eq!(
+            (
+                c.downloads[0].id.as_str(),
+                c.downloads[0].kind,
+                c.downloads[0].user.as_deref()
+            ),
+            ("usenet", ClientKind::Sabnzbd, None)
+        );
+        assert!(c.downloads[0].configured());
+        // Two integrations at one address are one client: the first is read. The configuration
+        // warns.
+        let file = "[[integration]]\nid = \"seedbox\"\ntype = \"qbittorrent\"\nname = \"Seedbox\"\nurl = \"http://seedbox.lan:8080\"\n\n[[integration]]\nid = \"seedbox-two\"\ntype = \"qbittorrent\"\nname = \"Seedbox two\"\nurl = \"http://Seedbox.LAN:8080/\"\n";
+        let c = Config::with_instance(&env(), Some(("/x/i.toml", file))).unwrap();
+        let ids: Vec<&str> = c.downloads.iter().map(|d| d.id.as_str()).collect();
+        assert!(
+            ids.contains(&"seedbox") && !ids.contains(&"seedbox-two"),
+            "{ids:?}"
+        );
+        assert!(
+            c.warnings
+                .iter()
+                .any(|w| w == "Seedbox two has the address of Seedbox: it is not read"),
+            "{:?}",
+            c.warnings
+        );
+        assert!(c.integration("seedbox-two").is_some());
+        // Without any, the configuration warns.
+        let mut none = env();
+        for var in ["QBIT_URL", "QBIT_USER", "QBIT_PASS"] {
+            none.remove(var);
+        }
+        let c = Config::from(&none).unwrap();
+        assert!(c.downloads.is_empty());
+        assert!(c.warnings.iter().any(|w| w == "No download client"));
+        // The portal refuses to start with any of their secrets: each is named like one
+        // (`the_portal_refuses_every_variable_named_like_a_secret`). Their user names are listed.
+        for var in [
+            "TRANSMISSION_PASS",
+            "DELUGE_PASS",
+            "SABNZBD_API_KEY",
+            "NZBGET_PASS",
+        ] {
+            assert!(named_like_a_secret(var), "{var}");
+        }
+        for kind in ClientKind::ALL.map(ClientKind::integration) {
+            if kind.takes_user() {
+                let user = format!("{}_USER", kind.env_prefixes()[0]);
+                assert!(NOT_FOR_THE_FACE.contains(&user.as_str()), "{user}");
+            }
+        }
     }
 
     #[test]
@@ -2011,6 +2608,58 @@ mod tests {
             e.insert("SINGULARR_REQUESTS_PUBLIC_URL", url);
             assert_eq!(RequestsFaceConfig::from(&e).is_ok(), ok, "{url}");
         }
+    }
+
+    /// The portal refuses every variable named like a secret: each type's secret in the
+    /// environment form under each of its prefixes, the default name of a file integration's,
+    /// and any other key, token or password. The TMDB read token is its own. Its own settings
+    /// pass. A placeholder is no value.
+    #[test]
+    fn the_portal_refuses_every_variable_named_like_a_secret() {
+        let mut names: Vec<String> = Vec::new();
+        for kind in IntegrationType::ALL {
+            for prefix in kind.env_prefixes() {
+                names.push(format!("{prefix}_{}", kind.secret_suffix()));
+            }
+            names.push(default_secret_var(&format!("{}-2", kind.as_str()), kind));
+        }
+        names.extend(
+            [
+                "DEN_API_KEY",
+                "SOME_TOKEN",
+                "SMTP_PASS",
+                "SINGULARR_EDGE_TOKEN",
+            ]
+            .map(String::from),
+        );
+        assert!(names.iter().any(|n| n == "QBITTORRENT_2_PASS"));
+        for name in &names {
+            let mut e: BTreeMap<&str, &str> = face_env();
+            e.insert(name.as_str(), "something");
+            match RequestsFaceConfig::from(&e) {
+                Err(ConfigError::NotForTheFace(list)) => assert!(
+                    list.split(", ").any(|n| n == name.as_str()),
+                    "{name}: {list}"
+                ),
+                other => panic!("{name}: {:?}", other.map(|_| ())),
+            }
+            e.insert(name.as_str(), PLACEHOLDER);
+            assert!(RequestsFaceConfig::from(&e).is_ok(), "{name}");
+        }
+        let mut e = face_env();
+        for (name, value) in [
+            ("SINGULARR_FACE", "requests"),
+            ("SINGULARR_REQUESTS_DB_MAX_CONNECTIONS", "4"),
+            ("SINGULARR_HTTP_TIMEOUT_SECS", "20"),
+            ("RUST_LOG", "info"),
+            ("TZ", "UTC"),
+        ] {
+            e.insert(name, value);
+        }
+        let c = RequestsFaceConfig::from(&e).unwrap();
+        assert!(c.tmdb_token.is_some());
+        assert!(!named_like_a_secret("SINGULARR_TMDB_TOKEN"));
+        assert!(!named_like_a_secret("SINGULARR_REQUESTS_SESSION_SECRET"));
     }
 
     #[test]

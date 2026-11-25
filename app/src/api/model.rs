@@ -51,7 +51,8 @@ pub struct Overview {
 #[cfg_attr(feature = "ssr", derive(utoipa::ToSchema))]
 pub struct EngineSync {
     pub engine: String,
-    /// `radarr`, `sonarr`, `qbittorrent` or `seerr`.
+    /// The integration type: `radarr`, `sonarr`, a download client's (`qbittorrent`,
+    /// `transmission`, `deluge`, `sabnzbd`, `nzbget`), `seerr`.
     pub kind: String,
     pub library: Option<String>,
     pub configured: bool,

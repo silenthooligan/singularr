@@ -35,10 +35,11 @@ pub struct Queued {
 }
 
 impl Queued {
-    /// Not done: everything but a download that seeds, as the Activity page counts "in
-    /// motion" (one no manager owns waits for someone to deal with it).
+    /// Not done: everything but a torrent that seeds and a usenet download its client is done
+    /// with, as the Activity page counts "in motion" (one no manager owns waits for someone to
+    /// deal with it).
     pub fn in_motion(&self) -> bool {
-        self.row.stage != "seeding"
+        !labels::queue_done(&self.row.stage)
     }
 }
 
@@ -84,7 +85,7 @@ fn integration_name(state: &AppState, id: Option<&str>) -> Option<String> {
 }
 
 /// The timeline of one download from its journal events.
-fn timeline(events: &[&Event], client: &str, owned: bool) -> Vec<TimelineStep> {
+fn timeline(events: &[&Event], client: &str, owned: bool, usenet: bool) -> Vec<TimelineStep> {
     events
         .iter()
         .filter_map(|e| {
@@ -96,6 +97,7 @@ fn timeline(events: &[&Event], client: &str, owned: bool) -> Vec<TimelineStep> {
             let (stage, detail) = match e.kind.as_str() {
                 "download_added" => ("downloading", format!("Added to {client}")),
                 "download_completed" if owned => ("importing", "Download complete".to_string()),
+                "download_completed" if usenet => ("completed", "Download complete".to_string()),
                 "download_completed" => ("seeding", "Download complete".to_string()),
                 "download_stuck" => ("attention", reason.unwrap_or_default()),
                 "download_orphaned" => ("unassigned", reason.unwrap_or_default()),
@@ -123,6 +125,22 @@ fn last_of(events: &[&Event], kind: &str) -> Option<DateTime<Utc>> {
 pub async fn queue(state: &AppState, full: bool) -> AppResult<Vec<Queued>> {
     let pool = &state.pool;
     let mut downloads: Vec<Download> = downloads_store::all(pool).await?;
+    // One row per download id: two clients can hold the same torrent. The row kept is the one
+    // an act on the id takes (`downloads_store::one`): owned first, then written last.
+    downloads.sort_by(|a, b| {
+        (
+            a.owner.is_none(),
+            std::cmp::Reverse(a.updated_at),
+            &a.client,
+        )
+            .cmp(&(
+                b.owner.is_none(),
+                std::cmp::Reverse(b.updated_at),
+                &b.client,
+            ))
+    });
+    let mut ids = std::collections::HashSet::new();
+    downloads.retain(|d| ids.insert(d.hash.clone()));
     downloads.sort_by(|a, b| {
         b.added_at
             .cmp(&a.added_at)
@@ -140,8 +158,6 @@ pub async fn queue(state: &AppState, full: bool) -> AppResult<Vec<Queued>> {
     for e in &events {
         by_hash.entry(e.subject_id.as_str()).or_default().push(e);
     }
-    let client = integration_name(state, Some(&state.config.qbit.id))
-        .unwrap_or_else(|| "the download client".to_string());
     // The open request of each title, newest first.
     let open: Vec<(String, i64, i64)> = if full {
         let tmdb: Vec<i64> = title_ids
@@ -178,6 +194,9 @@ pub async fn queue(state: &AppState, full: bool) -> AppResult<Vec<Queued>> {
     let policy = &active.policy;
     let mut out = Vec::with_capacity(downloads.len());
     for (d, p) in downloads.iter().zip(&parsed) {
+        // The download client that lists it, by its name.
+        let client = integration_name(state, Some(&d.client))
+            .unwrap_or_else(|| "the download client".to_string());
         let card = d.title_id.and_then(|id| cards.card(id));
         let kind = kind_of(state, card.as_ref(), d.owner.as_deref(), p);
         let title = card.unwrap_or_else(|| TitleCard {
@@ -299,8 +318,14 @@ pub async fn queue(state: &AppState, full: bool) -> AppResult<Vec<Queued>> {
                 indexer: d.indexer.clone(),
                 client: Some(client.clone()),
                 manager: integration_name(state, d.owner.as_deref()),
-                stage: labels::queue_stage(d.orphan, d.progress, d.queue_state.is_some())
-                    .to_string(),
+                stage: labels::queue_stage(
+                    d.orphan,
+                    d.progress,
+                    d.queue_state.is_some(),
+                    d.usenet(),
+                    d.status.as_deref(),
+                )
+                .to_string(),
                 attention,
                 refusal,
                 progress,
@@ -317,7 +342,7 @@ pub async fn queue(state: &AppState, full: bool) -> AppResult<Vec<Queued>> {
                 score,
                 trace,
                 timeline: if full {
-                    timeline(evs, &client, d.owner.is_some())
+                    timeline(evs, &client, d.owner.is_some(), d.usenet())
                 } else {
                     Vec::new()
                 },

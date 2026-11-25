@@ -223,7 +223,7 @@ impl ArrClient {
             .collect())
     }
 
-    /// What a manual import offers for one download.
+    /// What a manual import offers for one download, named by its id as the manager wrote it.
     async fn import_offer(&self, download_id: &str) -> Result<Vec<ImportFile>, EngineError> {
         let raw: Vec<RawImport> = self
             .get(
@@ -1562,7 +1562,7 @@ fn import_file(raw: RawImport) -> Option<ImportFile> {
             .filter(Value::is_array)
             .unwrap_or_else(|| json!([])),
         release_group: text(raw.release_group),
-        download_id: text(raw.download_id).map(|d| d.to_ascii_uppercase()),
+        download_id: text(raw.download_id),
         indexer_flags: raw.indexer_flags.filter(|n| *n >= 0).unwrap_or(0),
         release_type: text(raw.release_type),
         rejections: rejection_words(raw.rejections),
@@ -1572,10 +1572,12 @@ fn import_file(raw: RawImport) -> Option<ImportFile> {
 /// A queue item as one download's entry: one without a download id names no download.
 fn queue_entry(raw: RawQueueItem) -> Option<QueueEntry> {
     let messages = queue_messages(&raw);
+    let written = text(raw.download_id)?;
     Some(QueueEntry {
         queue_id: raw.id,
         engine_title_id: raw.movie_id.or(raw.series_id).filter(|id| *id > 0),
-        download_id: text(raw.download_id)?.to_ascii_uppercase(),
+        download_id: written.to_ascii_uppercase(),
+        download_id_as_written: written,
         title: raw.title.unwrap_or_default(),
         protocol: text(raw.protocol),
         download_client: text(raw.download_client),
@@ -3270,6 +3272,92 @@ mod tests {
                 "downloadId": HASH,
                 "indexerFlags": 1
             }]})
+        );
+    }
+
+    /// A usenet download's id is its client's, in the client's case (SABnzbd's `nzo_id`, the
+    /// `drone` value in NZBGet). The queue entry matches it in any case. The manual import and
+    /// the import command carry it as the manager wrote it: the manager finds a download by
+    /// the exact id.
+    #[tokio::test]
+    async fn a_usenet_download_is_imported_under_the_id_its_manager_wrote() {
+        const NZO: &str = "SABnzbd_nzo_x7f3k2ab";
+        let recorded = Recorded::new();
+        let mut records: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/radarr_queue_import_refused.json"
+        ))
+        .unwrap();
+        records[0]["downloadId"] = json!(NZO);
+        records[0]["protocol"] = json!("usenet");
+        records[0]["downloadClient"] = json!("SABnzbd");
+        let queue = json!({"page": 1, "pageSize": 500, "totalRecords": 1, "records": records});
+        recorded.answer(
+            Method::Get,
+            &format!("{BASE_RADARR}/api/v3/queue"),
+            200,
+            &queue.to_string(),
+        );
+        let mut offer: Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/radarr_manualimport.json"
+        ))
+        .unwrap();
+        offer[0]["downloadId"] = json!(NZO);
+        recorded.answer(
+            Method::Get,
+            &format!("{BASE_RADARR}/api/v3/manualimport"),
+            200,
+            &offer.to_string(),
+        );
+        recorded.answer(
+            Method::Post,
+            &format!("{BASE_RADARR}{COMMAND_PATH}"),
+            201,
+            r#"{"id": 78}"#,
+        );
+        let (client, switch) = acting(ArrKind::Radarr, recorded.clone());
+        let entries = client
+            .queue_entries("includeUnknownMovieItems", &NZO.to_ascii_uppercase())
+            .await
+            .unwrap();
+        assert_eq!(entries.len(), 1);
+        let entry = &entries[0];
+        assert_eq!(
+            (
+                entry.download_id.as_str(),
+                entry.download_id_as_written.as_str()
+            ),
+            ("SABNZBD_NZO_X7F3K2AB", NZO)
+        );
+        assert_eq!(import_mode(entry), ImportMode::Move);
+        let offer = client
+            .import_offer(&entry.download_id_as_written)
+            .await
+            .unwrap();
+        assert_eq!(offer[0].download_id.as_deref(), Some(NZO));
+        switch.set(Access::Act);
+        let acted = client
+            .act(&ManagerAct::Import {
+                files: offer,
+                mode: import_mode(entry),
+            })
+            .await
+            .unwrap();
+        assert_eq!(acted, ManagerActed::Done { command: Some(78) });
+        let sent = recorded.calls_sent();
+        assert!(
+            sent[1]
+                .url
+                .ends_with("/api/v3/manualimport?downloadId=SABnzbd_nzo_x7f3k2ab"),
+            "{}",
+            sent[1].url
+        );
+        let Body::Json(body) = &sent[2].body else {
+            panic!("{:?}", sent[2].body)
+        };
+        let body: Value = serde_json::from_str(body).unwrap();
+        assert_eq!(
+            (&body["importMode"], &body["files"][0]["downloadId"]),
+            (&json!("move"), &json!(NZO))
         );
     }
 

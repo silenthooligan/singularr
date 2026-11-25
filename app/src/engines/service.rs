@@ -3,23 +3,27 @@
 
 use super::access::{AccessBook, AccessState};
 use super::arr::{self, ArrClient, Radarr, Sonarr};
+use super::clients;
 use super::hush::{self, Hush};
+use super::jellyfin::{self, Dialect, Jellyfin};
 use super::model::{EngineStatus, IntegrationView, ShadowParseRequest, ShadowParseResponse};
 use super::plex::{self, Plex};
-use super::qbit::{self, Qbit};
 use super::seerr::{self, Seerr};
 use super::store;
 use super::tautulli::{self, Tautulli};
 use super::tdarr::{self, Tdarr};
 use super::{
-    Downloader, FoundRelease, LibraryEngine, MediaServer, PlayHistory, Processor, RequestSite,
+    DownloadClient, FoundRelease, LibraryEngine, MediaServer, PlayHistory, Processor, RequestSite,
 };
 use crate::catalog::model::ArrReading;
-use crate::core::config::{ArrKind, Config, Integration, IntegrationType, ProcessorKind};
+use crate::core::config::{
+    ArrKind, Config, Integration, IntegrationType, MediaServerConfig, MediaServerKind,
+    ProcessorKind,
+};
 use crate::core::error::{AppError, AppResult};
 use crate::core::journal::{Journal, event};
 use crate::core::observe;
-use crate::core::outbound::{Allowlist, Outbound, OutboundError};
+use crate::core::outbound::{Allowlist, Calls, Outbound, OutboundError};
 use crate::core::units;
 use crate::policy::{ActivePolicy, first_lane_of_arr};
 use crate::releases::service::{differences, reading_of};
@@ -33,7 +37,8 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineSlot {
     pub id: String,
-    /// `radarr`, `sonarr`, `qbittorrent` or `seerr`.
+    /// The integration type: `radarr`, `sonarr`, a download client's (`qbittorrent`,
+    /// `sabnzbd`, ...), `seerr`, `plex`, a processing service's, `tautulli`.
     pub kind: String,
     pub library: Option<String>,
     pub configured: bool,
@@ -47,11 +52,13 @@ fn is_arr(kind: &str) -> bool {
 /// Every engine this run talks to.
 pub struct EngineSet {
     pub arrs: Vec<Arc<dyn LibraryEngine>>,
-    pub downloader: Option<Arc<dyn Downloader>>,
+    /// Every download client that is configured, torrents and usenet alike.
+    pub download_clients: Vec<Arc<dyn DownloadClient>>,
     /// The Seerr integration requests are read from, when it is configured.
     pub request_sites: Vec<Arc<dyn RequestSite>>,
-    /// The Plex server, when it is configured.
-    pub media_server: Option<Arc<dyn MediaServer>>,
+    /// The media servers that are configured (Plex, Jellyfin, Emby), in the configuration's
+    /// order.
+    pub media_servers: Vec<Arc<dyn MediaServer>>,
     /// The processing services that are configured: workers and bridges.
     pub processors: Vec<Arc<dyn Processor>>,
     /// The play history plays are imported from (Tautulli), when it is configured.
@@ -139,10 +146,44 @@ impl Drop for SearchHold<'_> {
     }
 }
 
+/// The calls a media server is sent, and the address they are below: the API's root.
+fn media_server_calls(m: &MediaServerConfig, url: &str) -> (String, Calls) {
+    match m.kind {
+        MediaServerKind::Plex => (url.to_string(), plex::calls()),
+        MediaServerKind::Jellyfin => (
+            jellyfin::api_root(url, Dialect::Jellyfin),
+            jellyfin::calls(Dialect::Jellyfin),
+        ),
+        MediaServerKind::Emby => (
+            jellyfin::api_root(url, Dialect::Emby),
+            jellyfin::calls(Dialect::Emby),
+        ),
+    }
+}
+
+/// The adapter of a media server, when it has an address and a secret.
+fn media_server(
+    m: &MediaServerConfig,
+    config: &Config,
+    out: &Outbound,
+) -> Option<Arc<dyn MediaServer>> {
+    match m.kind {
+        MediaServerKind::Plex => Plex::new(m, out.clone())
+            .map(|p| Arc::new(p.with_web(&config.plex_web_url)) as Arc<dyn MediaServer>),
+        MediaServerKind::Jellyfin => Jellyfin::new(m, Dialect::Jellyfin, out.clone())
+            .map(|j| Arc::new(j) as Arc<dyn MediaServer>),
+        MediaServerKind::Emby => Jellyfin::new(m, Dialect::Emby, out.clone())
+            .map(|e| Arc::new(e) as Arc<dyn MediaServer>),
+    }
+}
+
 /// The outbound allowlist for a configuration: the metadata providers, plus the origin of
 /// every configured integration Singularr reads, each with the calls beyond GET its adapter
-/// declares. The qBittorrent sign-in is a POST that only reads; a Seerr integration and the
-/// Plex server take GET alone; a manager takes GET and its acts (search, grab, import, remove);
+/// declares. A download client takes the reads its adapter lists and nothing that acts (the
+/// qBittorrent sign-in, Transmission's `torrent-get` and no GET, Deluge's sign-in and listing
+/// and no GET, NZBGet's three reading methods and no GET, SABnzbd's queue and history GETs
+/// alone); a Seerr integration takes GET alone; a media server takes the GETs its adapter
+/// declares and nothing else; a manager takes GET and its acts (search, grab, import, remove);
 /// a processing service takes what its adapter lists (a worker's record store in its reading
 /// modes, its acts). Every act passes only while that integration's access is `act`.
 pub fn allowlist(config: &Config) -> Result<Allowlist, OutboundError> {
@@ -152,16 +193,19 @@ pub fn allowlist(config: &Config) -> Result<Allowlist, OutboundError> {
             allow.allow_integration(&a.id, url, arr::calls(a.kind))?;
         }
     }
-    if let Some(url) = &config.qbit.url {
-        allow.allow_engine(&config.qbit.id, url, &[qbit::LOGIN_PATH])?;
+    for c in config.downloads.iter().filter(|c| c.configured()) {
+        if let Some(url) = &c.url {
+            allow.allow_integration(&c.id, url, clients::calls(c.kind))?;
+        }
     }
     for site in config.seerr.iter().filter(|s| s.configured()) {
         allow.allow_engine(&site.id, &site.url, &[])?;
     }
-    if let Some(p) = config.plex.as_ref().filter(|p| p.configured())
-        && let Some(url) = &p.url
-    {
-        allow.allow_engine(&p.id, url, &[])?;
+    for m in config.media_servers.iter().filter(|m| m.configured()) {
+        if let Some(url) = &m.url {
+            let (root, calls) = media_server_calls(m, url);
+            allow.allow_integration(&m.id, &root, calls)?;
+        }
     }
     // Tautulli takes GETs of its API with the commands that read, and nothing else: its API
     // takes the commands that change or delete things as GETs too.
@@ -206,19 +250,16 @@ impl EngineSet {
                 arrs.push(engine);
             }
         }
-        let downloader: Option<Arc<dyn Downloader>> =
-            Qbit::new(&config.qbit, out.clone()).map(|q| Arc::new(q) as Arc<dyn Downloader>);
-        if config
-            .integrations
-            .iter()
-            .any(|i| i.kind == IntegrationType::Qbittorrent)
-        {
+        let mut download_clients: Vec<Arc<dyn DownloadClient>> = Vec::new();
+        for c in &config.downloads {
+            let adapter = clients::adapter(c, out);
             slots.push(EngineSlot {
-                id: config.qbit.id.clone(),
-                kind: qbit::ENGINE_ID.to_string(),
+                id: c.id.clone(),
+                kind: c.kind.as_str().to_string(),
                 library: None,
-                configured: downloader.is_some(),
+                configured: adapter.is_some(),
             });
+            download_clients.extend(adapter);
         }
         let mut request_sites: Vec<Arc<dyn RequestSite>> = Vec::new();
         for site in &config.seerr {
@@ -233,16 +274,17 @@ impl EngineSet {
                 request_sites.push(Arc::new(client));
             }
         }
-        let media_server: Option<Arc<dyn MediaServer>> = config.plex.as_ref().and_then(|p| {
-            let server = Plex::new(p, out.clone()).map(|s| Arc::new(s) as Arc<dyn MediaServer>);
+        let mut media_servers: Vec<Arc<dyn MediaServer>> = Vec::new();
+        for m in &config.media_servers {
+            let server = media_server(m, config, out);
             slots.push(EngineSlot {
-                id: p.id.clone(),
-                kind: plex::KIND.to_string(),
+                id: m.id.clone(),
+                kind: m.kind.as_str().to_string(),
                 library: None,
                 configured: server.is_some(),
             });
-            server
-        });
+            media_servers.extend(server);
+        }
         let mut processors: Vec<Arc<dyn Processor>> = Vec::new();
         for p in &config.processors {
             let adapter: Option<Arc<dyn Processor>> = match p.kind {
@@ -272,10 +314,10 @@ impl EngineSet {
             });
             history
         });
-        let mut set = EngineSet::new(arrs, downloader, slots)
+        let mut set = EngineSet::new(arrs, download_clients, slots)
             .with_request_sites(request_sites)
             .with_processors(processors);
-        set.media_server = media_server;
+        set.media_servers = media_servers;
         set.play_history = play_history;
         // The book shares the switches of the allowlist the adapters call through, so what it
         // says is what `core::outbound` enforces.
@@ -283,16 +325,18 @@ impl EngineSet {
         set
     }
 
+    /// A set of these managers and download clients (a list, or `None` and `Some` for none
+    /// and one), with the slots of the configuration.
     pub fn new(
         arrs: Vec<Arc<dyn LibraryEngine>>,
-        downloader: Option<Arc<dyn Downloader>>,
+        download_clients: impl IntoIterator<Item = Arc<dyn DownloadClient>>,
         slots: Vec<EngineSlot>,
     ) -> EngineSet {
         EngineSet {
             arrs,
-            downloader,
+            download_clients: download_clients.into_iter().collect(),
             request_sites: Vec::new(),
-            media_server: None,
+            media_servers: Vec::new(),
             processors: Vec::new(),
             play_history: None,
             slots,
@@ -317,6 +361,28 @@ impl EngineSet {
     /// The processing service of an integration, when it is configured.
     pub fn processor(&self, id: &str) -> Option<&Arc<dyn Processor>> {
         self.processors.iter().find(|p| p.id() == id)
+    }
+
+    /// The first media server: the one read where a record names no server of its own (the
+    /// workspace's server name, a recording asked for without one).
+    pub fn media_server(&self) -> Option<&Arc<dyn MediaServer>> {
+        self.media_servers.first()
+    }
+
+    /// The media server of an integration, when it is configured.
+    pub fn media_server_of(&self, id: &str) -> Option<&Arc<dyn MediaServer>> {
+        self.media_servers.iter().find(|s| s.id() == id)
+    }
+
+    /// The Plex server, when one is configured: the server a play history of Plex (Tautulli)
+    /// tells of.
+    pub fn plex_server(&self) -> Option<&Arc<dyn MediaServer>> {
+        self.media_servers.iter().find(|s| s.kind() == plex::KIND)
+    }
+
+    /// The download client of an integration, when it is configured.
+    pub fn download_client(&self, id: &str) -> Option<&Arc<dyn DownloadClient>> {
+        self.download_clients.iter().find(|c| c.id() == id)
     }
 
     pub fn arr(&self, id: &str) -> Option<&Arc<dyn LibraryEngine>> {
@@ -479,11 +545,17 @@ pub async fn statuses(pool: &PgPool, set: &EngineSet) -> AppResult<Vec<EngineSta
 
 /// The integration types this version reads. The others are listed with their configuration
 /// and marked as not read yet.
-pub const READ_TYPES: [IntegrationType; 8] = [
+pub const READ_TYPES: [IntegrationType; 14] = [
     IntegrationType::Plex,
+    IntegrationType::Jellyfin,
+    IntegrationType::Emby,
     IntegrationType::Radarr,
     IntegrationType::Sonarr,
     IntegrationType::Qbittorrent,
+    IntegrationType::Transmission,
+    IntegrationType::Deluge,
+    IntegrationType::Sabnzbd,
+    IntegrationType::Nzbget,
     IntegrationType::Tdarr,
     IntegrationType::Hush,
     IntegrationType::Seerr,
@@ -562,6 +634,7 @@ const COUNT_WORDS: &[(&str, &str, &str)] = &[
     ("queue", "in queue", "in queue"),
     ("grabs_known", "grab", "grabs"),
     ("torrents", "torrent", "torrents"),
+    ("downloads", "download", "downloads"),
     ("requests", "request", "requests"),
     ("pending_on_site", "pending", "pending"),
     ("runs", "run", "runs"),
@@ -916,10 +989,26 @@ mod tests {
             .map(|(_, r)| r.clone())
             .expect("the Plex server is listed");
         assert!(rule.read_only && rule.reads.is_empty() && rule.acts.is_empty());
+        // Plex starts work on some GETs: the adapter's own paths are the GETs it is sent.
+        assert_eq!(rule.gets.len(), plex::calls().gets.len());
+        assert!(
+            allow
+                .check(Method::Get, "http://10.0.0.30:32400/library/sections")
+                .is_ok()
+        );
+        assert!(
+            allow
+                .check(
+                    Method::Get,
+                    "http://10.0.0.30:32400/library/sections/1/refresh"
+                )
+                .is_err()
+        );
         let out = Outbound::new(allow, Duration::from_secs(5)).unwrap();
         let set = EngineSet::from_config(&config, &out);
-        assert!(set.media_server.is_some());
+        assert!(set.media_server().is_some());
         assert_eq!(set.slot("plex").unwrap().kind, "plex");
+        assert_eq!(set.plex_server().map(|s| s.id()), Some("plex"));
         assert!(!config.to_string().contains("plex-token"));
         // Without a token it is listed and not asked.
         let e = BTreeMap::from([
@@ -929,7 +1018,90 @@ mod tests {
         let config = Config::from(&e).unwrap();
         let out = Outbound::new(allowlist(&config).unwrap(), Duration::from_secs(5)).unwrap();
         let set = EngineSet::from_config(&config, &out);
-        assert!(set.media_server.is_none() && !set.slot("plex").unwrap().configured);
+        assert!(set.media_server().is_none() && !set.slot("plex").unwrap().configured);
+    }
+
+    #[test]
+    fn jellyfin_and_emby_are_media_servers_read_with_their_declared_gets() {
+        let e = BTreeMap::from([
+            ("DATABASE_URL", "postgres://x@127.0.0.1:1/x"),
+            ("PLEX_URL", "http://10.0.0.30:32400"),
+            ("PLEX_TOKEN", "plex-token"),
+            ("JELLYFIN_URL", "http://10.0.0.31:8096/"),
+            ("JELLYFIN_API_KEY", "jellyfin-key"),
+            ("EMBY_URL", "http://10.0.0.32:8096"),
+            ("EMBY_API_KEY", "emby-key"),
+            ("EMBY_ACCESS", "act"),
+        ]);
+        let config = Config::from(&e).unwrap();
+        let allow = allowlist(&config).unwrap();
+        // Each is listed at its API's root: Emby's is under /emby.
+        for (address, label) in [
+            ("http://10.0.0.31:8096", "jellyfin"),
+            ("http://10.0.0.32:8096/emby", "emby"),
+        ] {
+            let rule = allow
+                .hosts()
+                .find(|(h, _)| h.as_str() == address)
+                .map(|(_, r)| r.clone())
+                .unwrap_or_else(|| panic!("{label} is listed"));
+            assert!(rule.read_only && rule.reads.is_empty() && rule.acts.is_empty());
+            assert_eq!((rule.label.as_str(), rule.gets.len()), (label, 6));
+        }
+        // Emby's API is under /emby; a GET that would start a stream is refused on both.
+        assert!(
+            allow
+                .check(Method::Get, "http://10.0.0.32:8096/emby/Sessions")
+                .is_ok()
+        );
+        assert!(
+            allow
+                .check(Method::Get, "http://10.0.0.32:8096/Sessions")
+                .is_err()
+        );
+        assert!(
+            allow
+                .check(Method::Get, "http://10.0.0.31:8096/Library/VirtualFolders")
+                .is_ok()
+        );
+        for url in [
+            "http://10.0.0.31:8096/Videos/abc/stream",
+            "http://10.0.0.32:8096/emby/Videos/abc/stream",
+        ] {
+            assert!(allow.check(Method::Get, url).is_err(), "{url}");
+        }
+        let out = Outbound::new(allow, Duration::from_secs(5)).unwrap();
+        let set = EngineSet::from_config(&config, &out);
+        let servers: Vec<(&str, &str)> = set
+            .media_servers
+            .iter()
+            .map(|s| (s.id(), s.kind()))
+            .collect();
+        assert_eq!(
+            servers,
+            vec![("plex", "plex"), ("jellyfin", "jellyfin"), ("emby", "emby")]
+        );
+        assert_eq!(set.media_server().map(|s| s.id()), Some("plex"));
+        assert_eq!(set.media_server_of("emby").map(|s| s.kind()), Some("emby"));
+        assert_eq!(set.slot("jellyfin").unwrap().kind, "jellyfin");
+        // A media server is read: `act` gives it nothing to do.
+        assert_eq!(set.access.of("emby").access, Access::Read);
+        assert!(set.access.acting().is_empty());
+        let view = integration_view(
+            config.integration("jellyfin").unwrap(),
+            None,
+            &set.access.of("jellyfin"),
+        );
+        assert_eq!(
+            (
+                view.state.as_str(),
+                view.role.as_str(),
+                view.detail.as_str()
+            ),
+            ("warn", "media server", "Not contacted")
+        );
+        let text = config.to_string();
+        assert!(!text.contains("jellyfin-key") && !text.contains("emby-key"));
     }
 
     #[test]
@@ -1173,7 +1345,8 @@ mod tests {
         let set = EngineSet::from_config(&config, &out);
         assert_eq!(set.arrs.len(), 1);
         assert!(set.arr("radarr").is_some() && set.arr("sonarr").is_none());
-        assert!(set.downloader.is_some());
+        assert_eq!(set.download_clients.len(), 1);
+        assert!(set.download_client("qbittorrent").is_some());
         assert_eq!(set.arr_ids(), vec!["radarr", "sonarr"]);
         assert!(!set.slot("sonarr").unwrap().configured);
         assert_eq!(set.arr("radarr").unwrap().engine().library, "radarr");
@@ -1183,6 +1356,115 @@ mod tests {
         let set = EngineSet::from_config(&config, &out);
         assert_eq!(set.arr_ids(), vec!["radarr-4k", "radarr"]);
         assert_eq!(set.arr("radarr-4k").unwrap().engine().library, "radarr-4k");
-        assert!(set.downloader.is_none() && set.slot("qbittorrent").is_none());
+        assert!(set.download_clients.is_empty() && set.slot("qbittorrent").is_none());
+    }
+
+    /// Every download client is an engine of its own: a torrent client and a usenet client side
+    /// by side, each listed with the reads its adapter declares and no act, each read on its own.
+    #[test]
+    fn download_clients_of_every_type_are_engines_with_reads_alone() {
+        let e = BTreeMap::from([
+            ("DATABASE_URL", "postgres://x@127.0.0.1:1/x"),
+            ("QBIT_URL", "http://10.0.0.62:8080"),
+            ("TRANSMISSION_URL", "http://10.0.0.62:9091"),
+            ("DELUGE_URL", "http://10.0.0.62:8112"),
+            ("DELUGE_PASS", "deluge"),
+            ("SABNZBD_URL", "http://10.0.0.63:8080"),
+            ("SABNZBD_API_KEY", "k"),
+            ("NZBGET_URL", "http://10.0.0.63:6789"),
+            ("SABNZBD_ACCESS", "act"),
+        ]);
+        let config = Config::from(&e).unwrap();
+        let allow = allowlist(&config).unwrap();
+        let rule = |origin: &str| {
+            allow
+                .hosts()
+                .find(|(h, _)| h.as_str() == origin)
+                .map(|(_, r)| r.clone())
+                .unwrap_or_else(|| panic!("{origin} is listed"))
+        };
+        for (origin, label) in [
+            ("http://10.0.0.62:8080", "qbittorrent"),
+            ("http://10.0.0.62:9091", "transmission"),
+            ("http://10.0.0.62:8112", "deluge"),
+            ("http://10.0.0.63:8080", "sabnzbd"),
+            ("http://10.0.0.63:6789", "nzbget"),
+        ] {
+            let r = rule(origin);
+            assert_eq!(r.label, label);
+            assert!(r.read_only && r.acts.is_empty(), "{label} takes no act");
+            assert!(
+                allow.switch(label).is_none(),
+                "{label} has nothing to switch"
+            );
+        }
+        // The qBittorrent rule is the one it always was: the sign-in, and every GET.
+        let q = rule("http://10.0.0.62:8080");
+        assert_eq!(
+            q.reads
+                .iter()
+                .map(|c| (c.method, c.path.as_str(), c.body.is_some()))
+                .collect::<Vec<_>>(),
+            vec![(Method::Post, "/api/v2/auth/login", false)]
+        );
+        assert!(q.gets.is_empty() && !q.no_get);
+        assert!(rule("http://10.0.0.63:6789").no_get);
+        assert_eq!(rule("http://10.0.0.63:8080").gets.len(), 1);
+        let out = Outbound::new(allow, Duration::from_secs(5)).unwrap();
+        let set = EngineSet::from_config(&config, &out);
+        let ids: Vec<(&str, &str)> = set
+            .download_clients
+            .iter()
+            .map(|c| (c.id(), c.protocol().as_str()))
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                ("qbittorrent", "torrent"),
+                ("transmission", "torrent"),
+                ("deluge", "torrent"),
+                ("sabnzbd", "usenet"),
+                ("nzbget", "usenet"),
+            ]
+        );
+        assert_eq!(set.slot("sabnzbd").unwrap().kind, "sabnzbd");
+        // `act` changes nothing for a type without an action: it is read.
+        let sab = set.access.of("sabnzbd");
+        assert_eq!((sab.access, sab.source), (Access::Read, "default"));
+        assert!(set.access.acting().is_empty());
+        let view = integration_view(
+            config.integration("nzbget").unwrap(),
+            None,
+            &set.access.of("nzbget"),
+        );
+        assert_eq!(
+            (
+                view.state.as_str(),
+                view.detail.as_str(),
+                view.role.as_str()
+            ),
+            ("warn", "Not contacted", "downloads")
+        );
+        assert_eq!(
+            counts_text(&serde_json::json!({"downloads": 12, "ownership_settled": true})),
+            "12 downloads"
+        );
+        // Without its password Deluge is listed and not asked. Its host is not listed.
+        let e = BTreeMap::from([
+            ("DATABASE_URL", "postgres://x@127.0.0.1:1/x"),
+            ("DELUGE_URL", "http://10.0.0.62:8112"),
+        ]);
+        let config = Config::from(&e).unwrap();
+        let allow = allowlist(&config).unwrap();
+        assert!(
+            !allow
+                .hosts()
+                .any(|(h, _)| h.as_str() == "http://10.0.0.62:8112")
+        );
+        let set = EngineSet::from_config(
+            &config,
+            &Outbound::new(allow, Duration::from_secs(5)).unwrap(),
+        );
+        assert!(set.download_clients.is_empty() && !set.slot("deluge").unwrap().configured);
     }
 }

@@ -1,4 +1,5 @@
-//! Singularr, a self-hosted workspace for Plex media management. One binary, a modular monolith.
+//! Singularr, a self-hosted workspace for media management on Plex, Jellyfin or Emby. One binary, a
+//! modular monolith.
 //!
 //! The modules are layers, lowest first: `core`, `settings`, `policy`, `catalog`, `releases`,
 //! `engines`, `metadata`, `lifecycle`, `acquire`, `processing`, `plays`, `requests`, `music`,

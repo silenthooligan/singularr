@@ -1,20 +1,23 @@
-//! The `/api/v1` routes of the Plex server: what is playing; the music read model from the
-//! server in the shape of the web client's `music.json`, an album with its tracks
-//! (`albums/*.json`) and an artist with their albums; a plain video library's recordings
-//! (`homevideo.json`), with the owner's notes on the tapes; and album covers, artist photos and
-//! video stills resized by the server and served through Singularr, so the browser never needs
-//! the server's address or token. Every route needs a caller with `read`.
+//! The `/api/v1` routes of the media servers (Plex, Jellyfin, Emby): what is playing on each;
+//! the music read model from the servers in the shape of the web client's `music.json`, an
+//! album with its tracks (`albums/*.json`) and an artist with their albums; a plain video
+//! library's recordings (`homevideo.json`), with the owner's notes on the tapes; and album
+//! covers, artist photos and video stills resized by the server that holds them and served
+//! through Singularr: the browser never needs a server's address or key. Every route needs a
+//! caller with `read`.
 
 use super::routes::{ApiPath, ApiQuery};
 use super::state::AppState;
 use super::stats::{Format, PlayDelivery};
 use crate::catalog::store as catalog_store;
 use crate::core::error::AppError;
+use crate::core::outbound::encode_component;
 use crate::core::schema::ProblemDoc;
+use crate::engines::{MediaServer, ServerSession};
 use crate::homemovies::model::{Tape, TapeQuery};
 use crate::homemovies::service as homemovies;
 use crate::lifecycle::server::plain_video;
-use crate::music::model::{AlbumDetail, ArtistDetail};
+use crate::music::model::{AlbumDetail, ArtistDetail, parse_server_music_id, server_music_id};
 use crate::music::service as music_service;
 use crate::music::store as music_store;
 use axum::extract::State;
@@ -25,6 +28,7 @@ use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 use utoipa::{IntoParams, OpenApi, ToSchema};
 
 type ApiResult<T> = Result<Json<T>, AppError>;
@@ -36,7 +40,17 @@ pub struct ImageQuery {
     pub size: Option<u32>,
 }
 
-/// One thing playing on the server.
+#[derive(Debug, Clone, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct StillQuery {
+    /// The longer side in pixels, 64 to 1200. Default 600.
+    pub size: Option<u32>,
+    /// The media server the recording is on, by its integration id. Default: the first media
+    /// server.
+    pub server: Option<String>,
+}
+
+/// One thing playing on a media server.
 #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
 pub struct Session {
     /// `movie`, `episode`, `track`.
@@ -48,7 +62,7 @@ pub struct Session {
     pub season: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub episode: Option<i32>,
-    /// Who is watching, by their Plex name.
+    /// Who is watching, by their name on the media server.
     pub person: Option<String>,
     pub player: Option<String>,
     /// `playing`, `paused`, `buffering`.
@@ -70,8 +84,9 @@ pub struct Session {
 
 #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
 pub struct Sessions {
-    /// False when no Plex integration is configured; the list is then empty.
+    /// False when no media server is configured; the list is then empty.
     pub configured: bool,
+    /// What plays on every media server, server by server.
     pub sessions: Vec<Session>,
 }
 
@@ -79,11 +94,11 @@ pub struct Sessions {
 #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MusicAlbum {
-    /// `album-<rating key>`.
+    /// `album-<item key>` on the first media server, `album-<server>_<item key>` on another.
     pub id: String,
     pub title: String,
     pub artist: Option<String>,
-    /// `artist-<rating key>`.
+    /// `artist-<item key>`, or `artist-<server>_<item key>`.
     pub artist_id: Option<String>,
     pub year: Option<i32>,
     /// `YYYY-MM-DD`.
@@ -112,7 +127,7 @@ pub struct MusicAlbum {
 /// One artist of the server (`music.json`, `artists[]`).
 #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
 pub struct MusicArtist {
-    /// `artist-<rating key>`.
+    /// `artist-<item key>` on the first media server, `artist-<server>_<item key>` on another.
     pub id: String,
     pub name: String,
     pub genre: Option<String>,
@@ -128,7 +143,7 @@ pub struct MusicArtist {
     pub cover: Option<String>,
 }
 
-/// The music read model from the Plex server (`GET /api/v1/music`).
+/// The music read model from the media servers (`GET /api/v1/music`).
 #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Music {
@@ -295,29 +310,44 @@ fn same_album(a: &music_store::ServerAlbumRow) -> String {
     )
 }
 
-/// The keys of the albums that share their artist and title with another album.
-pub fn duplicates(albums: &[music_store::ServerAlbumRow]) -> HashSet<String> {
-    let mut seen: HashMap<String, usize> = HashMap::new();
+/// The albums, each by (server, key), that share their artist and title with another album of
+/// their own media server. One album on two servers is no duplicate: each server holds it once.
+pub fn duplicates(albums: &[music_store::ServerAlbumRow]) -> HashSet<(String, String)> {
+    let mut seen: HashMap<(String, String), usize> = HashMap::new();
     for a in albums {
-        *seen.entry(same_album(a)).or_default() += 1;
+        *seen.entry((a.server.clone(), same_album(a))).or_default() += 1;
     }
     albums
         .iter()
-        .filter(|a| seen.get(&same_album(a)).is_some_and(|n| *n > 1))
-        .map(|a| a.rating_key.clone())
+        .filter(|a| {
+            seen.get(&(a.server.clone(), same_album(a)))
+                .is_some_and(|n| *n > 1)
+        })
+        .map(|a| (a.server.clone(), a.rating_key.clone()))
         .collect()
 }
 
-fn cover_url(a: &music_store::ServerAlbumRow) -> Option<String> {
-    a.thumb
-        .as_ref()
-        .map(|_| format!("/api/v1/music/albums/album-{}/cover", a.rating_key))
+/// An album's id: `album-<key>` on the first media server, `album-<server>_<key>` on another.
+fn album_id(a: &music_store::ServerAlbumRow, first: Option<&str>) -> String {
+    server_music_id("album", first, &a.server, &a.rating_key)
 }
 
-pub fn music_album(a: &music_store::ServerAlbumRow, duplicate: &HashSet<String>) -> MusicAlbum {
+fn cover_url(a: &music_store::ServerAlbumRow, first: Option<&str>) -> Option<String> {
+    a.thumb
+        .as_ref()
+        .map(|_| format!("/api/v1/music/albums/{}/cover", album_id(a, first)))
+}
+
+/// An album as `music.json` lists it. `first` is the first media server, whose albums and
+/// artists have the short ids.
+pub fn music_album(
+    a: &music_store::ServerAlbumRow,
+    duplicate: &HashSet<(String, String)>,
+    first: Option<&str>,
+) -> MusicAlbum {
     let lossless = !a.codecs.is_empty() && a.codecs.iter().all(|c| is_lossless(c));
     let mut problems = Vec::new();
-    if duplicate.contains(&a.rating_key) {
+    if duplicate.contains(&(a.server.clone(), a.rating_key.clone())) {
         problems.push("duplicate");
     }
     if !lossless && a.bitrate.is_some_and(|b| b > 0 && b < LOW_BITRATE) {
@@ -336,10 +366,13 @@ pub fn music_album(a: &music_store::ServerAlbumRow, duplicate: &HashSet<String>)
         problems.push("untagged");
     }
     MusicAlbum {
-        id: format!("album-{}", a.rating_key),
+        id: album_id(a, first),
         title: a.title.clone(),
         artist: a.artist.clone(),
-        artist_id: a.artist_key.as_ref().map(|k| format!("artist-{k}")),
+        artist_id: a
+            .artist_key
+            .as_ref()
+            .map(|k| server_music_id("artist", first, &a.server, k)),
         year: a.year.filter(|y| *y > 0),
         released: a.released.clone(),
         genre: a.genres.first().cloned(),
@@ -351,18 +384,19 @@ pub fn music_album(a: &music_store::ServerAlbumRow, duplicate: &HashSet<String>)
         size: a.size_bytes,
         plays: a.plays,
         added: a.added_at,
-        cover: cover_url(a),
+        cover: cover_url(a, first),
         problems: problems.into_iter().map(str::to_string).collect(),
     }
 }
 
-fn music_artist(a: &music_store::ServerArtistRow) -> MusicArtist {
+fn music_artist(a: &music_store::ServerArtistRow, first: Option<&str>) -> MusicArtist {
+    let id = server_music_id("artist", first, &a.server, &a.rating_key);
     let photo = a
         .thumb
         .as_ref()
-        .map(|_| format!("/api/v1/music/artists/artist-{}/photo", a.rating_key));
+        .map(|_| format!("/api/v1/music/artists/{id}/photo"));
     MusicArtist {
-        id: format!("artist-{}", a.rating_key),
+        id,
         name: a.name.clone(),
         genre: a.genres.first().cloned(),
         country: a.countries.first().cloned(),
@@ -401,25 +435,77 @@ pub fn files_not_on_server(folder: &[String], server: &[String]) -> Vec<String> 
         .collect()
 }
 
-/// An image of the server, by the album or artist whose image it is.
+/// Of the rows with a music id's key, the one the id names: on the server the id names, else
+/// (the first media server's short form) on the first server, else on any server that holds the
+/// key. A short id made before another server was listed first still leads somewhere.
+fn named<'a, T>(
+    rows: &'a [T],
+    of: fn(&T) -> (&str, &str),
+    server: Option<&str>,
+    key: &str,
+    first: Option<&str>,
+) -> Option<&'a T> {
+    let held: Vec<&'a T> = rows.iter().filter(|r| of(*r).1 == key).collect();
+    match server {
+        Some(s) => held.into_iter().find(|r| of(*r).0 == s),
+        None => held
+            .iter()
+            .copied()
+            .find(|r| Some(of(*r).0) == first)
+            .or_else(|| held.first().copied()),
+    }
+}
+
+fn album_of(a: &music_store::ServerAlbumRow) -> (&str, &str) {
+    (a.server.as_str(), a.rating_key.as_str())
+}
+
+fn artist_of(a: &music_store::ServerArtistRow) -> (&str, &str) {
+    (a.server.as_str(), a.rating_key.as_str())
+}
+
+/// An image of a media server, by the id of the album or artist whose image it is
+/// (`album-<key>`, `album-<server>_<key>`): asked of the server that holds that album or artist.
 pub async fn server_image(
     state: &AppState,
     kind: &str,
-    key: &str,
+    id: &str,
     size: Option<u32>,
 ) -> Result<Response, AppError> {
-    let thumb = music_store::server_thumb(&state.pool, kind, key)
+    let missing = || AppError::not_found(format!("No image for {id}."));
+    let (server, key) = parse_server_music_id(kind, id).ok_or_else(missing)?;
+    let first = state.config.first_media_server();
+    let (server, thumb) = music_store::server_thumb(&state.pool, kind, server, first, key)
         .await?
-        .ok_or_else(|| AppError::not_found(format!("No image for {kind} {key}.")))?;
-    photo(state, &thumb, size).await
+        .ok_or_else(missing)?;
+    let server = state.engines.media_server_of(&server).ok_or_else(missing)?;
+    photo(server, &thumb, size).await
 }
 
-/// An image of the server by its path there, resized by the server.
-async fn photo(state: &AppState, thumb: &str, size: Option<u32>) -> Result<Response, AppError> {
-    let server =
-        state.engines.media_server.as_ref().ok_or_else(|| {
-            AppError::not_found("No media server configured (PLEX_URL, PLEX_TOKEN).")
-        })?;
+/// The media server a route names (`server`), else the first one.
+fn server_named<'a>(
+    state: &'a AppState,
+    id: Option<&str>,
+) -> Result<&'a Arc<dyn MediaServer>, AppError> {
+    let id = id.map(str::trim).filter(|id| !id.is_empty());
+    match id {
+        Some(id) => state
+            .engines
+            .media_server_of(id)
+            .ok_or_else(|| AppError::not_found(format!("There is no media server `{id}`."))),
+        None => state
+            .engines
+            .media_server()
+            .ok_or_else(|| AppError::not_found("No media server configured.")),
+    }
+}
+
+/// An image of a media server by its path there, resized by the server.
+async fn photo(
+    server: &Arc<dyn MediaServer>,
+    thumb: &str,
+    size: Option<u32>,
+) -> Result<Response, AppError> {
     let image = server
         .photo(thumb, size.unwrap_or(600))
         .await
@@ -435,22 +521,35 @@ async fn photo(state: &AppState, thumb: &str, size: Option<u32>) -> Result<Respo
         .into_response())
 }
 
-/// What is playing on the Plex server: title, person, progress, how each stream is delivered
+/// What is playing on the media servers: title, person, progress, how each stream is delivered
 /// (direct play, direct stream or transcode, with the file's and the stream's resolution and
-/// bitrate) and the bandwidth it takes.
+/// bitrate) and the bandwidth it takes. 502 when no server answers; a server that does not
+/// answer while another does plays nothing as far as the answer knows.
 #[utoipa::path(get, path = "/api/v1/server/sessions", tag = "server",
     responses((status = 200, body = Sessions), (status = 502, body = ProblemDoc), (status = 401, body = ProblemDoc)))]
 async fn sessions(State(state): State<AppState>) -> ApiResult<Sessions> {
-    let Some(server) = state.engines.media_server.as_ref() else {
+    if state.engines.media_servers.is_empty() {
         return Ok(Json(Sessions {
             configured: false,
             sessions: Vec::new(),
         }));
-    };
-    let list = server
-        .sessions()
-        .await
-        .map_err(|e| AppError::Upstream(e.to_string()))?;
+    }
+    let asked = futures::future::join_all(
+        state
+            .engines
+            .media_servers
+            .iter()
+            .map(|server| server.sessions()),
+    )
+    .await;
+    let failed = asked.iter().find_map(|a| a.as_ref().err()).cloned();
+    if let Some(e) = failed.filter(|_| asked.iter().all(Result::is_err)) {
+        return Err(AppError::Upstream(e.to_string()));
+    }
+    let list: Vec<ServerSession> = asked
+        .into_iter()
+        .flat_map(Result::unwrap_or_default)
+        .collect();
     Ok(Json(Sessions {
         configured: true,
         sessions: list
@@ -494,11 +593,12 @@ async fn sessions(State(state): State<AppState>) -> ApiResult<Sessions> {
     }))
 }
 
-/// Albums and artists as the Plex server knows them, with cover art and photos through
-/// Singularr, formats, qualities, problems, and the folder's files the server does not know.
+/// Albums and artists as the media servers know them, with cover art and photos through
+/// Singularr, formats, qualities, problems, and the folder's files no server knows.
 #[utoipa::path(get, path = "/api/v1/music", tag = "server",
     responses((status = 200, body = Music), (status = 401, body = ProblemDoc)))]
 async fn music(State(state): State<AppState>) -> ApiResult<Music> {
+    let first = state.config.first_media_server();
     let albums = music_store::server_albums(&state.pool).await?;
     let artists = music_store::server_artists(&state.pool).await?;
     let server_files = music_store::server_track_files(&state.pool).await?;
@@ -512,8 +612,11 @@ async fn music(State(state): State<AppState>) -> ApiResult<Music> {
     };
     let dupes = duplicates(&albums);
     Ok(Json(Music {
-        albums: albums.iter().map(|a| music_album(a, &dupes)).collect(),
-        artists: artists.iter().map(music_artist).collect(),
+        albums: albums
+            .iter()
+            .map(|a| music_album(a, &dupes, first))
+            .collect(),
+        artists: artists.iter().map(|a| music_artist(a, first)).collect(),
         problem_labels: PROBLEMS
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -523,28 +626,31 @@ async fn music(State(state): State<AppState>) -> ApiResult<Music> {
     }))
 }
 
-/// One album with its tracks, from the Plex server (`album-<rating key>`). A numeric id is an
-/// album of the music folder's scan and answers in that model (`AlbumDetail`).
+/// One album with its tracks, from its media server (`album-<item key>` on the first media
+/// server, `album-<server>_<item key>` on another). A numeric id is an album of the music
+/// folder's scan and answers in that model (`AlbumDetail`).
 #[utoipa::path(get, path = "/api/v1/music/albums/{id}", tag = "server",
-    params(("id" = String, Path, description = "`album-<rating key>`, or the folder album's number")),
+    params(("id" = String, Path, description = "`album-<item key>`, `album-<server>_<item key>`, or the folder album's number")),
     responses((status = 200, body = AlbumRecord), (status = 404, body = ProblemDoc), (status = 401, body = ProblemDoc)))]
 async fn album(
     State(state): State<AppState>,
     ApiPath(id): ApiPath<String>,
 ) -> Result<Response, AppError> {
-    let Some(key) = id.strip_prefix("album-") else {
+    let not_found = || AppError::not_found(format!("The server has no album {id}."));
+    let Some((server, key)) = parse_server_music_id("album", &id) else {
+        if id.starts_with("album-") {
+            return Err(not_found());
+        }
         let n: i64 = id
             .parse()
             .map_err(|_| AppError::bad_request(format!("`{id}` is not an album id")))?;
         return Ok(Json(music_service::album(&state.pool, n).await?).into_response());
     };
+    let first = state.config.first_media_server();
     let all = music_store::server_albums(&state.pool).await?;
-    let a = all
-        .iter()
-        .find(|a| a.rating_key == key)
-        .ok_or_else(|| AppError::not_found(format!("The server has no album {id}.")))?;
-    let summary = music_album(a, &duplicates(&all));
-    let tracks = music_store::server_album_tracks(&state.pool, key).await?;
+    let a = named(&all, album_of, server, key, first).ok_or_else(not_found)?;
+    let summary = music_album(a, &duplicates(&all), first);
+    let tracks = music_store::server_album_tracks(&state.pool, &a.server, &a.rating_key).await?;
     let record = AlbumRecord {
         id: summary.id,
         title: summary.title,
@@ -581,52 +687,62 @@ async fn album(
     Ok(Json(record).into_response())
 }
 
-/// One artist with their albums, from the Plex server (`artist-<rating key>`). A numeric id is
-/// an artist of the music folder's scan and answers in that model (`ArtistDetail`).
+/// One artist with their albums, from their media server (`artist-<item key>` on the first
+/// media server, `artist-<server>_<item key>` on another). A numeric id is an artist of the
+/// music folder's scan and answers in that model (`ArtistDetail`).
 #[utoipa::path(get, path = "/api/v1/music/artists/{id}", tag = "server",
-    params(("id" = String, Path, description = "`artist-<rating key>`, or the folder artist's number")),
+    params(("id" = String, Path, description = "`artist-<item key>`, `artist-<server>_<item key>`, or the folder artist's number")),
     responses((status = 200, body = ArtistRecord), (status = 404, body = ProblemDoc), (status = 401, body = ProblemDoc)))]
 async fn artist(
     State(state): State<AppState>,
     ApiPath(id): ApiPath<String>,
 ) -> Result<Response, AppError> {
-    let Some(key) = id.strip_prefix("artist-") else {
+    let not_found = || AppError::not_found(format!("The server has no artist {id}."));
+    let Some((server, key)) = parse_server_music_id("artist", &id) else {
+        if id.starts_with("artist-") {
+            return Err(not_found());
+        }
         let n: i64 = id
             .parse()
             .map_err(|_| AppError::bad_request(format!("`{id}` is not an artist id")))?;
         return Ok(Json(music_service::artist(&state.pool, n).await?).into_response());
     };
+    let first = state.config.first_media_server();
     let artists = music_store::server_artists(&state.pool).await?;
-    let a = artists
-        .iter()
-        .find(|a| a.rating_key == key)
-        .ok_or_else(|| AppError::not_found(format!("The server has no artist {id}.")))?;
+    let a = named(&artists, artist_of, server, key, first).ok_or_else(not_found)?;
     let albums = music_store::server_albums(&state.pool).await?;
     let dupes = duplicates(&albums);
     let mut discography: Vec<MusicAlbum> = albums
         .iter()
-        .filter(|al| al.artist_key.as_deref() == Some(key))
-        .map(|al| music_album(al, &dupes))
+        .filter(|al| {
+            al.server == a.server && al.artist_key.as_deref() == Some(a.rating_key.as_str())
+        })
+        .map(|al| music_album(al, &dupes, first))
         .collect();
     discography.sort_by(|x, y| y.year.cmp(&x.year).then_with(|| x.title.cmp(&y.title)));
     Ok(Json(ArtistRecord {
-        artist: music_artist(a),
+        artist: music_artist(a, first),
         discography,
     })
     .into_response())
 }
 
-/// An artist's photo, made by the Plex server at `?size=` pixels.
+/// An artist's photo, made by their media server at `?size=` pixels.
 #[utoipa::path(get, path = "/api/v1/music/artists/{id}/photo", tag = "server",
-    params(("id" = String, Path, description = "`artist-<rating key>`"), ImageQuery),
+    params(("id" = String, Path, description = "`artist-<item key>` or `artist-<server>_<item key>`"), ImageQuery),
     responses((status = 200, description = "The image"), (status = 404, body = ProblemDoc), (status = 502, body = ProblemDoc), (status = 401, body = ProblemDoc)))]
 async fn artist_photo(
     State(state): State<AppState>,
     ApiPath(id): ApiPath<String>,
     ApiQuery(q): ApiQuery<ImageQuery>,
 ) -> Result<Response, AppError> {
-    let key = id.strip_prefix("artist-").unwrap_or(&id);
-    server_image(&state, "artist", key, q.size).await
+    // A bare key is the first media server's artist, as it was before ids named a server.
+    let id = if id.starts_with("artist-") {
+        id
+    } else {
+        format!("artist-{id}")
+    };
+    server_image(&state, "artist", &id, q.size).await
 }
 
 #[derive(Debug, Clone, Default, Deserialize, IntoParams)]
@@ -749,10 +865,10 @@ fn events_of(t: &Tape) -> Vec<VideoEvent> {
         .collect()
 }
 
-/// A plain video library (a movie section of the Plex server without a metadata agent) with
-/// its recordings: each file as the server has it, with the owner's notes on the tape of the
-/// same name from the home movies folder (title, years, events, people, places). Without a
-/// Plex server the tapes alone are listed.
+/// A plain video library (a media server's library of personal media, or a video library no
+/// manager looks after) with its recordings: each file as its server has it, with the owner's
+/// notes on the tape of the same name from the home movies folder (title, years, events,
+/// people, places). Without its media server the tapes alone are listed.
 #[utoipa::path(get, path = "/api/v1/library/videos", tag = "server", params(VideosQuery),
     responses((status = 200, body = Videos), (status = 404, body = ProblemDoc), (status = 502, body = ProblemDoc), (status = 401, body = ProblemDoc)))]
 async fn videos(
@@ -785,7 +901,22 @@ async fn videos(
         .iter()
         .map(|t| (t.file_name.to_lowercase(), t))
         .collect();
-    let server = state.engines.media_server.as_ref();
+    // The library's own server; a still names it unless it is the first media server.
+    let server = library
+        .integration
+        .as_deref()
+        .and_then(|id| state.engines.media_server_of(id));
+    let first = state.engines.media_server().map(|s| s.id().to_string());
+    let still_of = |key: &str, server: &str| {
+        if first.as_deref() == Some(server) {
+            format!("/api/v1/library/videos/video-{key}/still")
+        } else {
+            format!(
+                "/api/v1/library/videos/video-{key}/still?server={}",
+                encode_component(server)
+            )
+        }
+    };
     let mut recordings: Vec<Recording> = match (server, library.section_key.as_deref()) {
         (Some(server), Some(section)) => server
             .videos(section)
@@ -815,7 +946,7 @@ async fn videos(
                     still: v
                         .thumb
                         .as_ref()
-                        .map(|_| format!("/api/v1/library/videos/video-{}/still", v.rating_key)),
+                        .map(|_| still_of(&v.rating_key, server.id())),
                     events: tape.map(events_of).unwrap_or_default(),
                     people: tape.map(|t| t.people.clone()).unwrap_or_default(),
                     places: tape.map(|t| t.places.clone()).unwrap_or_default(),
@@ -873,20 +1004,22 @@ async fn videos(
     }))
 }
 
-/// A recording's still, made by the Plex server at `?size=` pixels.
+/// A recording's still, made by its media server at `?size=` pixels. `?server=` names the
+/// server when it is not the first one, as the recording's `still` address does.
 #[utoipa::path(get, path = "/api/v1/library/videos/{id}/still", tag = "server",
-    params(("id" = String, Path, description = "`video-<rating key>`"), ImageQuery),
+    params(("id" = String, Path, description = "`video-<item key>`"), StillQuery),
     responses((status = 200, description = "The image"), (status = 400, body = ProblemDoc), (status = 404, body = ProblemDoc), (status = 502, body = ProblemDoc), (status = 401, body = ProblemDoc)))]
 async fn video_still(
     State(state): State<AppState>,
     ApiPath(id): ApiPath<String>,
-    ApiQuery(q): ApiQuery<ImageQuery>,
+    ApiQuery(q): ApiQuery<StillQuery>,
 ) -> Result<Response, AppError> {
-    let key = id
+    let server = server_named(&state, q.server.as_deref())?;
+    let thumb = id
         .strip_prefix("video-")
-        .filter(|k| !k.is_empty() && k.chars().all(|c| c.is_ascii_digit()))
+        .and_then(|key| server.item_thumb(key))
         .ok_or_else(|| AppError::bad_request(format!("`{id}` is not a recording id")))?;
-    photo(&state, &format!("/library/metadata/{key}/thumb"), q.size).await
+    photo(server, &thumb, q.size).await
 }
 
 pub fn router() -> Router<AppState> {
@@ -904,7 +1037,7 @@ pub fn router() -> Router<AppState> {
 #[openapi(
     paths(sessions, music, album, artist, artist_photo, videos, video_still),
     components(schemas(AlbumDetail, ArtistDetail)),
-    tags((name = "server", description = "The Plex server: what is playing, its music, its plain video libraries, its images"))
+    tags((name = "server", description = "The media servers: what is playing, their music, their plain video libraries, their images"))
 )]
 struct ServerDoc;
 
@@ -918,6 +1051,7 @@ mod tests {
 
     fn album(codecs: &[&str], bitrates: (i64, i64), thumb: bool) -> music_store::ServerAlbumRow {
         music_store::ServerAlbumRow {
+            server: "plex".into(),
             rating_key: "120210".into(),
             artist_key: Some("120209".into()),
             artist: Some("+44".into()),
@@ -945,7 +1079,8 @@ mod tests {
     #[test]
     fn an_album_says_its_format_quality_cover_and_problems() {
         let none = HashSet::new();
-        let a = music_album(&album(&["mp3"], (320, 320), true), &none);
+        let first = Some("plex");
+        let a = music_album(&album(&["mp3"], (320, 320), true), &none, first);
         assert_eq!(
             (a.id.as_str(), a.artist_id.as_deref()),
             ("album-120210", Some("artist-120209"))
@@ -957,20 +1092,32 @@ mod tests {
             Some("/api/v1/music/albums/album-120210/cover")
         );
         assert!(a.problems.is_empty(), "{:?}", a.problems);
-        let low = music_album(&album(&["mp3"], (128, 128), false), &none);
+        // An album of another server names it: two servers can hold one key.
+        let mut other = album(&["mp3"], (320, 320), true);
+        other.server = "emby".into();
+        let b = music_album(&other, &none, first);
+        assert_eq!(
+            (b.id.as_str(), b.artist_id.as_deref(), b.cover.as_deref()),
+            (
+                "album-emby_120210",
+                Some("artist-emby_120209"),
+                Some("/api/v1/music/albums/album-emby_120210/cover")
+            )
+        );
+        let low = music_album(&album(&["mp3"], (128, 128), false), &none, first);
         assert_eq!(low.problems, vec!["low-bitrate", "no-cover"]);
         assert_eq!(low.quality, "MP3 128");
         assert!(low.cover.is_none());
         assert_eq!(
-            music_album(&album(&["mp3"], (190, 260), true), &none).quality,
+            music_album(&album(&["mp3"], (190, 260), true), &none, first).quality,
             "MP3 VBR"
         );
-        let flac = music_album(&album(&["flac"], (900, 1100), true), &none);
+        let flac = music_album(&album(&["flac"], (900, 1100), true), &none, first);
         assert_eq!(
             (flac.format.as_str(), flac.quality.as_str()),
             ("FLAC", "FLAC")
         );
-        let mixed = music_album(&album(&["flac", "mp3"], (320, 900), true), &none);
+        let mixed = music_album(&album(&["flac", "mp3"], (320, 900), true), &none, first);
         assert_eq!(
             (mixed.format.as_str(), mixed.quality.as_str()),
             ("Mixed", "Mixed")
@@ -996,8 +1143,14 @@ mod tests {
         let mut again = album(&["mp3"], (128, 128), true);
         again.rating_key = "999".into();
         again.title = "When Your Heart  Stops beating".into();
-        let dupes = duplicates(&[album(&["mp3"], (128, 128), true), again, unknown]);
-        assert!(dupes.contains("120210") && dupes.contains("999"));
+        // The same album on another server, under a key the first server uses too: neither a
+        // duplicate nor the first server's album.
+        let mut elsewhere = album(&["mp3"], (128, 128), true);
+        elsewhere.server = "emby".into();
+        let dupes = duplicates(&[album(&["mp3"], (128, 128), true), again, unknown, elsewhere]);
+        let of = |server: &str, key: &str| (server.to_string(), key.to_string());
+        assert!(dupes.contains(&of("plex", "120210")) && dupes.contains(&of("plex", "999")));
+        assert!(!dupes.contains(&of("emby", "120210")));
         assert_eq!(dupes.len(), 2);
     }
 

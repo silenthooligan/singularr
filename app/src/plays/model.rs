@@ -136,9 +136,13 @@ impl PlayRecord {
         self.show_key.as_deref().or(self.rating_key.as_deref())
     }
 
-    /// The play with no address kept: neither its own nor any in the sources' records.
+    /// The play with no address kept: neither its own nor any in the sources' records (a Plex
+    /// session's player, a Jellyfin or Emby session's remote end, Tautulli's row).
     pub fn without_addresses(mut self) -> PlayRecord {
         self.address = None;
+        if let Some(live) = self.raw.get_mut("live").and_then(Value::as_object_mut) {
+            live.remove("RemoteEndPoint");
+        }
         if let Some(player) = self
             .raw
             .get_mut("live")
@@ -641,6 +645,7 @@ mod tests {
 
     fn session(id: &str, state: &str, progress: f64) -> ServerSession {
         ServerSession {
+            server: "plex".into(),
             kind: "movie".into(),
             title: "The 'Burbs".into(),
             show: None,

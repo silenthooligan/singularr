@@ -143,11 +143,16 @@ impl AppState {
     }
 }
 
-/// What the start removed of the integrations the configuration no longer lists.
+/// What the start removed of the integrations the configuration no longer lists, and the rows
+/// of download clients it set aside.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct PruneReport {
     pub catalog: Pruned,
+    /// Downloads removed: those an engine no longer listed owned, and those set aside longer
+    /// than `lifecycle::store::SET_ASIDE_DAYS` days.
     pub downloads: u64,
+    /// Downloads of a client no longer listed, set aside now and kept for its return.
+    pub downloads_set_aside: u64,
     pub requests: u64,
     pub accounts: u64,
     pub engine_state: u64,
@@ -161,6 +166,7 @@ impl PruneReport {
         c.engines.is_empty()
             && c.libraries == 0
             && self.downloads == 0
+            && self.downloads_set_aside == 0
             && self.requests == 0
             && self.accounts == 0
             && self.engine_state == 0
@@ -169,12 +175,17 @@ impl PruneReport {
 }
 
 /// The read models follow the configuration: rows that came from an integration it no longer
-/// lists are removed (copies, untracked files, title links, the titles only it held, its
-/// downloads, the requests and accounts of a request site that is gone, its engine state, what
-/// was saved that Singularr may do with it), in one transaction with one `integrations_pruned`
-/// event. The journal keeps its history.
-/// Nothing is removed when the configuration lists no integration at all, which is more
-/// likely a missing `.env` than a choice.
+/// lists are removed (copies, untracked files, title links, the titles only it held, the
+/// downloads it owned, the requests and accounts of a request site that is gone, its engine
+/// state, what was saved that Singularr may do with it), in one transaction with one
+/// `integrations_pruned` event. The journal keeps its history.
+///
+/// The downloads of a download client it no longer lists are set aside and kept
+/// ([`crate::lifecycle::store::set_aside`]). A variable lost or an id renamed takes nothing
+/// away: the client's return finds them as they were.
+///
+/// Nothing is removed when the configuration lists no integration at all. That is more likely
+/// a missing `.env` than a choice.
 pub async fn prune_unconfigured(
     pool: &PgPool,
     journal: &Journal,
@@ -189,7 +200,10 @@ pub async fn prune_unconfigured(
         catalog: catalog_store::prune_engines(tx.conn(), &keep).await?,
         ..PruneReport::default()
     };
-    report.downloads = crate::lifecycle::store::prune_owners(tx.conn(), &keep).await?;
+    let set_aside = crate::lifecycle::store::set_aside(tx.conn(), &keep).await?;
+    report.downloads =
+        crate::lifecycle::store::prune_owners(tx.conn(), &keep).await? + set_aside.expired;
+    report.downloads_set_aside = set_aside.set_aside;
     let site = config
         .integrations
         .iter()

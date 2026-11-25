@@ -235,13 +235,13 @@ fn acting(state: &AppState) -> Vec<Acting> {
         .collect()
 }
 
-/// The media server's own name and version, from its last pass.
+/// The first media server's own name and version, from its last pass.
 async fn server(state: &AppState) -> AppResult<Option<ServerName>> {
-    let Some(plex) = state.config.plex.as_ref() else {
+    let Some(first) = state.config.media_servers.first() else {
         return Ok(None);
     };
     let rows = engine_store::list(&state.pool).await?;
-    let Some(row) = rows.into_iter().find(|r| r.engine == plex.id) else {
+    let Some(row) = rows.into_iter().find(|r| r.engine == first.id) else {
         return Ok(None);
     };
     Ok(Some(ServerName {

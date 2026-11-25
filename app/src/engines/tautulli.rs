@@ -561,12 +561,9 @@ mod tests {
         let declared = calls();
         assert_eq!(declared.gets.len(), 1);
         assert!(declared.reads.is_empty() && declared.acts.is_empty());
+        let query = declared.gets[0].query.as_ref().unwrap();
         for c in Command::ALL {
-            assert!(
-                declared.gets[0].query.values.iter().any(|v| v == c.name()),
-                "{}",
-                c.name()
-            );
+            assert!(query.values.iter().any(|v| v == c.name()), "{}", c.name());
         }
     }
 

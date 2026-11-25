@@ -14,6 +14,7 @@ use crate::metadata::MetadataProvider;
 use crate::metadata::records::{RECORD_TTL, collection_path};
 use crate::metadata::service::ProviderSet;
 use crate::metadata::store as metadata_store;
+use crate::music::model::server_music_id;
 use crate::music::store as music_store;
 use sqlx::PgPool;
 use std::collections::BTreeMap;
@@ -42,8 +43,10 @@ fn poster(url: Option<&str>) -> Option<String> {
 }
 
 /// Every document of the library: its titles (those with a TMDB id), the collections its
-/// movies belong to, and the Plex server's albums and artists.
-pub async fn documents(pool: &PgPool) -> AppResult<Vec<SearchDoc>> {
+/// movies belong to, and the media servers' albums and artists. An album or artist has the id
+/// the API gives it: `album-<key>` on the first media server (`first`), `album-<server>_<key>`
+/// on another.
+pub async fn documents(pool: &PgPool, first: Option<&str>) -> AppResult<Vec<SearchDoc>> {
     let titles = catalog_store::search_titles(pool).await?;
     let mut docs: Vec<SearchDoc> = Vec::with_capacity(titles.len());
     let mut collections: BTreeMap<i64, String> = BTreeMap::new();
@@ -98,29 +101,34 @@ pub async fn documents(pool: &PgPool) -> AppResult<Vec<SearchDoc>> {
             .into_iter()
             .flatten()
             .collect();
+        let id = server_music_id("album", first, &a.server, &a.rating_key);
         docs.push(SearchDoc {
             poster: a
                 .thumb
                 .as_ref()
-                .map(|_| format!("/api/v1/music/albums/album-{}/cover", a.rating_key)),
-            id: format!("album-{}", a.rating_key),
+                .map(|_| format!("/api/v1/music/albums/{id}/cover")),
+            parent: a
+                .artist_key
+                .as_deref()
+                .map(|k| server_music_id("artist", first, &a.server, k)),
+            id,
             kind: "album".to_string(),
             title: a.title,
             original_title: None,
             year: a.year,
             extra,
             rating: None,
-            parent: a.artist_key.map(|k| format!("artist-{k}")),
             artist: a.artist,
         });
     }
     for a in music_store::server_artists(pool).await? {
+        let id = server_music_id("artist", first, &a.server, &a.rating_key);
         docs.push(SearchDoc {
             poster: a
                 .thumb
                 .as_ref()
-                .map(|_| format!("/api/v1/music/artists/artist-{}/photo", a.rating_key)),
-            id: format!("artist-{}", a.rating_key),
+                .map(|_| format!("/api/v1/music/artists/{id}/photo")),
+            id,
             kind: "artist".to_string(),
             title: a.name,
             original_title: None,
@@ -140,7 +148,7 @@ pub async fn pass(
     search: &Search,
     metadata: &ProviderSet,
 ) -> AppResult<IndexReport> {
-    let docs = documents(pool).await?;
+    let docs = documents(pool, search.first_server()).await?;
     let report = search.index(&docs).await;
     if metadata.tmdb.info().configured {
         let paths: Vec<String> = docs

@@ -28,6 +28,7 @@ use crate::core::outbound::Access;
 use crate::core::schema::ProblemDoc;
 use crate::core::store as core_store;
 use crate::core::units;
+use crate::engines::Protocol;
 use crate::engines::access::{AccessError, AccessState};
 use crate::engines::service::integration_view;
 use crate::engines::store as engine_store;
@@ -225,8 +226,14 @@ fn schedule(kind: IntegrationType) -> &'static [(&'static str, &'static str, &'s
             ("queueEvery", "Queue sync interval", "jobs.queue"),
             ("historyEvery", "Grab history sync interval", "jobs.history"),
         ],
-        IntegrationType::Qbittorrent => &[("syncEvery", "Sync interval", "jobs.downloads")],
-        IntegrationType::Plex => &[("syncEvery", "Sync interval", "jobs.server")],
+        IntegrationType::Qbittorrent
+        | IntegrationType::Transmission
+        | IntegrationType::Deluge
+        | IntegrationType::Sabnzbd
+        | IntegrationType::Nzbget => &[("syncEvery", "Sync interval", "jobs.downloads")],
+        IntegrationType::Plex | IntegrationType::Jellyfin | IntegrationType::Emby => {
+            &[("syncEvery", "Sync interval", "jobs.server")]
+        }
         IntegrationType::Seerr => &[("syncEvery", "Sync interval", "jobs.requests")],
         IntegrationType::Tdarr | IntegrationType::Hush => {
             &[("syncEvery", "Sync interval", "jobs.processing.syncEvery")]
@@ -268,11 +275,7 @@ fn integration_fields(state: &AppState, caller: &Caller, i: &Integration) -> Vec
     let mut secret = own_field(
         &i.id,
         panels::secret_key(i.kind),
-        match i.kind {
-            IntegrationType::Plex => "Token",
-            IntegrationType::Qbittorrent => "Password",
-            _ => "API key",
-        },
+        panels::secret_label(i.kind),
         "secret",
         "connection",
     );
@@ -290,14 +293,15 @@ fn integration_fields(state: &AppState, caller: &Caller, i: &Integration) -> Vec
         fixed(address, i.url.is_some(), Some(i.url_var.clone())),
     ];
     out.push(secret);
-    if i.kind == IntegrationType::Qbittorrent {
+    if i.kind.takes_user() {
         let mut user = own_field(&i.id, "username", "Username", "text", "connection");
         user.value = Some(json!(i.user));
         user.help = "Empty for no sign-in".to_string();
-        out.insert(
-            2,
-            fixed(user, i.user.is_some(), Some("QBIT_USER".to_string())),
+        let user_var = format!(
+            "{}_USER",
+            i.url_var.strip_suffix("_URL").unwrap_or(&i.url_var)
         );
+        out.insert(2, fixed(user, i.user.is_some(), Some(user_var)));
     }
     for (name, label, setting) in schedule(i.kind) {
         if let Some(mut f) = state.settings.field(setting, caller) {
@@ -540,13 +544,24 @@ async fn integration_test(
                         .map_err(|e| e.to_string()),
                     None => Err("Not configured".to_string()),
                 },
-                IntegrationType::Qbittorrent => match &state.engines.downloader {
-                    Some(d) if d.id() == id => d
-                        .torrents()
+                IntegrationType::Qbittorrent
+                | IntegrationType::Transmission
+                | IntegrationType::Deluge
+                | IntegrationType::Sabnzbd
+                | IntegrationType::Nzbget => match state.engines.download_client(&id) {
+                    Some(client) => client
+                        .downloads()
                         .await
-                        .map(|t| (None, units::counted(t.len() as i64, "torrent", "torrents")))
+                        .map(|listed| {
+                            let n = listed.len() as i64;
+                            let words = match client.protocol() {
+                                Protocol::Torrent => units::counted(n, "torrent", "torrents"),
+                                Protocol::Usenet => units::counted(n, "download", "downloads"),
+                            };
+                            (None, words)
+                        })
                         .map_err(|e| e.to_string()),
-                    _ => Err("Only the first download client is used".to_string()),
+                    None => Err("Not configured".to_string()),
                 },
                 IntegrationType::Seerr => {
                     match state.engines.request_sites.iter().find(|s| s.id() == id) {
@@ -564,14 +579,16 @@ async fn integration_test(
                         None => Err("Only the first request source is used".to_string()),
                     }
                 }
-                IntegrationType::Plex => match &state.engines.media_server {
-                    Some(server) if server.id() == id => server
-                        .identity()
-                        .await
-                        .map(|s| (s.version, s.name))
-                        .map_err(|e| e.to_string()),
-                    _ => Err("Only the first media server is used".to_string()),
-                },
+                IntegrationType::Plex | IntegrationType::Jellyfin | IntegrationType::Emby => {
+                    match state.engines.media_server_of(&id) {
+                        Some(server) => server
+                            .identity()
+                            .await
+                            .map(|s| (s.version, s.name))
+                            .map_err(|e| e.to_string()),
+                        None => Err("Not read: first of its type only".to_string()),
+                    }
+                }
                 IntegrationType::Tdarr | IntegrationType::Hush => {
                     match state.engines.processor(&id) {
                         Some(processor) => processor
@@ -699,8 +716,8 @@ async fn integration_sync(
         .into_response())
 }
 
-/// The libraries: the Plex server's sections with what each section's manager holds (titles,
-/// files, size, the profiles the policy gives it), the server's music, and a manager's own
+/// The libraries: the media servers' sections with what each section's manager holds (titles,
+/// files, size, the profiles the policy gives it), the servers' music, and a manager's own
 /// library that no section stands for.
 #[utoipa::path(get, path = "/api/v1/libraries", tag = "catalog",
     responses((status = 200, body = LibraryPanels), (status = 401, body = ProblemDoc)))]

@@ -1,0 +1,81 @@
+{
+ "Items": [
+  {
+   "Name": "Binaerpilot",
+   "ServerId": "f0b3381645f04afb9a0e392e74b6a1b0",
+   "Id": "9ebcc113abb3ee375dbf1d68c9576ed5",
+   "DateCreated": "2019-11-28T06:06:54.0000000Z",
+   "ChannelId": null,
+   "Genres": [
+    "Electronic"
+   ],
+   "RunTimeTicks": 6000000000,
+   "IsFolder": true,
+   "Type": "MusicArtist",
+   "GenreItems": [
+    {
+     "Name": "Electronic",
+     "Id": "6ca4fc40460773bb0ac0cd7c74ca4807"
+    }
+   ],
+   "UserData": {
+    "PlaybackPositionTicks": 0,
+    "PlayCount": 0,
+    "IsFavorite": false,
+    "Played": false,
+    "Key": "Artist-Musicbrainz-9c6bddde-6228-4d9f-ad0d-03f6fcb19e13",
+    "ItemId": "9ebcc113abb3ee375dbf1d68c9576ed5"
+   },
+   "ImageTags": {
+    "Primary": "ac570184d1dceb91f6c47de54126557a"
+   },
+   "BackdropImageTags": [
+    "025c78bd3f77fd7a91b7c5ce59c606b9"
+   ],
+   "ImageBlurHashes": {
+    "Backdrop": {
+     "025c78bd3f77fd7a91b7c5ce59c606b9": "WaDR~M579a~BELM{-:IpRj%LM|oJRjfRt6axRkt6smWXazs.R+ae"
+    },
+    "Primary": {
+     "ac570184d1dceb91f6c47de54126557a": "eiGtykxa0fRjS5?Gj[IVoJf,M|WBWXoes:xYWVR+oKR*%1j[WXoLay"
+    }
+   },
+   "LocationType": "FileSystem",
+   "MediaType": "Unknown"
+  },
+  {
+   "Name": "Joshua Boniface",
+   "ServerId": "f0b3381645f04afb9a0e392e74b6a1b0",
+   "Id": "6330eeddf969d120c0c4c054770f0ee0",
+   "DateCreated": "2025-02-22T02:38:04.5874872Z",
+   "ChannelId": null,
+   "Genres": [
+    "Progressive Rock"
+   ],
+   "RunTimeTicks": 3254508839,
+   "IsFolder": true,
+   "Type": "MusicArtist",
+   "GenreItems": [
+    {
+     "Name": "Progressive Rock",
+     "Id": "bef9e2e89c007f0fc015d75a1626f97c"
+    }
+   ],
+   "UserData": {
+    "PlaybackPositionTicks": 0,
+    "PlayCount": 0,
+    "IsFavorite": false,
+    "Played": false,
+    "Key": "Artist-Joshua Boniface",
+    "ItemId": "6330eeddf969d120c0c4c054770f0ee0"
+   },
+   "ImageTags": {},
+   "BackdropImageTags": [],
+   "ImageBlurHashes": {},
+   "LocationType": "FileSystem",
+   "MediaType": "Unknown"
+  }
+ ],
+ "TotalRecordCount": 3,
+ "StartIndex": 0
+}

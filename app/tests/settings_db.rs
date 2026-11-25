@@ -117,11 +117,7 @@ fn state(pool: &PgPool, journal: Journal, extra: &[(&'static str, &'static str)]
         home_movies: Arc::new(HomeMovies::new(&config.home_movies.root)),
         settings,
         pages: Default::default(),
-        search: Arc::new(singularr::search::Search::new(
-            pool.clone(),
-            &config.search,
-            &out,
-        )),
+        search: Arc::new(singularr::search::Search::new(pool.clone(), &config, &out)),
         notify: singularr::notify::service::Notifier::new(
             pool.clone(),
             journal.clone(),

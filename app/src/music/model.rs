@@ -209,3 +209,71 @@ pub struct ArtistDetail {
     pub albums: Vec<AlbumDetail>,
     pub problems: Vec<AlbumProblem>,
 }
+
+/// The id of a media server's album or artist in the API and the search index (`kind` is
+/// `album` or `artist`): `album-<key>` on the first media server, `album-<server>_<key>` on any
+/// other. Two servers can hold one key: Plex and Emby number their items alike. An integration
+/// id holds no `_`: the first `_` ends the server.
+pub fn server_music_id(kind: &str, first: Option<&str>, server: &str, key: &str) -> String {
+    if first == Some(server) && !key.contains('_') {
+        format!("{kind}-{key}")
+    } else {
+        format!("{kind}-{server}_{key}")
+    }
+}
+
+/// The server and the key of a media server's album or artist id ([`server_music_id`]). The
+/// server is `None` in the first media server's form (`album-<key>`). `None` for an id of
+/// another kind or form.
+pub fn parse_server_music_id<'a>(kind: &str, id: &'a str) -> Option<(Option<&'a str>, &'a str)> {
+    let rest = id.strip_prefix(kind)?.strip_prefix('-')?;
+    match rest.split_once('_') {
+        Some((server, key)) if !server.is_empty() && !key.is_empty() => Some((Some(server), key)),
+        Some(_) => None,
+        None => (!rest.is_empty()).then_some((None, rest)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_server_music_id_names_its_server_unless_it_is_the_first() {
+        let first = Some("plex");
+        assert_eq!(
+            server_music_id("album", first, "plex", "120210"),
+            "album-120210"
+        );
+        assert_eq!(
+            server_music_id("album", first, "emby", "120210"),
+            "album-emby_120210"
+        );
+        assert_eq!(
+            server_music_id("artist", None, "plex", "120209"),
+            "artist-plex_120209"
+        );
+        assert_eq!(
+            server_music_id("album", first, "plex", "a_b"),
+            "album-plex_a_b"
+        );
+        for (id, kind, read) in [
+            ("album-120210", "album", Some((None, "120210"))),
+            ("album-emby_120210", "album", Some((Some("emby"), "120210"))),
+            ("album-plex_a_b", "album", Some((Some("plex"), "a_b"))),
+            (
+                "artist-radarr-4k_7",
+                "artist",
+                Some((Some("radarr-4k"), "7")),
+            ),
+            ("album-120210", "artist", None),
+            ("album-", "album", None),
+            ("album-_7", "album", None),
+            ("album-emby_", "album", None),
+            ("albums-7", "album", None),
+            ("7", "album", None),
+        ] {
+            assert_eq!(parse_server_music_id(kind, id), read, "{id}");
+        }
+    }
+}

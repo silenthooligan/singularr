@@ -58,7 +58,9 @@ impl DiscoverList {
 pub struct EngineStatus {
     /// The integration id.
     pub engine: String,
-    /// `radarr`, `sonarr`, `qbittorrent`, `seerr`, `plex`, `tdarr` or `hush`.
+    /// `radarr`, `sonarr`, a download client's (`qbittorrent`, `transmission`, `deluge`,
+    /// `sabnzbd`, `nzbget`), `seerr`, `plex`, `jellyfin`, `emby`, `tdarr`, `hush` or
+    /// `tautulli`.
     pub kind: String,
     pub library: Option<String>,
     /// False when its URL or key is not set; it is then not asked at all.
@@ -98,7 +100,9 @@ pub struct ActionView {
 #[serde(rename_all = "camelCase")]
 pub struct IntegrationView {
     pub id: String,
-    /// `plex`, `radarr`, `sonarr`, `qbittorrent`, `prowlarr`, `tdarr`, `hush` or `seerr`.
+    /// `plex`, `jellyfin`, `emby`, `radarr`, `sonarr`, a download client's (`qbittorrent`,
+    /// `transmission`, `deluge`, `sabnzbd`, `nzbget`), `prowlarr`, `tdarr`, `hush`, `seerr` or
+    /// `tautulli`.
     #[serde(rename = "type")]
     pub kind: String,
     pub name: String,
