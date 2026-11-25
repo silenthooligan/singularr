@@ -3,7 +3,7 @@
 Versions follow semantic versioning. Releases before 1.0 are betas. A minor release before 1.0 may
 change settings or behavior.
 
-## Unreleased
+## 0.1.1 (beta)
 
 - Media server layer: Plex, Jellyfin and Emby behind one port; read only; plays recorded from each server's sessions. Emby untested against a real server.
 - Download client layer: qBittorrent, Transmission, Deluge, SABnzbd and NZBGet behind one port; read only; usenet jobs in Activity and matched to the managers' queues.

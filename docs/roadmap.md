@@ -20,14 +20,14 @@ apps. It is designed for any media server (Plex, Jellyfin, Emby, Kodi) and any d
 Singularr takes over each job separately. Run Singularr beside an existing setup and retire one app at
 a time.
 
-| Job | Done today by | 0.1 (beta) | Planned |
+| Job | Done today by | 0.1.1 (beta) | Planned |
 |---|---|---|---|
 | Library: titles, editions, copies | Radarr, Sonarr | read from the managers and the media server | Singularr's own catalog (stage 3) |
 | Quality profiles, lists and naming ([profiles.md](profiles.md)) | custom formats, profiles, naming screens | Singularr's rules score every release; the managers apply their own | Singularr's rules only (stage 3) |
 | Search and grab | Radarr, Sonarr | through the managers, with Singularr's verdict beside theirs | through indexers and download clients directly (stage 2) |
 | Import, renaming and upgrades | Radarr, Sonarr, import scripts | the managers | Singularr places, names, verifies and upgrades files (stage 2) |
 | Requests | Seerr, Jellyseerr | Singularr Requests in front of Seerr | Singularr fulfills them (stage 3) |
-| Play statistics | Tautulli | from Plex, with a Tautulli import | recorded from each media server's sessions |
+| Play statistics | Tautulli | recorded from each media server's sessions, with a Tautulli import | |
 | Notifications | Notifiarr, Apprise | in 0.1 | |
 | Processing rules | import scripts, Tdarr's own screens | in 0.1; Tdarr remains the transcoder | |
 | Subtitles | Bazarr | | stage 4 |
@@ -38,10 +38,10 @@ a time.
 
 ## Services
 
-| Kind | 0.1 (beta) | Next |
+| Kind | 0.1.1 (beta) | Next |
 |---|---|---|
-| Media servers and players | Plex: libraries, items, sessions, plays, images, viewer sign-in | on main: Jellyfin and Emby (read only; Emby untested against a real server); then Kodi as a player, viewer sign-in for Jellyfin and Emby |
-| Download clients | qBittorrent | on main: Transmission, Deluge, SABnzbd, NZBGet (read only) |
+| Media servers and players | Plex: libraries, items, sessions, plays, images, viewer sign-in; Jellyfin and Emby: libraries, items, sessions, plays, images (read only; Emby untested against a real server) | Kodi as a player; viewer sign-in with Jellyfin and Emby |
+| Download clients | qBittorrent, Transmission, Deluge, SABnzbd, NZBGet (read only) | write actions for download cleanup (stage 4) |
 | Indexers | through the managers | Prowlarr, Jackett, Torznab and Newznab (stage 2) |
 | Transcoders | Tdarr: flows, workers, libraries, rules | others on the same layer |
 | Requests | Seerr | Singularr (stage 3) |

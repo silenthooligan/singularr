@@ -23,9 +23,9 @@ a library today: Radarr, Sonarr, Seerr, Tautulli, Bazarr, Maintainerr and Cleanu
 covers the library, the quality rules and the interface. Each release verdict lists the rules behind it.
 
 Singularr connects to services by kind: media servers, download clients, indexers and transcoders.
-Each kind has one layer. Each service has an adapter on its layer. Version 0.1 works with Plex,
-qBittorrent and Tdarr. The main branch adds read-only adapters for Jellyfin, Emby, Transmission,
-Deluge, SABnzbd and NZBGet for the next release. Kodi is next.
+Each kind has one layer. Each service has an adapter on its layer. Version 0.1.1 has adapters for
+Plex, Jellyfin and Emby (media servers), qBittorrent, Transmission, Deluge, SABnzbd and NZBGet
+(download clients) and Tdarr (transcoder). Kodi is next.
 
 ## Status
 
@@ -52,8 +52,8 @@ cleanup and built-in sign-in. Bug reports from other setups are welcome too.
 views. Each title lists its files, editions and copies. The activity queue shows each item's title,
 edition or episode, the service handling it and its state.
 
-**Singularr Requests** is the portal for viewers. Viewers sign in with their media server account (Plex
-in 0.1) and request a movie, a season or a single episode.
+**Singularr Requests** is the portal for viewers. Viewers sign in with their Plex account and request a movie, a
+season or a single episode. Sign-in with Jellyfin and Emby accounts is on the roadmap.
 
 ## Features
 
@@ -69,8 +69,8 @@ in 0.1) and request a movie, a season or a single episode.
 - **Requests:** requests from the portal and from Seerr in one list. Each viewer may have a limited
   number of seasons of a show at a time.
 - **Processing:** Tdarr's flows, workers and libraries, and rules that pick the files for a flow.
-- **Statistics:** plays by person, device and delivery method. Tautulli's history imports into
-  Statistics.
+- **Statistics:** plays recorded from each media server's sessions, by person, device and delivery
+  method. Tautulli's history imports into Statistics.
 - **Calendar:** episodes and movies by air and release date.
 - **Notifications:** a choice of channels per event: Slack, Discord, email, webhooks, ntfy, Telegram,
   Pushover and Gotify.
@@ -80,8 +80,8 @@ in 0.1) and request a movie, a season or a single episode.
 
 ## Install
 
-Requirements: Docker with Compose, a media server (Plex in 0.1), a download client (qBittorrent in 0.1),
-Radarr or Sonarr (until native search and import), and a reverse proxy that signs people in
+Requirements: Docker with Compose, a media server (Plex, Jellyfin or Emby), a download client
+(qBittorrent, Transmission, Deluge, SABnzbd or NZBGet), Radarr or Sonarr (until native search and import), and a reverse proxy that signs people in
 (oauth2-proxy, Authelia, Authentik or similar). PostgreSQL is part of the compose file.
 
 ```bash

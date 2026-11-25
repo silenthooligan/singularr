@@ -49,7 +49,7 @@ rustls-native-certs = { version = "0.8", optional = true }
 tower = { version = "0.5", features = ["util"] }
 # The tests read a compressed answer back.
 flate2 = "1"
-brotli = "8"
+brotli = "9"
 
 [features]
 # Everything that touches the database or the network is behind `ssr`, the only feature.

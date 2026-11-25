@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # The Dockerfile's check stage runs tools/gate.sh: cargo fmt --check, clippy with warnings as
       # errors, and every test, the database-backed ones against a throwaway PostgreSQL 18.
       - name: Gate
@@ -34,7 +34,7 @@ jobs:
       IMAGE: singularr-ci:${{ github.run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build the runtime image
         run: docker buildx build --target runtime --progress=plain --load -t "$IMAGE" .
       - name: Start against a closed database port
