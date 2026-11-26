@@ -19,7 +19,7 @@
 
   function columns(kind, list) {
     const manager = list.manager?.name || 'Manager';
-    const canGrab = MQ.mayAct('manager', kind);
+    const canGrab = MQ.mayAct('manager', kind, 'grab');
     return [
       { key: 'name', label: 'Release', always: true, width: '30%', td: 'c-wrap', m: 'main', value: r => r.name,
         render: r => html`<span class="mq-cell-two"><b class="mono" style="font-weight:500">${r.name}</b><small>${MQ.join([r.singularr?.group, r.singularr?.edition, episodes(r)], ' · ')}</small></span>` },
@@ -38,7 +38,7 @@
       { key: 'indexer', label: 'Indexer', optional: true, cls: 'c-dim' },
       { key: 'languages', label: 'Languages', optional: true, cls: 'c-dim', value: r => (r.languages || []).join(', ') },
       { key: 'grab', label: '', sort: false, always: true, td: 'c-actions',
-        render: r => (canGrab ? html`<button type="button" class="mq-btn mq-btn--sm" data-grab="${r.guid}" data-indexer="${r.indexerId}">${icon('download', 'mq-icon--sm')}Grab</button>` : MQ.act('Grab', { sm: true, icon: 'download', needs: 'manager', kind })) },
+        render: r => (canGrab ? html`<button type="button" class="mq-btn mq-btn--sm" data-grab="${r.guid}" data-indexer="${r.indexerId}">${icon('download', 'mq-icon--sm')}Grab</button>` : MQ.act('Grab', { sm: true, icon: 'download', needs: 'manager', kind, action: 'grab' })) },
     ];
   }
 

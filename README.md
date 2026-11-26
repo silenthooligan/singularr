@@ -118,8 +118,8 @@ from Settings, API. Each key has its own scopes.
 
 ## Security
 
-- Every integration starts with read access. The owner grants write access per integration in
-  Settings, Integrations. That page lists the actions write access allows.
+- Every action of an integration starts with read access. The owner grants write access per action
+  in Settings, Integrations. Each action has its own switch there.
 - Each adapter declares the exact calls it may send. Singularr refuses every other call before it is
   sent. No adapter declares a call that deletes or edits a title or its files, shuts down or restarts
   a service, or changes a service's settings or quality profiles.

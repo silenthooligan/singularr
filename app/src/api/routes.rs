@@ -26,7 +26,6 @@ use crate::releases::model::{
     ShadowResponse,
 };
 use crate::releases::service as releases;
-use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::extract::{FromRequest, FromRequestParts, Request, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::Next;
@@ -57,24 +56,6 @@ pub struct ApiQuery<T>(pub T);
 #[derive(FromRequestParts)]
 #[from_request(via(axum::extract::Path), rejection(AppError))]
 pub struct ApiPath<T>(pub T);
-
-impl From<JsonRejection> for AppError {
-    fn from(r: JsonRejection) -> Self {
-        AppError::BadRequest(format!("Invalid JSON body: {}", r.body_text()))
-    }
-}
-
-impl From<QueryRejection> for AppError {
-    fn from(r: QueryRejection) -> Self {
-        AppError::BadRequest(format!("Invalid query string: {}", r.body_text()))
-    }
-}
-
-impl From<PathRejection> for AppError {
-    fn from(r: PathRejection) -> Self {
-        AppError::BadRequest(format!("Invalid path: {}", r.body_text()))
-    }
-}
 
 /// Every route below this layer needs a caller with the `read` scope: the owner's browser
 /// session through the edge, or an API key. The caller is left in the request for handlers
@@ -882,6 +863,24 @@ mod tests {
         assert_eq!(
             found, pinned,
             "the OpenAPI document is not the pinned one. Its pin now: {found}"
+        );
+    }
+
+    /// The patch of an integration takes a map of action ids to access words, and the document
+    /// names the words.
+    #[test]
+    fn the_patch_of_an_integration_takes_a_map_of_access_words() {
+        let doc = serde_json::to_value(openapi()).unwrap();
+        let schemas = &doc["components"]["schemas"];
+        assert_eq!(
+            schemas["AccessWord"]["enum"],
+            serde_json::json!(["read", "act"])
+        );
+        let patch = schemas["IntegrationPatch"].to_string();
+        assert_eq!(
+            patch.matches("#/components/schemas/AccessWord").count(),
+            2,
+            "{patch}"
         );
     }
 

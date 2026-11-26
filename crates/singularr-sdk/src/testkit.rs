@@ -318,6 +318,15 @@ pub fn check_manifest(m: &crate::manifest::Manifest) -> Result<(), String> {
             return Err(format!("a {what} ends with a period: {text:?}"));
         }
     }
+    // An action id is a word `<PREFIX>_ACCESS` and `access` list (`Grant::parse`).
+    for a in m.actions {
+        if a.id.starts_with('-') || !lower(a.id) {
+            return Err(format!("the action id `{}` is not of a-z, 0-9 and -", a.id));
+        }
+        if matches!(a.id, "read" | "act") {
+            return Err(format!("the action id `{}` is a word of access", a.id));
+        }
+    }
     let upper = |s: &str| {
         !s.is_empty()
             && s.bytes()

@@ -664,22 +664,25 @@
      group, where the record carries one). The order is the one a name is taken in. */
   const NEED = { manager: ['radarr', 'sonarr'], requests: ['seerr'], downloads: ['qbittorrent', 'transmission', 'deluge', 'sabnzbd', 'nzbget'], server: MEDIA_SERVERS, processing: ['hush', 'tdarr'] };
   /** The tooltip of a control that cannot act. needs: 'manager' (kind 'movie' or 'show' picks the manager of that kind;
-      without a kind every manager is named), 'requests', 'downloads', 'server' or 'processing'. It reads "Needs write
-      access to Radarr" when an integration of that group is configured and read-only, and "Not available" otherwise:
-      nothing is named, no such integration is configured, or it has write access and the control is still not one
-      that acts. The name is the integration's own, from the workspace. */
-  MQ.needTip = (needs, kind) => {
+      without a kind every manager is named), 'requests', 'downloads', 'server' or 'processing'. action: the id of the
+      act the control sends (grab, search, import, remove). It reads "Needs write access to Radarr" when an integration
+      of that group is configured and that action of it is read-only, and "Not available" otherwise: nothing is named,
+      no such integration is configured, it declares no such action, or the action has write access and the control is
+      still not one that acts. Without an action an integration is named while none of its actions has write access.
+      The name is the integration's own, from the workspace. */
+  MQ.needTip = (needs, kind, action) => {
     const types = needs === 'manager' && kind ? [{ movie: 'radarr', show: 'sonarr' }[kind]] : NEED[needs] || [];
     const group = needs === 'manager' ? (kind ? '' : 'managers') : needs;
     const rank = i => { const n = types.indexOf(i.type); return n < 0 ? types.length : n; };
     const all = (MQ.workspace?.integrations || []).filter(i => i && i.name && (types.includes(i.type) || (group && i.group === group))).sort((a, b) => rank(a) - rank(b));
     if (needs === 'server') return all.length ? `Not on ${all[0].name}` : 'No media server';
-    const names = [...new Set((needs === 'manager' ? all : all.slice(0, 1)).filter(i => i.access !== 'act').map(i => i.name))];
+    const readOnly = i => (action ? (i.actions || []).some(a => a.id === action && a.access !== 'act') : i.access !== 'act');
+    const names = [...new Set((needs === 'manager' ? all : all.slice(0, 1)).filter(readOnly).map(i => i.name))];
     return names.length ? `Needs write access to ${names.join(' and ')}` : 'Not available';
   };
   /** The attributes of a control that cannot act, for a button a page writes itself:
       html`<button type="button" class="mq-btn"${MQ.off('requests')}>Approve</button>`. */
-  MQ.off = (needs, kind) => raw(` aria-disabled="true" data-tip="${esc(MQ.needTip(needs, kind))}"`);
+  MQ.off = (needs, kind, action) => raw(` aria-disabled="true" data-tip="${esc(MQ.needTip(needs, kind, action))}"`);
 
   /* --------------------------------------------------------------- address state */
   /* State that should survive a reload lives after the #: tab=queue&kind=movie */
@@ -1009,19 +1012,20 @@
   /** The standard page header. opts: title, meta, sub, crumbs [{label, href}], actions (markup). */
   MQ.head = opts => html`${opts.crumbs ? html`<nav class="mq-crumbs" aria-label="Breadcrumb">${MQ.join(opts.crumbs.map(c => c.href ? html`<a href="${c.href}">${c.label}</a>` : html`<span>${c.label}</span>`), icon('right'))}</nav>` : ''}
     <header class="mq-head"><h1>${opts.title}${opts.meta != null ? html`<span class="mq-head-meta">${opts.meta}</span>` : ''}</h1>${opts.actions ? html`<div class="mq-head-actions">${opts.actions}</div>` : ''}${opts.sub ? html`<p class="mq-head-sub">${opts.sub}</p>` : ''}</header>`;
-  /** A control that cannot act: a disabled button whose tooltip says what it needs (MQ.needTip). o: needs and kind (what
-      it needs), icon, primary, ghost, sm, danger, iconOnly (the label names the button and is not drawn). */
-  MQ.act = (label, o = {}) => html`<button type="button" class="mq-btn${o.primary ? ' mq-btn--primary' : ''}${o.ghost ? ' mq-btn--ghost' : ''}${o.sm ? ' mq-btn--sm' : ''}${o.danger ? ' mq-btn--danger' : ''}${o.iconOnly ? ' mq-btn--icon' : ''}"${MQ.off(o.needs, o.kind)}${raw(o.iconOnly ? ` aria-label="${esc(label)}"` : '')}>${o.icon ? icon(o.icon, o.sm ? 'mq-icon--sm' : '') : ''}${o.iconOnly ? '' : label}</button>`;
-  /** Whether a control may act now: a server is behind the page and Singularr may act on the integration it needs
-      (needs and kind as for MQ.needTip). */
-  MQ.mayAct = (needs, kind) => {
+  /** A control that cannot act: a disabled button whose tooltip says what it needs (MQ.needTip). o: needs, kind and
+      action (what it needs), icon, primary, ghost, sm, danger, iconOnly (the label names the button and is not drawn). */
+  MQ.act = (label, o = {}) => html`<button type="button" class="mq-btn${o.primary ? ' mq-btn--primary' : ''}${o.ghost ? ' mq-btn--ghost' : ''}${o.sm ? ' mq-btn--sm' : ''}${o.danger ? ' mq-btn--danger' : ''}${o.iconOnly ? ' mq-btn--icon' : ''}"${MQ.off(o.needs, o.kind, o.action)}${raw(o.iconOnly ? ` aria-label="${esc(label)}"` : '')}>${o.icon ? icon(o.icon, o.sm ? 'mq-icon--sm' : '') : ''}${o.iconOnly ? '' : label}</button>`;
+  /** Whether a control may act now: a server is behind the page and the action of the integration it needs has write
+      access (needs, kind and action as for MQ.needTip). Without an action: any action of it. */
+  MQ.mayAct = (needs, kind, action) => {
     if (!MQ.live) return false;
     const types = needs === 'manager' && kind ? [{ movie: 'radarr', show: 'sonarr' }[kind]] : NEED[needs] || [];
-    return (MQ.workspace?.integrations || []).some(i => types.includes(i.type) && i.access === 'act');
+    const acts = i => (action ? (i.actions || []).some(a => a.id === action && a.access === 'act') : i.access === 'act');
+    return (MQ.workspace?.integrations || []).some(i => types.includes(i.type) && acts(i));
   };
   /** A button that acts when MQ.mayAct allows it, else the same button drawn as one that cannot act (MQ.act). o: as
       MQ.act, and data: the attribute markup the page's click handler finds it by ('data-search'). */
-  MQ.actBtn = (label, o = {}) => (MQ.mayAct(o.needs, o.kind)
+  MQ.actBtn = (label, o = {}) => (MQ.mayAct(o.needs, o.kind, o.action)
     ? html`<button type="button" class="mq-btn${o.primary ? ' mq-btn--primary' : ''}${o.ghost ? ' mq-btn--ghost' : ''}${o.sm ? ' mq-btn--sm' : ''}${o.danger ? ' mq-btn--danger' : ''}"${raw(o.data ? ' ' + o.data : '')}>${o.icon ? icon(o.icon, o.sm ? 'mq-icon--sm' : '') : ''}${label}</button>`
     : MQ.act(label, o));
   /** Ask before an act: the title is the act as a question, one line of consequence, Cancel and the verb. Resolves true

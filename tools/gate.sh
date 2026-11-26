@@ -80,6 +80,21 @@ step "tests (ssr, workspace)" \
 # The SDK alone, with no feature: what a connector built on it compiles against.
 step "tests (singularr-sdk, no features)" \
   cargo test --locked -p singularr-sdk
+# The platform alone, against the same server: its database tests (keys, the journal, the
+# migration runner, the settings, the access book, the job runtime) build and pass without the
+# app. Its test kit (`testkit`) holds what only tests call.
+step "tests (singularr-platform)" \
+  cargo test --locked -p singularr-platform --features testkit
+# The platform depends on no app: its tree, with its dev-dependencies, names no `singularr`.
+no_app_in_platform() {
+  local tree
+  tree="$(cargo tree --locked -p singularr-platform --prefix none)" || return 1
+  if grep -E '^singularr v' <<<"$tree"; then
+    echo "singularr-platform depends on the app" >&2
+    return 1
+  fi
+}
+step "singularr-platform depends on no app" no_app_in_platform
 if [ "$PG_STARTED" = 1 ]; then
   # Each database-backed test creates a database of its own (log_statement=ddl logs it). None
   # means they skipped themselves although a server was up: that is a failure, not a pass.
@@ -87,6 +102,13 @@ if [ "$PG_STARTED" = 1 ]; then
   echo "== database-backed tests: ${made:-0} test databases created"
   if [ "${made:-0}" -eq 0 ]; then
     echo "== the database-backed tests did not reach PostgreSQL" >&2
+    exit 1
+  fi
+  # The platform's own database tests reached it too.
+  platform="$(grep -c 'CREATE DATABASE "platform_' "$PG_DIR/server.log" || true)"
+  echo "== the platform's database tests: ${platform:-0} test databases created"
+  if [ "${platform:-0}" -eq 0 ]; then
+    echo "== the platform's database tests did not reach PostgreSQL" >&2
     exit 1
   fi
   # The portal role's password is part of no statement (requests::role). The role's ALTER ROLE

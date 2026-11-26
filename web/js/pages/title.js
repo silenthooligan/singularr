@@ -62,7 +62,7 @@
       have ? play : html`<button class="mq-btn mq-btn--primary" data-request>${icon('plus')}Request</button>`,
       have && show ? html`<button class="mq-btn" data-request>${icon('plus')}Request more</button>` : '',
       have && !show && !uhd ? html`<button class="mq-btn" data-request="4K">${icon('plus')}Request in 4K</button>` : '',
-      have ? MQ.actBtn('Search', { icon: 'search', needs: 'manager', kind, data: 'data-search' }) : '',
+      have ? MQ.actBtn('Search', { icon: 'search', needs: 'manager', kind, action: 'search', data: 'data-search' }) : '',
       have && !show && MQ.releases ? MQ.releases.button() : '',
       trailer ? html`<a class="mq-btn" href="https://www.youtube.com/watch?v=${trailer.key}" target="_blank" rel="noopener noreferrer">${icon('play')}Trailer</a>` : '',
       html`<button class="mq-btn mq-btn--icon" data-more aria-label="More actions">${icon('more')}</button>`,
@@ -233,11 +233,11 @@
     const card = f => (f.missing
       ? html`<article class="mq-file mq-file--missing" data-file="${f.id}">
           <header class="mq-file-head"><div class="mq-file-id"><b>${f.edition}</b>${MQ.stateDot('missing')}</div>
-            <div class="mq-file-actions">${MQ.actBtn('Search', { sm: true, icon: 'search', needs: 'manager', kind, data: 'data-search' })}${MQ.act('Unmonitor', { sm: true, ghost: true, icon: 'x', needs: 'manager', kind })}</div></header></article>`
+            <div class="mq-file-actions">${MQ.actBtn('Search', { sm: true, icon: 'search', needs: 'manager', kind, action: 'search', data: 'data-search' })}${MQ.act('Unmonitor', { sm: true, ghost: true, icon: 'x', needs: 'manager', kind })}</div></header></article>`
       : html`<article class="mq-file" data-file="${f.id}" tabindex="0" aria-label="${f.edition}, ${f.fileName || ''}">
           <header class="mq-file-head">
             <div class="mq-file-id"><b>${f.edition}</b>${f.isDefault && rows.length > 1 ? html`<span class="mq-badge mq-badge--line" data-tip="Edition played first">Default</span>` : ''}${MQ.quality(f)}${fitMark(f.cutoffMet === false)}</div>
-            <div class="mq-file-actions">${MQ.actBtn('Search for upgrade', { sm: true, icon: 'search', needs: 'manager', kind, data: 'data-search' })}${canProcess ? html`<button type="button" class="mq-btn mq-btn--sm" data-process="${f.id}">${icon('refresh', 'mq-icon--sm')}Process</button>` : ''}
+            <div class="mq-file-actions">${MQ.actBtn('Search for upgrade', { sm: true, icon: 'search', needs: 'manager', kind, action: 'search', data: 'data-search' })}${canProcess ? html`<button type="button" class="mq-btn mq-btn--sm" data-process="${f.id}">${icon('refresh', 'mq-icon--sm')}Process</button>` : ''}
               <button type="button" class="mq-btn mq-btn--ghost mq-btn--icon mq-btn--sm" data-filemenu="${f.id}" aria-label="More actions">${icon('more')}</button></div></header>
           <div class="mq-file-name" aria-label="File name">${icon('file', 'mq-icon--sm')}<code>${f.fileName || 'Unknown'}</code>${f.fileName ? copyBtn(f.fileName, 'File name', 'Copy file name') : ''}</div>
           ${fileFacts(f)}
@@ -266,7 +266,7 @@
               ['Formats', f.formats?.length ? html`<span class="mq-tags">${f.formats.map(x => html`<span class="mq-tag">${x}</span>`)}</span>` : '']])}
             ${f.trace?.length ? html`<h4>Score</h4>${MQ.trace(f.trace, f.score)}` : ''}
             ${mine.length ? html`<h4>Processing</h4><div class="mq-list mq-list--framed">${mine.map(r => html`<button type="button" class="mq-list-row" data-run="${r.id}" style="grid-template-columns:minmax(0,1fr) auto"><div><b>${r.flowLabel || r.flow}</b><small>${MQ.join([fmt.datetime(r.at), r.trigger?.label, String(MQ.proc.change(r)).replace(/<[^>]+>/g, '')], ' · ')}</small></div><span>${MQ.proc.mark(r)}</span></button>`)}</div>` : ''}`,
-        foot: html`${MQ.actBtn('Search for upgrade', { primary: true, icon: 'search', needs: 'manager', kind, data: 'data-search' })}${MQ.releases ? MQ.releases.button() : ''}${t.processing && MQ.proc ? html`<button type="button" class="mq-btn" data-process="${f.id}">${icon('refresh', 'mq-icon--sm')}Send to processing</button>` : ''}${MQ.act('Make default', { icon: 'star', needs: 'manager', kind })}<span class="mq-spacer"></span>${MQ.act('Delete file', { icon: 'trash', danger: true, needs: 'manager', kind })}`,
+        foot: html`${MQ.actBtn('Search for upgrade', { primary: true, icon: 'search', needs: 'manager', kind, action: 'search', data: 'data-search' })}${MQ.releases ? MQ.releases.button() : ''}${t.processing && MQ.proc ? html`<button type="button" class="mq-btn" data-process="${f.id}">${icon('refresh', 'mq-icon--sm')}Send to processing</button>` : ''}${MQ.act('Make default', { icon: 'star', needs: 'manager', kind })}<span class="mq-spacer"></span>${MQ.act('Delete file', { icon: 'trash', danger: true, needs: 'manager', kind })}`,
       });
       d.el.addEventListener('click', e => {
         const run = e.target.closest('[data-run]'); if (run) { openRun(run.dataset.run); return; }
@@ -379,7 +379,7 @@
         <td class="m-side">${st ? MQ.stateDot(st) : ''}</td>
         <td class="hide-md">${e.file ? MQ.quality(e.file) : ''}${procMark(t, s.number, e.number)}</td>
         <td class="c-num hide-md">${e.file ? fmt.size(e.file.size) : ''}</td>
-        <td class="c-actions">${st === 'available' || !t.library ? '' : st === 'unaired' ? MQ.act('Request', { sm: true, ghost: true, icon: 'plus', needs: 'requests', kind }) : MQ.actBtn('Search', { sm: true, ghost: true, icon: 'search', needs: 'manager', kind, data: `data-epsearch="${e.number}"` })}</td></tr>`;
+        <td class="c-actions">${st === 'available' || !t.library ? '' : st === 'unaired' ? MQ.act('Request', { sm: true, ghost: true, icon: 'plus', needs: 'requests', kind }) : MQ.actBtn('Search', { sm: true, ghost: true, icon: 'search', needs: 'manager', kind, action: 'search', data: `data-epsearch="${e.number}"` })}</td></tr>`;
     };
     const seasonBlock = s => {
       const have = haveOf(s); const total = totalOf(s);
@@ -410,7 +410,7 @@
         <div class="mq-toolbar-end">${short ? html`<button class="mq-btn mq-btn--sm" data-pickall>Select missing</button>` : ''}${t.library ? html`<button class="mq-btn mq-btn--sm${names ? '' : ' mq-btn--ghost'}" data-names aria-pressed="${names}" data-tip="Show file names">${icon('file', 'mq-icon--sm')}File names</button>` : ''}<button class="mq-btn mq-btn--sm mq-btn--ghost" data-expand>${open.size === seasons.length ? 'Collapse all' : 'Expand all'}</button></div></div>
         ${seasons.map(seasonBlock)}
         <div class="mq-bulk"${raw(picked.size ? '' : ' hidden')}><span><b>${picked.size}</b> selected</span><span class="muted">${picked.size ? MQ.what(asWhat()) : ''}</span>
-          <button class="mq-btn mq-btn--sm mq-btn--primary" data-reqsel>${icon('plus', 'mq-icon--sm')}Request</button>${t.library ? MQ.actBtn('Search', { sm: true, icon: 'search', needs: 'manager', kind, data: 'data-searchsel' }) : MQ.act('Search', { sm: true, icon: 'search', needs: 'manager', kind })}${t.library && MQ.releases && oneSeason() != null ? MQ.releases.button({ sm: true, season: oneSeason(), episode: oneEpisode() }) : ''}${MQ.act('Unmonitor', { sm: true, icon: 'eyeoff', needs: 'manager', kind })}
+          <button class="mq-btn mq-btn--sm mq-btn--primary" data-reqsel>${icon('plus', 'mq-icon--sm')}Request</button>${t.library ? MQ.actBtn('Search', { sm: true, icon: 'search', needs: 'manager', kind, action: 'search', data: 'data-searchsel' }) : MQ.act('Search', { sm: true, icon: 'search', needs: 'manager', kind, action: 'search' })}${t.library && MQ.releases && oneSeason() != null ? MQ.releases.button({ sm: true, season: oneSeason(), episode: oneEpisode() }) : ''}${MQ.act('Unmonitor', { sm: true, icon: 'eyeoff', needs: 'manager', kind })}
           <button class="mq-btn mq-btn--ghost mq-btn--sm" data-clear>Clear</button></div>`);
       $$('[data-some]', host).forEach(c => (c.indeterminate = true));
     }
@@ -472,8 +472,8 @@
             ${t.processing && MQ.proc && episodeRuns(t, s.number, ep.number).length ? html`<h4>Processing</h4><div class="mq-list mq-list--framed">${episodeRuns(t, s.number, ep.number).map(r => html`<button type="button" class="mq-list-row" data-run="${r.id}" style="grid-template-columns:minmax(0,1fr) auto"><div><b>${r.flowLabel || r.flow}</b><small>${MQ.join([fmt.datetime(r.at), r.trigger?.label, String(MQ.proc.change(r)).replace(/<[^>]+>/g, '')], ' · ')}</small></div><span>${MQ.proc.mark(r)}</span></button>`)}</div>` : ''}`
           : html`<div class="mt-5">${MQ.callout(st === 'unaired' ? 'Not aired' : 'Not in the library', '', st === 'unaired' ? 'info' : 'warn')}</div>`}`,
       foot: f
-        ? html`${MQ.actBtn('Search for upgrade', { icon: 'search', primary: true, needs: 'manager', kind, data: 'data-epsearch' })}${MQ.releases ? MQ.releases.button({ season: s.number, episode: ep.number }) : ''}${t.processing && MQ.proc ? html`<button type="button" class="mq-btn" data-process>${icon('refresh', 'mq-icon--sm')}Send to processing</button>` : ''}<span class="mq-spacer"></span>${MQ.act('Delete file', { icon: 'trash', danger: true, needs: 'manager', kind })}`
-        : html`<button class="mq-btn mq-btn--primary" data-close data-one>${icon('plus')}Request episode</button>${t.library ? html`${MQ.actBtn('Search', { icon: 'search', needs: 'manager', kind, data: 'data-epsearch' })}${MQ.releases ? MQ.releases.button({ season: s.number, episode: ep.number }) : ''}` : ''}`,
+        ? html`${MQ.actBtn('Search for upgrade', { icon: 'search', primary: true, needs: 'manager', kind, action: 'search', data: 'data-epsearch' })}${MQ.releases ? MQ.releases.button({ season: s.number, episode: ep.number }) : ''}${t.processing && MQ.proc ? html`<button type="button" class="mq-btn" data-process>${icon('refresh', 'mq-icon--sm')}Send to processing</button>` : ''}<span class="mq-spacer"></span>${MQ.act('Delete file', { icon: 'trash', danger: true, needs: 'manager', kind })}`
+        : html`<button class="mq-btn mq-btn--primary" data-close data-one>${icon('plus')}Request episode</button>${t.library ? html`${MQ.actBtn('Search', { icon: 'search', needs: 'manager', kind, action: 'search', data: 'data-epsearch' })}${MQ.releases ? MQ.releases.button({ season: s.number, episode: ep.number }) : ''}` : ''}`,
     });
     d.el.querySelector('[data-one]')?.addEventListener('click', () => MQ.request.open(t, { preset: { [s.number]: [ep.number] } }));
     d.el.addEventListener('click', e => {

@@ -680,7 +680,7 @@ fn app_with(
     let router = routes::router(AppState::new(Inner {
         engines: engines.clone(),
         metadata: Arc::new(ProviderSet::from_config(&config, &out).with_locale(settings.locale())),
-        owners: singularr::core::identity::Allowlist::parse(&config.owner_emails),
+        owners: singularr::core::identity::Allowlist::parse(&config.bootstrap.owner_emails),
         requests: Arc::new(Requests::new(&config.request_rules)),
         music: Arc::new(MusicLibrary::new(&config.music.root)),
         home_movies: Arc::new(HomeMovies::new(&config.home_movies.root)),

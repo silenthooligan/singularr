@@ -1,6 +1,7 @@
 //! One error type for the service functions. The API turns it into an RFC 9457 problem.
 
 use super::http::Problem;
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
@@ -83,9 +84,27 @@ impl AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         if matches!(self, AppError::Db(_) | AppError::Internal(_)) {
-            tracing::error!(error = %self, "request failed");
+            tracing::error!(target: "singularr::core::error", error = %self, "request failed");
         }
         self.problem().into_response()
+    }
+}
+
+impl From<JsonRejection> for AppError {
+    fn from(r: JsonRejection) -> Self {
+        AppError::BadRequest(format!("Invalid JSON body: {}", r.body_text()))
+    }
+}
+
+impl From<QueryRejection> for AppError {
+    fn from(r: QueryRejection) -> Self {
+        AppError::BadRequest(format!("Invalid query string: {}", r.body_text()))
+    }
+}
+
+impl From<PathRejection> for AppError {
+    fn from(r: PathRejection) -> Self {
+        AppError::BadRequest(format!("Invalid path: {}", r.body_text()))
     }
 }
 

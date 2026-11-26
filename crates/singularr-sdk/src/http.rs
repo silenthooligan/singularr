@@ -8,7 +8,7 @@
 //!   path first: a media server at `https://host/` and a manager at `https://host/radarr` keep
 //!   a rule each. A call at a listed origin that no rule's path holds is refused.
 //! - The acts are matched first, GET acts included: a call that is a declared act passes only
-//!   while the integration's access is `act`, whatever its method. Each act names its action
+//!   while its action's access is `act`, whatever its method. Each act names its action
 //!   (`grab`, `send`): the id its manifest lists.
 //! - Toward an integration a host rule knows three things. GET passes, unless the adapter
 //!   declares its GETs (`gets`): then only those pass, each an exact path, with a condition on
@@ -36,7 +36,6 @@
 use crate::error::{OutboundError, TOO_LARGE};
 use async_trait::async_trait;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::Duration;
 use url::Url;
@@ -244,29 +243,113 @@ impl Access {
     }
 }
 
-/// The access of one integration, as its host rule enforces it. The rule and whoever may
-/// change the access hold the same switch, so a change takes effect with the next call.
-/// A new switch says `read`.
+/// The access of one integration, action by action, as its host rule enforces it. The rule and
+/// whoever may change the access hold the same switch. A change takes effect with the next
+/// call. A new switch says `read` for every action.
 #[derive(Debug, Clone, Default)]
-pub struct AccessSwitch(Arc<AtomicBool>);
+pub struct AccessSwitch(Arc<RwLock<Acting>>);
+
+/// The actions that act: every one, or these alone.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Acting {
+    all: bool,
+    actions: std::collections::BTreeSet<String>,
+}
 
 impl AccessSwitch {
+    fn acting(&self) -> std::sync::RwLockReadGuard<'_, Acting> {
+        self.0.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn acting_mut(&self) -> std::sync::RwLockWriteGuard<'_, Acting> {
+        self.0.write().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// `act` while one action at least acts.
     pub fn get(&self) -> Access {
-        if self.0.load(Ordering::SeqCst) {
+        let a = self.acting();
+        if a.all || !a.actions.is_empty() {
             Access::Act
         } else {
             Access::Read
         }
     }
 
+    /// Every action at once: `act` lets every act pass, `read` none.
     pub fn set(&self, access: Access) {
-        self.0.store(access == Access::Act, Ordering::SeqCst);
+        let mut a = self.acting_mut();
+        a.all = access == Access::Act;
+        a.actions.clear();
+    }
+
+    /// These actions act. Every other reads.
+    pub fn set_actions<'a>(&self, acting: impl IntoIterator<Item = &'a str>) {
+        let mut a = self.acting_mut();
+        a.all = false;
+        a.actions = acting.into_iter().map(str::to_string).collect();
+    }
+
+    /// Whether the act `action` passes.
+    pub fn allows(&self, action: &str) -> bool {
+        let a = self.acting();
+        a.all || a.actions.contains(action)
     }
 }
 
 impl PartialEq for AccessSwitch {
     fn eq(&self, other: &Self) -> bool {
-        self.get() == other.get()
+        *self.acting() == *other.acting()
+    }
+}
+
+/// What the environment or the instance file says an integration may do: read, act on every
+/// action, or act on these actions alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Grant {
+    Read,
+    Act,
+    Actions(Vec<String>),
+}
+
+impl Grant {
+    /// `read`, `act`, or a comma list of action ids, in any case. `None` for an empty word, or
+    /// for a list with an id that is no id (a-z, 0-9 and `-`).
+    pub fn parse(text: &str) -> Option<Grant> {
+        let text = text.trim().to_ascii_lowercase();
+        if let Some(access) = Access::parse(&text) {
+            return Some(match access {
+                Access::Read => Grant::Read,
+                Access::Act => Grant::Act,
+            });
+        }
+        let ids: Vec<String> = text
+            .split(',')
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty())
+            .collect();
+        let id_like = |id: &String| {
+            id.bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        };
+        (!ids.is_empty() && ids.iter().all(id_like)).then_some(Grant::Actions(ids))
+    }
+
+    /// The access of one action under this grant.
+    pub fn of(&self, action: &str) -> Access {
+        match self {
+            Grant::Act => Access::Act,
+            Grant::Actions(ids) if ids.iter().any(|id| id == action) => Access::Act,
+            _ => Access::Read,
+        }
+    }
+
+    /// The words of the grant, as a variable takes them: `read`, `act`, `grab,search`.
+    pub fn as_text(&self) -> String {
+        match self {
+            Grant::Read => "read".to_string(),
+            Grant::Act => "act".to_string(),
+            Grant::Actions(ids) => ids.join(","),
+        }
     }
 }
 
@@ -1323,7 +1406,7 @@ impl Allowlist {
             .iter()
             .find(|call| call.matches(method, &parsed, body))
         {
-            if rule.access.get() == Access::Act {
+            if rule.access.allows(act.action) {
                 return Ok((parsed, rule, Class::Act(act.action)));
             }
             return Err(OutboundError::NotAllowed {

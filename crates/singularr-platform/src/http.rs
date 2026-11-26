@@ -358,7 +358,7 @@ mod tests {
                 .await
                 .unwrap_err();
             assert!(
-                matches!(e, crate::core::outbound::OutboundError::NotListed { .. }),
+                matches!(e, crate::outbound::OutboundError::NotListed { .. }),
                 "{other}: {e}"
             );
         }
@@ -367,10 +367,7 @@ mod tests {
             .await
             .unwrap_err();
         assert!(
-            matches!(
-                e,
-                crate::core::outbound::OutboundError::HostNotAllowed { .. }
-            ),
+            matches!(e, crate::outbound::OutboundError::HostNotAllowed { .. }),
             "{e}"
         );
         // Only an address of this machine, written as one.

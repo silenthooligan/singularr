@@ -40,8 +40,8 @@
      without blocklist for one a manager owns. Each acts while Singularr may act on the manager. */
   const queueActs = q => {
     const kind = kindOf(q);
-    if (!q.manager) return html`${MQ.act('Remove', { icon: 'x', needs: 'manager', kind })}${MQ.act('Remove and blocklist', { icon: 'shield', needs: 'manager', kind })}`;
-    return html`${q.refusal ? MQ.actBtn('Import anyway', { icon: 'download', primary: true, needs: 'manager', kind, data: 'data-qimport' }) : ''}${MQ.actBtn('Remove', { icon: 'x', needs: 'manager', kind, data: 'data-qremove="0"' })}${MQ.actBtn('Remove and blocklist', { icon: 'shield', needs: 'manager', kind, data: 'data-qremove="1"' })}`;
+    if (!q.manager) return html`${MQ.act('Remove', { icon: 'x', needs: 'manager', kind, action: 'remove' })}${MQ.act('Remove and blocklist', { icon: 'shield', needs: 'manager', kind, action: 'remove' })}`;
+    return html`${q.refusal ? MQ.actBtn('Import anyway', { icon: 'download', primary: true, needs: 'manager', kind, action: 'import', data: 'data-qimport' }) : ''}${MQ.actBtn('Remove', { icon: 'x', needs: 'manager', kind, action: 'remove', data: 'data-qremove="0"' })}${MQ.actBtn('Remove and blocklist', { icon: 'shield', needs: 'manager', kind, action: 'remove', data: 'data-qremove="1"' })}`;
   };
   /* The custom formats and scores a manager compared when it refused an import. */
   const refusalFacts = r => {
@@ -102,13 +102,14 @@
   }
   const rowMenu = (btn, q) => {
     const kind = kindOf(q);
-    const can = !!q.manager && MQ.mayAct('manager', kind);
-    const tip = can ? undefined : MQ.needTip('manager', kind);
+    const canImport = !!q.manager && MQ.mayAct('manager', kind, 'import');
+    const canRemove = !!q.manager && MQ.mayAct('manager', kind, 'remove');
+    const removeTip = canRemove ? undefined : MQ.needTip('manager', kind, 'remove');
     return MQ.menu(btn, [
       { label: 'Open details', icon: 'panel', onClick: () => queueDrawer(q) }, { label: 'Open title', icon: kind, href: MQ.link(q.title.id) }, '-',
       { label: 'Pause', icon: 'pause', disabled: true, tip: MQ.needTip('downloads') }, { label: 'Search again', icon: 'refresh', disabled: true, tip: MQ.needTip('manager', kind) },
-      q.refusal ? { label: 'Import anyway', icon: 'download', disabled: !can, tip, onClick: () => importAnyway(q) } : { label: 'Import manually', icon: 'folder', disabled: true, tip: MQ.needTip('manager', kind) }, '-',
-      { label: 'Remove', icon: 'x', tone: 'bad', disabled: !can, tip, onClick: () => removeDownload(q, false) }, { label: 'Remove and blocklist', icon: 'shield', tone: 'bad', disabled: !can, tip, onClick: () => removeDownload(q, true) },
+      q.refusal ? { label: 'Import anyway', icon: 'download', disabled: !canImport, tip: canImport ? undefined : MQ.needTip('manager', kind, 'import'), onClick: () => importAnyway(q) } : { label: 'Import manually', icon: 'folder', disabled: true, tip: MQ.needTip('manager', kind) }, '-',
+      { label: 'Remove', icon: 'x', tone: 'bad', disabled: !canRemove, tip: removeTip, onClick: () => removeDownload(q, false) }, { label: 'Remove and blocklist', icon: 'shield', tone: 'bad', disabled: !canRemove, tip: removeTip, onClick: () => removeDownload(q, true) },
     ], { align: 'end' });
   };
 
@@ -147,7 +148,7 @@
       { key: 'want', label: 'Cutoff', value: r => fmt.quality(r.want) },
       { key: 'profile', label: 'Quality profile', cls: 'hide-lg c-dim' },
       { key: 'lastSearch', label: 'Last search', type: 'rel', cls: 'hide-md c-dim' },
-      { key: 'actions', label: '', sort: false, always: true, td: 'c-actions', render: r => (notOut(r) ? '' : r.title?.id ? MQ.actBtn('Search', { sm: true, icon: 'search', needs: 'manager', kind, data: `data-wsearch="${r.id}"` }) : MQ.act('Search', { sm: true, icon: 'search', needs: 'manager', kind })) },
+      { key: 'actions', label: '', sort: false, always: true, td: 'c-actions', render: r => (notOut(r) ? '' : r.title?.id ? MQ.actBtn('Search', { sm: true, icon: 'search', needs: 'manager', kind, action: 'search', data: `data-wsearch="${r.id}"` }) : MQ.act('Search', { sm: true, icon: 'search', needs: 'manager', kind, action: 'search' })) },
     ].filter(Boolean);
   }
   /* A wanted title with a release or air date still ahead: there is nothing to search for yet. */
@@ -217,7 +218,7 @@
           part: 'wanted', rows: data.wanted, dflt: 'all', api: 'GET /api/v1/activity/wanted',
           chips: [['all', 'Wanted now', w => !notOut(w)], ['missing', 'Missing', w => w.why === 'missing' && !notOut(w)], ['upgrade', 'Can be upgraded', w => w.why === 'upgrade'], ['later', 'Not released', notOut]],
           columns: wantedColumns, sort: { key: 'released', dir: 'desc' }, search: w => `${w.title.title} ${epText(w)} ${w.profile}`, pageSize: 50, selectable: true,
-          bulk: k => [{ label: 'Search', icon: 'search', needs: 'manager', kind: k, onClick: MQ.mayAct('manager', k) ? searchWanted : undefined }, { label: 'Unmonitor', icon: 'eyeoff', needs: 'manager', kind: k }],
+          bulk: k => [{ label: 'Search', icon: 'search', needs: 'manager', kind: k, action: 'search', onClick: MQ.mayAct('manager', k, 'search') ? searchWanted : undefined }, { label: 'Unmonitor', icon: 'eyeoff', needs: 'manager', kind: k }],
           summary: rows => [count(rows.filter(w => w.why === 'missing' && !notOut(w)).length, 'missing', 'missing'), count(rows.filter(w => w.why === 'upgrade').length, 'can be upgraded', 'can be upgraded'), count(rows.filter(notOut).length, 'not released', 'not released')],
           empty: { title: 'Nothing wanted' },
         },

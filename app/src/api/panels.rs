@@ -8,6 +8,7 @@ use crate::catalog::store::LibraryHoldings;
 use crate::core::config::{Config, Integration, IntegrationType};
 use crate::core::jobs::{Check, Job};
 use crate::core::model::Scope;
+use crate::core::runtime::ScheduleState;
 use crate::engines::model::{ActionView, IntegrationView};
 use crate::engines::store::EngineStateRow;
 use crate::lifecycle::server::plain_video;
@@ -166,9 +167,24 @@ pub struct IntegrationDetail {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct IntegrationPatch {
-    /// `read`: Singularr reads it and changes nothing in it. `act`: it may also do what the
-    /// integration's `actions` list.
-    pub access: String,
+    /// Every action at once. `read`: Singularr reads it and changes nothing in it. `act`: it may
+    /// also do every action the integration's `actions` list.
+    #[serde(default)]
+    #[schema(value_type = Option<AccessWord>)]
+    pub access: Option<String>,
+    /// Action by action: `{"grab": "act", "remove": "read"}`. The actions it leaves out keep
+    /// their access.
+    #[serde(default)]
+    #[schema(value_type = Option<BTreeMap<String, AccessWord>>)]
+    pub actions: Option<BTreeMap<String, String>>,
+}
+
+/// What Singularr may do with an action: `read` (it is not done) or `act`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AccessWord {
+    Read,
+    Act,
 }
 
 /// `POST /api/v1/integrations/{id}/test`: one read-only call now.
@@ -938,6 +954,34 @@ pub fn job_view(job: &Job, config: &Config) -> JobView {
     }
 }
 
+/// One schedule of the job runtime in the shape of a loop's job, named by the pass its loop
+/// had. Pure.
+pub fn schedule_view(s: &ScheduleState, pass: &str) -> JobView {
+    let (label, description) = job_words(pass, "");
+    let failed = s.last_error.is_some();
+    JobView {
+        id: s.key.clone(),
+        label,
+        description,
+        integration: s.integration.clone(),
+        every: s.every.as_secs(),
+        last_run: s.last_run_at,
+        last_result: s
+            .last_run_at
+            .map(|_| if failed { "failed" } else { "ok" }.to_string()),
+        last_detail: if failed {
+            s.last_error.clone()
+        } else {
+            s.last_detail.clone()
+        },
+        took: s.last_took_ms.map(i64::from),
+        next_run: s.open.is_none().then_some(s.next_run_at),
+        running: s.open.as_deref() == Some("running"),
+        can_run: s.open.is_none(),
+        runs: u64::try_from(s.runs).unwrap_or(0),
+    }
+}
+
 // System -----------------------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -1044,11 +1088,14 @@ pub fn config_checks(config: &Config) -> Vec<CheckView> {
         )
     }];
     out.push(
-        match (config.edge_token_set, config.edge_token_placeholder) {
+        match (
+            config.bootstrap.edge_token_set,
+            config.bootstrap.edge_token_placeholder,
+        ) {
             (true, _) => check("edge-token", "Edge token", "ok", "Set"),
             (false, true) => check("edge-token", "Edge token", "down", "Still the placeholder"),
             // With no trusted proxy no identity header is honored, so no token is missing.
-            (false, false) if config.trusted_proxies.is_none() => check(
+            (false, false) if config.bootstrap.trusted_proxies.is_none() => check(
                 "edge-token",
                 "Edge token",
                 "ok",

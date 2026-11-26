@@ -1,6 +1,8 @@
 //! SQL over `engine_state` (what each engine's passes found: its version, latency and counts),
-//! `integration_health` (how each pass of each integration went) and `integration_access` (what
-//! the owner saved that Singularr may do with each integration).
+//! `integration_health` (how each pass of each integration went), `integration_access` (what
+//! the owner saved that Singularr may do with each action of each integration) and
+//! `integration_actions` (the actions each type declared at the last start). The app's
+//! `engines::store` is this module.
 //!
 //! An integration is up while every pass of it is. Its state (`ok`, `last_error`, `failures`)
 //! is its worst pass: a failing one first, the one with the most failures in a row of those.
@@ -205,35 +207,107 @@ pub async fn prune(conn: &mut PgConnection, keep: &[String]) -> Result<u64, sqlx
         .map(|r| r.rows_affected())
 }
 
-/// What the owner saved that Singularr may do with each integration: its id, and `read` or
-/// `act`.
-pub async fn saved_access(pool: &PgPool) -> Result<Vec<(String, String)>, sqlx::Error> {
-    sqlx::query_as::<_, (String, String)>(
-        "SELECT integration, access FROM integration_access ORDER BY integration",
+/// What the owner saved that Singularr may do with each integration, action by action: its id,
+/// the action (`*` for a row saved before actions had rows of their own), and `read` or `act`.
+pub async fn saved_access(pool: &PgPool) -> Result<Vec<(String, String, String)>, sqlx::Error> {
+    sqlx::query_as::<_, (String, String, String)>(
+        "SELECT integration, action, access FROM integration_access ORDER BY integration, action",
     )
     .fetch_all(pool)
     .await
 }
 
-/// Save what Singularr may do with an integration, replacing what was saved before.
+/// Save what Singularr may do with one action of an integration, replacing what was saved
+/// before.
 pub async fn save_access(
     conn: &mut PgConnection,
     integration: &str,
+    action: &str,
     access: &str,
     by: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO integration_access (integration, access, saved_by, saved_at)
-         VALUES ($1, $2, $3, now())
-         ON CONFLICT (integration) DO UPDATE SET
+        "INSERT INTO integration_access (integration, action, access, saved_by, saved_at)
+         VALUES ($1, $2, $3, $4, now())
+         ON CONFLICT (integration, action) DO UPDATE SET
              access = EXCLUDED.access, saved_by = EXCLUDED.saved_by, saved_at = now()",
     )
     .bind(integration)
+    .bind(action)
     .bind(access)
     .bind(by)
     .execute(conn)
     .await
     .map(|_| ())
+}
+
+/// A row saved for every action (`*`) becomes one row per action of `actions`, in one
+/// statement. Each keeps the value, author and time of the row. The `*` row goes. With no
+/// action the row stays as it is.
+pub async fn expand_saved(
+    conn: &mut PgConnection,
+    integration: &str,
+    actions: &[&str],
+) -> Result<(), sqlx::Error> {
+    if actions.is_empty() {
+        return Ok(());
+    }
+    sqlx::query(
+        "WITH star AS (
+             DELETE FROM integration_access WHERE integration = $1 AND action = '*'
+             RETURNING integration, access, saved_by, saved_at
+         )
+         INSERT INTO integration_access (integration, action, access, saved_by, saved_at)
+         SELECT star.integration, x.action, star.access, star.saved_by, star.saved_at
+         FROM star, unnest($2::text[]) AS x(action)
+         ON CONFLICT (integration, action) DO NOTHING",
+    )
+    .bind(integration)
+    .bind(actions)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+/// The actions each integration's type declared at the last start, as (integration, action).
+pub async fn declared_actions(pool: &PgPool) -> Result<Vec<(String, String)>, sqlx::Error> {
+    sqlx::query_as::<_, (String, String)>(
+        "SELECT integration, action FROM integration_actions ORDER BY integration, action",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Keep `actions` as the actions of `integration`'s type at this start. A row of another action
+/// of it goes.
+pub async fn save_declared(
+    conn: &mut PgConnection,
+    integration: &str,
+    actions: &[&str],
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "WITH gone AS (
+             DELETE FROM integration_actions
+             WHERE integration = $1 AND NOT (action = ANY($2::text[]))
+         )
+         INSERT INTO integration_actions (integration, action)
+         SELECT $1, x.action FROM unnest($2::text[]) AS x(action)
+         ON CONFLICT (integration, action) DO NOTHING",
+    )
+    .bind(integration)
+    .bind(actions)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+/// Remove the declared actions of the integrations outside `keep`.
+pub async fn prune_declared(conn: &mut PgConnection, keep: &[String]) -> Result<u64, sqlx::Error> {
+    sqlx::query("DELETE FROM integration_actions WHERE NOT (integration = ANY($1))")
+        .bind(keep)
+        .execute(conn)
+        .await
+        .map(|r| r.rows_affected())
 }
 
 /// Remove the saved access of integrations outside `keep`: a permission does not outlive the

@@ -1,5 +1,11 @@
 use super::*;
-use std::collections::BTreeMap;
+use crate::core::auth::Caller;
+use crate::core::model::Scope;
+use model::{FieldView, SettingsView};
+use registry::{Kind, SECTIONS};
+use serde_json::{Value, json};
+use singularr_platform::settings::validate;
+use std::collections::{BTreeMap, BTreeSet};
 
 type Vars = BTreeMap<&'static str, &'static str>;
 
@@ -44,11 +50,7 @@ fn find<'a>(view: &'a SettingsView, key: &str) -> &'a FieldView {
 }
 
 fn save(s: &Settings, scope: &str, key: &str, value: Value) {
-    s.saved
-        .write()
-        .unwrap()
-        .insert((scope.to_string(), key.to_string()), value);
-    s.apply_locale();
+    s.remember(scope, key, value);
 }
 
 #[test]
@@ -425,33 +427,52 @@ fn the_time_zone_defaults_to_the_process_s() {
 }
 
 /// Every variable the configuration reads is a field somewhere, so the Settings page shows the
-/// whole configuration. The integrations' own variables (`RADARR_URL`) are the integrations
-/// panel's; the portal's (`SINGULARR_REQUESTS_*`, `SINGULARR_FACE`) belong to the other face.
+/// whole configuration. The configuration is the app's `core/config.rs` and the platform's
+/// bootstrap. The integrations' own variables (`RADARR_URL`) are the integrations panel's; the
+/// portal's (`SINGULARR_REQUESTS_*`, `SINGULARR_FACE`) belong to the other face.
 #[test]
 fn everything_the_configuration_reads_is_visible() {
-    let source = include_str!("../core/config.rs");
+    let sources = [
+        include_str!("../core/config.rs"),
+        include_str!("../../../crates/singularr-platform/src/config.rs"),
+    ];
     let listed: BTreeSet<&str> = registry::fields()
         .flat_map(|f| f.env.iter().copied())
         .collect();
     let mut names = BTreeSet::new();
-    let bytes = source.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'"' {
-            let start = i + 1;
-            let mut j = start;
-            while j < bytes.len()
-                && (bytes[j].is_ascii_uppercase() || bytes[j].is_ascii_digit() || bytes[j] == b'_')
-            {
-                j += 1;
+    for source in sources {
+        let bytes = source.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'"' {
+                let start = i + 1;
+                let mut j = start;
+                while j < bytes.len()
+                    && (bytes[j].is_ascii_uppercase()
+                        || bytes[j].is_ascii_digit()
+                        || bytes[j] == b'_')
+                {
+                    j += 1;
+                }
+                if j < bytes.len() && bytes[j] == b'"' && j > start {
+                    names.insert(&source[start..j]);
+                    i = j + 1;
+                    continue;
+                }
             }
-            if j < bytes.len() && bytes[j] == b'"' && j > start {
-                names.insert(&source[start..j]);
-                i = j + 1;
-                continue;
-            }
+            i += 1;
         }
-        i += 1;
+    }
+    // The bootstrap's variables are read in the platform's file.
+    for name in [
+        "DATABASE_URL",
+        "SINGULARR_DB_MAX_CONNECTIONS",
+        "SINGULARR_TRUSTED_PROXY_IPS",
+    ] {
+        assert!(
+            names.contains(name),
+            "{name} is read nowhere the test looks"
+        );
     }
     let ours = |n: &&str| {
         (n.starts_with("SINGULARR_") || *n == "DATABASE_URL")

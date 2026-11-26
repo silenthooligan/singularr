@@ -4,7 +4,7 @@
 //! The modules are layers, lowest first: `core`, `settings`, `policy`, `catalog`, `releases`,
 //! `engines`, `metadata`, `lifecycle`, `acquire`, `processing`, `plays`, `requests`, `music`,
 //! `homemovies`, `search`, `notify`, `face`, `api`, `client`. A module imports only the modules before it in that
-//! list, `singularr-core` and `singularr-sdk`. SQL lives only in a module's own `store.rs`. Every outbound HTTP
+//! list, `singularr-core`, `singularr-sdk` and `singularr-platform`. SQL lives only in a module's own `store.rs`. Every outbound HTTP
 //! call goes through `core::outbound`. See DESIGN.md.
 //!
 //! The interface is not in this crate: it is the web client in `web/`, static files that read

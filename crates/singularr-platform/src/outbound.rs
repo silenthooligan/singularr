@@ -30,7 +30,7 @@ pub use singularr_sdk::error::{
 };
 pub use singularr_sdk::http::{
     Access, AccessSwitch, ActCall, Allowlist, Body, BodyRule, BodyTest, Breaker, Calls, Class,
-    Expect, GetCall, HostRule, HttpProfile, Method, OutRequest, OutResponse, PLEX_PIN_PATH,
+    Expect, GetCall, Grant, HostRule, HttpProfile, Method, OutRequest, OutResponse, PLEX_PIN_PATH,
     PLEX_TV_HOST, Part, QueryRule, QueryValue, Rate, ReadCall, Retry, TARGET_ADDRESS, TMDB_HOST,
     TVDB_HOST, TVMAZE_HOST, Target, Targets, Transport, multipart, retry_after,
 };
@@ -412,7 +412,7 @@ fn asked_wait(result: &Result<OutResponse, OutboundError>) -> Option<Duration> {
 }
 
 /// A number drawn evenly from 0 to 1, for the waits between attempts: a fresh one each time.
-fn jitter() -> f64 {
+pub(crate) fn jitter() -> f64 {
     static SEED: AtomicU64 = AtomicU64::new(0);
     let mut x = SEED.load(Ordering::Relaxed);
     if x == 0 {

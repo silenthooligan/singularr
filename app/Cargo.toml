@@ -15,6 +15,10 @@ path = "src/main.rs"
 singularr-core = { workspace = true }
 # The way out's types and rules, and the recorded transport the tests send through (`testkit`).
 singularr-sdk = { workspace = true, features = ["testkit"] }
+# The platform: the database, the journal, callers and keys, problems, the way out, mail, the
+# jobs, ffmpeg runs, the settings mechanism, the access book, the integrations' rows and the
+# metrics' names. `core`, `settings` and `engines` re-export its modules.
+singularr-platform = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
@@ -45,13 +49,6 @@ getrandom = { version = "0.4", optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
 utoipa = { version = "6", features = ["axum_extras", "chrono"], optional = true }
 axum-prometheus = { version = "0.10", optional = true }
-metrics = { version = "0.24", optional = true }
-# Mail (core::smtp): TLS over tokio with the crates sqlx and reqwest already build on. No
-# default features: each feature named here is one the lock file already resolves.
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
-webpki-roots = { version = "1", optional = true }
-rustls-native-certs = { version = "0.8", optional = true }
 # Locations (core::geoip): the DB-IP City Lite database, a MaxMind DB file read in memory, and
 # its download uncompressed from gzip.
 maxminddb = { version = "0.33", optional = true }
@@ -59,6 +56,8 @@ flate2 = { version = "1", optional = true }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+# The platform's test kit: `Settings::remember` for the tests of the app's fields.
+singularr-platform = { workspace = true, features = ["testkit"] }
 # The tests read a compressed answer back.
 flate2 = "1"
 brotli = "9"
@@ -67,6 +66,7 @@ brotli = "9"
 # Everything that touches the database or the network is behind `ssr`, the only feature.
 default = ["ssr"]
 ssr = [
+    "dep:singularr-platform",
     "dep:axum",
     "dep:tower-http",
     "dep:tokio",
@@ -88,11 +88,6 @@ ssr = [
     "dep:uuid",
     "dep:utoipa",
     "dep:axum-prometheus",
-    "dep:metrics",
-    "dep:rustls",
-    "dep:tokio-rustls",
-    "dep:webpki-roots",
-    "dep:rustls-native-certs",
     "dep:maxminddb",
     "dep:flate2",
     "singularr-sdk/openapi",

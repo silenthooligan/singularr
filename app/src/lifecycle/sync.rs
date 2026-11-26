@@ -15,9 +15,11 @@ use crate::core::config::SyncConfig;
 use crate::core::jobs::{self, Job, JobSpec};
 use crate::core::journal::Journal;
 use crate::core::observe;
+use crate::core::runtime::{Cx, Done, Failed, Handler};
 use crate::core::units;
 use crate::engines::service::{EngineSet, PassOk, pass_result};
 use crate::engines::{DownloadClient, LibraryEngine, Protocol};
+use async_trait::async_trait;
 use futures::StreamExt;
 use serde_json::json;
 use sqlx::PgPool;
@@ -461,57 +463,48 @@ pub fn spawn_gauges(pool: PgPool) -> JoinHandle<()> {
     tokio::spawn(gauges_loop(pool))
 }
 
-/// The read-only scan of the movie folders for files no engine tracks, every `interval`. It
-/// runs whether or not the sync does: the folders are mounts, not engines. The first scan
-/// waits a few minutes, so the titles of a fresh start are in the catalog first.
-pub fn spawn_folder_scans(
-    pool: PgPool,
-    journal: Journal,
-    editions: Arc<singularr_core::EditionList>,
-    roots: Vec<String>,
-    interval: Duration,
-    jitter_max: Duration,
-) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        if roots.is_empty() {
-            tracing::info!("SINGULARR_MOVIE_ROOTS is empty: the movie folders are not scanned");
-            return;
-        }
-        let job = jobs::registry().register(JobSpec::folder("movie-folders", interval));
-        job.wait(Duration::from_secs(180) + jitter(jitter_max))
-            .await;
-        loop {
-            let started = job.begin();
-            match crate::catalog::scan::scan(&pool, &journal, &editions, &roots).await {
-                Ok(r) => {
-                    tracing::info!(
-                        folders = r.folders,
-                        untracked = r.untracked,
-                        found = r.found,
-                        gone = r.gone,
-                        unreadable = r.unreadable,
-                        roots_down = ?r.roots_down,
-                        "movie folders scanned"
-                    );
-                    job.end(
-                        started,
-                        Ok(format!(
-                            "{}, {} untracked, {} new, {} gone",
-                            units::counted(r.folders as i64, "folder", "folders"),
-                            units::count(r.untracked as i64),
-                            units::count(r.found as i64),
-                            units::count(r.gone as i64)
-                        )),
-                    );
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "the movie folder scan failed");
-                    job.end(started, Err(e.to_string()));
-                }
+/// The key of the movie folders' scan in the job runtime.
+pub const MOVIE_FOLDERS_JOB: &str = "folder:movie-folders";
+
+/// The movie folders' job: the read-only scan for files no engine tracks. It runs whether or not
+/// the sync does: the folders are mounts. Its writes go through a journal fenced by the run's
+/// lease.
+pub struct FolderScan {
+    pub pool: PgPool,
+    pub journal: Journal,
+    pub editions: Arc<singularr_core::EditionList>,
+    pub roots: Vec<String>,
+}
+
+#[async_trait]
+impl Handler for FolderScan {
+    async fn run(&self, cx: Cx) -> Result<Done, Failed> {
+        let journal = self.journal.fenced(Arc::new(cx.lease));
+        match crate::catalog::scan::scan(&self.pool, &journal, &self.editions, &self.roots).await {
+            Ok(r) => {
+                tracing::info!(
+                    folders = r.folders,
+                    untracked = r.untracked,
+                    found = r.found,
+                    gone = r.gone,
+                    unreadable = r.unreadable,
+                    roots_down = ?r.roots_down,
+                    "movie folders scanned"
+                );
+                Ok(Done::from(format!(
+                    "{}, {} untracked, {} new, {} gone",
+                    units::counted(r.folders as i64, "folder", "folders"),
+                    units::count(r.untracked as i64),
+                    units::count(r.found as i64),
+                    units::count(r.gone as i64)
+                )))
             }
-            job.wait(interval).await;
+            Err(e) => {
+                tracing::warn!(error = %e, "the movie folder scan failed");
+                Err(Failed::from(e.to_string()))
+            }
         }
-    })
+    }
 }
 
 async fn gauges_loop(pool: PgPool) {

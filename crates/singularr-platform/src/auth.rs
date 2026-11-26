@@ -166,7 +166,11 @@ pub async fn identify(
     match presented(headers, owners) {
         Presented::Owner(email) => Ok(Caller::Owner { email }),
         Presented::Stranger(email) => {
-            tracing::warn!(%email, "signed-in address is not listed in SINGULARR_OWNER_EMAILS");
+            tracing::warn!(
+                target: "singularr::core::auth",
+                %email,
+                "signed-in address is not listed in SINGULARR_OWNER_EMAILS"
+            );
             Err(AppError::Forbidden("Not an owner account.".to_string()))
         }
         Presented::Nothing => Err(AppError::Unauthorized),
@@ -181,7 +185,11 @@ pub async fn identify(
                 return Err(AppError::Unauthorized);
             }
             if let Err(e) = store::touch_api_key(pool, row.id).await {
-                tracing::warn!(error = %e, "could not record the key's last use");
+                tracing::warn!(
+                    target: "singularr::core::auth",
+                    error = %e,
+                    "could not record the key's last use"
+                );
             }
             Ok(Caller::Key {
                 id: row.id,

@@ -396,6 +396,21 @@ if [ -n "${SMOKE_IMAGE:-}" ]; then
   fi
 fi
 
+# A stop ends the job runtime, then the process: exit 0 inside the 15 s a compose stop allows.
+if [ -n "${SMOKE_IMAGE:-}" ]; then
+  stop_began="$(date +%s)"
+  docker stop -t 15 "$APP" >/dev/null 2>&1 || true
+  stop_took=$(( $(date +%s) - stop_began ))
+  stop_code="$(docker inspect -f '{{.State.ExitCode}}' "$APP" 2>/dev/null || echo none)"
+  stop_log="$(docker logs "$APP" 2>&1 || true)"
+  if [ "$stop_code" = 0 ] && [ "$stop_took" -lt 15 ] \
+      && grep -qF "the job runtime stopped" <<<"$stop_log"; then
+    echo "ok    a stop ends the job runtime, then the process (${stop_took} s)"
+  else
+    echo "FAIL  a stop: exit $stop_code after ${stop_took} s, the job runtime's stop logged $(grep -cF 'the job runtime stopped' <<<"$stop_log") times"; fail=1
+  fi
+fi
+
 # The startup printout must hold no secret: the token of this run is one.
 save_log
 if grep -qF -- "$TOKEN" "$LOG"; then

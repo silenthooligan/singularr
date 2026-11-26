@@ -221,14 +221,23 @@
       };
       const accessBlock = i => {
         const a = accessOf(i); if (!a) return '';
-        const where = a.kind === 'environment' ? html` Set in the environment${a.env ? html` (<code>${a.env}</code>)` : ''}.` : a.kind === 'file' ? html` Set in the instance file${a.file ? html` (<code>${a.file}</code>)` : ''}.` : a.kind === 'saved' ? ' Saved in Singularr.' : '';
-        return html`<section class="st-access"><h4>Access</h4><div data-access-seg></div>
-          <p class="st-fine">${a.actions.length ? html`Write access allows: ${MQ.join(a.actions.map(x => x.label || x.id), ', ')}.${where}` : 'No write actions'}</p><div data-access-result></div></section>`;
+        const where = a.kind === 'environment' ? html`Set in the environment${a.env ? html` (<code>${a.env}</code>)` : ''}.` : a.kind === 'file' ? html`Set in the instance file${a.file ? html` (<code>${a.file}</code>)` : ''}.` : a.kind === 'saved' ? 'Saved in Singularr.' : '';
+        const fine = a.actions.length ? where : 'No write actions';
+        /* One switch per action: each act passes only while its own action has write access. */
+        return html`<section class="st-access"><h4>Access</h4>${a.actions.length ? html`<div class="st-access-list">${a.actions.map(x => html`<div class="st-access-row"><span>${x.label || x.id}</span><div data-access-seg="${x.id}"></div></div>`)}</div>` : ''}
+          ${fine ? html`<p class="st-fine">${fine}</p>` : ''}<div data-access-result></div></section>`;
+      };
+      /* Write access while every action acts, partial while some do. */
+      const accessWord = i => {
+        const all = i.actions || [];
+        if (!all.length) return i.access === 'act' ? 'act' : 'read';
+        const acting = all.filter(x => x.access === 'act').length;
+        return !acting ? 'read' : acting === all.length ? 'act' : 'partial';
       };
       const intColumns = withAccess => [
         { key: 'name', label: 'Integration', always: true, m: 'main', width: '22%', render: i => html`<span class="st-int">${mono(i.typeLabel || i.type, i.group)}<span class="mq-cell-two"><b>${i.name}</b><small>${subOf(i)}</small></span></span>` },
         { key: 'state', label: 'Status', m: 'side', width: '116px', value: i => ({ ok: 0, warn: 1, down: 2 }[i.state] ?? 3), render: i => html`<span data-tip="${i.detail || ''}" data-state-of="${i.id}">${MQ.stateDot(i.state)}</span>` },
-        ...(withAccess ? [{ key: 'access', label: 'Access', m: 'hide', width: '124px', cls: 'hide-md', value: i => (i.access === 'act' ? 0 : 1), render: i => (i.access === 'act' ? html`<span class="mq-state" data-tone="proc"><span class="mq-dot"></span>Write access</span>` : html`<span class="c-dim">Read-only</span>`) }] : []),
+        ...(withAccess ? [{ key: 'access', label: 'Access', m: 'hide', width: '156px', cls: 'hide-md', value: i => ({ act: 0, partial: 1, read: 2 })[accessWord(i)], render: i => ({ act: html`<span class="mq-state" data-tone="proc"><span class="mq-dot"></span>Write access</span>`, partial: html`<span class="mq-state" data-tone="proc"><span class="mq-dot"></span>Partial write access</span>`, read: html`<span class="c-dim">Read-only</span>` })[accessWord(i)] }] : []),
         { key: 'version', label: 'Version', m: 'hide', width: '84px', cls: 'c-dim hide-lg', render: i => (i.version ? html`<span class="st-ellipsis" data-tip="${i.version}">${i.version}</span>` : '') },
         { key: 'address', label: 'Address', m: 'hide', width: '19%', cls: 'hide-md', render: i => (i.address ? html`<span class="mono st-addr st-ellipsis">${i.address}</span>` : html`<span class="faint">None</span>`) },
         { key: 'lastSync', label: 'Last synced', m: 'hide', width: '92px', type: 'rel', cls: 'c-dim' },
@@ -298,36 +307,41 @@
         });
         if (MQ.hash.get('open') !== id) MQ.hash.set({ open: id });
         wire(dr.el, [conn, sched], { flush: true });
-        const acc = accessOf(i); const segHost = $('[data-access-seg]', dr.el);
-        if (acc && segHost) {
-          const set = async v => {
-            if (v === acc.value) return;
+        const acc = accessOf(i);
+        if (acc) {
+          const set = async (action, v) => {
             if (!MQ.live) return;
-            const r = await MQ.send('PATCH', '/integrations/' + encodeURIComponent(i.id), { access: v });
+            const r = await MQ.send('PATCH', '/integrations/' + encodeURIComponent(i.id), { actions: { [action.id]: v } });
             if (!r.ok) { $('[data-access-result]', dr.el).innerHTML = String(MQ.callout("Couldn't change access", r.data?.detail || r.data?.title || '', 'bad')); return; }
             /* The frame's mark and every page's words follow the workspace record: read it again. */
             try { localStorage.removeItem('mq:ws'); } catch { /* private mode */ }
-            MQ.toast(v === 'act' ? `Write access to ${i.name} granted` : `${i.name} set to read-only`, 'ok');
+            MQ.toast(v === 'act' ? `${action.label || action.id}: write access` : `${action.label || action.id}: read-only`, 'ok');
             setTimeout(() => location.reload(), 700);
           };
-          const draw = () => {
-            segHost.replaceChildren(MQ.seg([{ id: 'read', label: 'Read-only', icon: 'eye' }, { id: 'act', label: 'Write access', icon: 'bolt' }], acc.value, pick, `Access to ${i.name}`));
-            if (acc.fixed || !acc.actions.length) $$('button', segHost).forEach(b => { b.disabled = true; });
-            else if (!MQ.live) $$('button', segHost).forEach(b => { b.setAttribute('aria-disabled', 'true'); b.dataset.tip = MQ.needTip(); });
-          };
-          let allowed = false;
-          const pick = v => {
-            if (v !== 'act' || v === acc.value) { set(v); return; }
-            allowed = false;
-            const dlg = MQ.dialog({
-              onClose: () => { if (!allowed) draw(); },
-              title: `Allow write access to ${i.name}?`,
-              body: html`<p>${MQ.join(acc.actions.map(x => x.label || x.id), ', ')}</p>`,
-              foot: html`<span class="mq-spacer"></span><button type="button" class="mq-btn" data-close>Cancel</button><button type="button" class="mq-btn mq-btn--primary" data-allow>Allow</button>`,
-            });
-            $('[data-allow]', dlg.el).addEventListener('click', () => { allowed = true; dlg.close(); set('act'); });
-          };
-          draw();
+          const lcFirst = t => t.charAt(0).toLowerCase() + t.slice(1);
+          acc.actions.forEach(action => {
+            const segHost = $(`[data-access-seg="${action.id}"]`, dr.el);
+            if (!segHost) return;
+            const value = action.access === 'act' ? 'act' : 'read';
+            let allowed = false;
+            const draw = () => {
+              segHost.replaceChildren(MQ.seg([{ id: 'read', label: 'Read-only', icon: 'eye' }, { id: 'act', label: 'Write access', icon: 'bolt' }], value, pick, action.label || action.id));
+              if (acc.fixed) $$('button', segHost).forEach(b => { b.disabled = true; });
+              else if (!MQ.live) $$('button', segHost).forEach(b => { b.setAttribute('aria-disabled', 'true'); b.dataset.tip = MQ.needTip(); });
+            };
+            const pick = v => {
+              if (v === value) return;
+              if (v !== 'act') { set(action, v); return; }
+              allowed = false;
+              const dlg = MQ.dialog({
+                onClose: () => { if (!allowed) draw(); },
+                title: `Allow Singularr to ${lcFirst(action.label || action.id)} on ${i.name}?`,
+                foot: html`<span class="mq-spacer"></span><button type="button" class="mq-btn" data-close>Cancel</button><button type="button" class="mq-btn mq-btn--primary" data-allow>Allow</button>`,
+              });
+              $('[data-allow]', dlg.el).addEventListener('click', () => { allowed = true; dlg.close(); set(action, 'act'); });
+            };
+            draw();
+          });
         }
         const log = (det.log || []).map((x, n) => ({ ...x, id: n }));
         MQ.table($('[data-log]', dr.el), {

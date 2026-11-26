@@ -13,7 +13,7 @@
 //! One route changes something outside Singularr: `POST /processing/runs` hands one file to one
 //! flow of a service. It is the owner's alone, it is refused for a title whose manager entry
 //! carries the tag the service's adapter names as protecting, and it is refused while the
-//! integration's access is `read` (here, with a sentence, and again on the way out, by
+//! access of its action `send` is `read` (here, with a sentence, and again on the way out, by
 //! `core::outbound`). `GET /processing/options` says beforehand what a hand-off would do,
 //! and changes nothing. A client names a file by its title and its name: where the file lies
 //! is worked out here, from the title's own files.
@@ -32,6 +32,7 @@ use crate::core::error::{AppError, AppResult};
 use crate::core::outbound::{Access, OutboundError};
 use crate::core::schema::ProblemDoc;
 use crate::core::units;
+use crate::engines::access::read_only_words;
 use crate::engines::service::{integration_view, processing_role};
 use crate::engines::store as engine_store;
 use crate::engines::{
@@ -1111,7 +1112,7 @@ pub struct SendOptions {
     pub file: OptionFile,
     pub service: OptionService,
     /// Whether a file of this title can be sent now: the title is not protected in its
-    /// manager, Singularr may act on the service, and the service takes files on demand. What
+    /// manager, the service's `send` has write access, and the service takes files on demand. What
     /// the service would do with this file for each flow is the flow's own `wouldSend`.
     pub can_send: bool,
     /// What is missing when it cannot, in one sentence.
@@ -1171,11 +1172,6 @@ pub(super) fn not_allowed(why: impl Into<String>) -> Response {
         "Not allowed",
         why,
     )
-}
-
-/// A refused send while the access is `read`, as a problem's sentence.
-pub(super) fn read_only_words(name: &str) -> String {
-    format!("{name} is read-only.")
 }
 
 fn not_offered_words(name: &str) -> String {
@@ -1333,7 +1329,7 @@ async fn options(state: &AppState, q: &OptionsQuery) -> AppResult<SendOptions> {
     let (processor, name) = sender(state, word(&q.service).as_deref())?;
     let (title_ref, held, path) = title_file(state, &title, &file).await?;
     let service = processor.id().to_string();
-    let access = state.engines.access.of(&service).access;
+    let access = state.engines.access.of(&service).of("send");
     let (lines, codec) = file_facts(state, &held).await?;
 
     // What the service would do with the file, flow by flow: asked now, with a GET that
@@ -1556,8 +1552,9 @@ async fn send(state: &AppState, caller: &Caller, body: &SendRequest) -> AppResul
         return Ok(not_allowed(format!("{}.", protected_words(tag))));
     }
     let service = processor.id().to_string();
-    if state.engines.access.of(&service).access != Access::Act {
-        return Ok(not_allowed(read_only_words(&name)));
+    let access = state.engines.access.of(&service);
+    if !access.allows("send") {
+        return Ok(not_allowed(read_only_words(access.label("send"), &name)));
     }
     if !state.config.sync.enabled {
         return Ok(problem(
@@ -1579,7 +1576,7 @@ async fn send(state: &AppState, caller: &Caller, body: &SendRequest) -> AppResul
         Ok(other) => return not_taken(state, &service, &name, other).await,
         // The way out refused the act: the access was taken back while this was on its way.
         Err(EngineError::Outbound(OutboundError::NotAllowed { .. })) => {
-            return Ok(not_allowed(read_only_words(&name)));
+            return Ok(not_allowed(read_only_words(access.label("send"), &name)));
         }
         Err(e) => {
             return Err(AppError::Upstream(format!("Could not reach {name}: {e}")));
@@ -1908,7 +1905,7 @@ async fn processing_options(
 }
 
 /// Send one file of a title to a flow: `{"title": "movie-603", "file": "<its name>", "flow":
-/// "hevc"}`. The owner alone may, and only while Singularr may act on the service. The run is
+/// "hevc"}`. The owner alone may, while the service's `send` has write access. The run is
 /// stored before the answer when the service names its job. Each send is a `processing_sent`
 /// event.
 #[utoipa::path(post, path = "/api/v1/processing/runs", tag = "processing", request_body = SendRequest,
@@ -2276,7 +2273,10 @@ mod tests {
 
     #[test]
     fn a_hand_off_says_why_in_one_sentence() {
-        assert_eq!(read_only_words("HUSH"), "HUSH is read-only.");
+        assert_eq!(
+            read_only_words("Send a file to a flow", "HUSH"),
+            "Send a file to a flow is read-only on HUSH."
+        );
         assert_eq!(protected_words("keep-away"), "Protected by tag keep-away");
         assert_eq!(
             unanswered_words("HUSH"),

@@ -26,6 +26,7 @@ use singularr::core::journal::Journal;
 use singularr::core::model::{EventQuery, NewApiKey, Paging, Scope};
 use singularr::core::outbound::recorded::Recorded;
 use singularr::core::outbound::{Allowlist, Body as Sent, Method, Outbound};
+use singularr::core::runtime;
 use singularr::core::{db, store as core_store};
 use singularr::engines::RequestSite;
 use singularr::engines::arr::{ArrClient, Radarr, Sonarr};
@@ -36,6 +37,7 @@ use singularr::engines::{ClientDownload, DownloadClient, LibraryEngine};
 use singularr::homemovies::model::{InboxQuery, TapePatch, TapeQuery};
 use singularr::homemovies::service::{self as homemovies, HomeMovies};
 use singularr::lifecycle::downloads::{Claims, reconcile};
+use singularr::lifecycle::jobs::{self as runtime_jobs, Jobs, JobsDeps};
 use singularr::lifecycle::model::DownloadQuery;
 use singularr::lifecycle::sync::{SyncDeps, titles_pass};
 use singularr::lifecycle::{service as downloads, store as downloads_store};
@@ -2610,6 +2612,108 @@ async fn a_pass_this_process_does_not_run_is_forgotten_at_start() {
     t.drop_db().await;
 }
 
+/// The pass rows (B4): one per integration and pass.
+async fn pass_rows(pool: &PgPool) -> Vec<(String, String, bool)> {
+    sqlx::query_as("SELECT integration, pass, ok FROM integration_health ORDER BY 1, 2")
+        .fetch_all(pool)
+        .await
+        .unwrap()
+}
+
+/// The jobs of the runtime read no integration. Run once each, they leave the pass rows (B4) as
+/// they were. The passes the loops report on stay the same. `forget_other_passes` keeps the same
+/// rows. `GET /api/v1/jobs` lists the folder scans from their schedules with the ids and the
+/// intervals of their loops. The index and the dispatcher are not listed. A listed scan runs now
+/// with `POST /api/v1/jobs/{id}/run`.
+#[tokio::test]
+async fn the_runtimes_jobs_leave_the_pass_rows_alone() {
+    let Some(t) = TestDb::new("jobs_passes").await else {
+        return;
+    };
+    let journal = Journal::new();
+    let st = state_with(&t.pool, journal.clone(), &[("RADARR_API_KEY", "a-key")]);
+    let ok = PassOk::new(Duration::from_millis(5), serde_json::json!({ "titles": 1 }));
+    st.engines
+        .report(&t.pool, &journal, "radarr", "titles", Ok(ok))
+        .await
+        .unwrap();
+    let before = pass_rows(&t.pool).await;
+    assert_eq!(
+        before,
+        vec![("radarr".to_string(), "titles".to_string(), true)]
+    );
+    let passes = st.engines.passes(true);
+
+    let schedules = runtime_jobs::schedules(&st.config, &st.settings);
+    assert!(
+        schedules.iter().all(|s| s.integration.is_none()),
+        "{schedules:?}"
+    );
+    let jobs = start_jobs(&st).await;
+    for s in &schedules {
+        let ended = runtime::run_and_wait(&t.pool, &s.key, serde_json::json!({}))
+            .await
+            .unwrap();
+        assert!(ended.is_some(), "{} ran", s.key);
+    }
+
+    let app = routes::router(st.clone());
+    let owner: [(&str, &str); 1] = [("x-auth-request-email", "owner@example.com")];
+    let (status, _, panel) = call(&app, "GET", "/api/v1/jobs", &owner, None).await;
+    assert_eq!(status, StatusCode::OK, "{panel}");
+    let listed: Vec<(String, u64)> = panel["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|j| {
+            (
+                j["id"].as_str().unwrap().to_string(),
+                j["every"].as_u64().unwrap(),
+            )
+        })
+        .filter(|(id, _)| id.starts_with("folder:") || id.starts_with("singularr:"))
+        .collect();
+    assert_eq!(
+        listed,
+        vec![
+            ("folder:home-movies".to_string(), 21_600),
+            ("folder:music".to_string(), 21_600)
+        ]
+    );
+    let music = panel["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|j| j["id"] == "folder:music")
+        .unwrap();
+    assert_eq!(music["label"], "Music folder scan");
+    assert!(music["lastResult"].is_string(), "{music}");
+    assert_eq!(music["runs"], 1);
+    let (status, _, _) = call(&app, "POST", "/api/v1/jobs/folder:music/run", &owner, None).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    for unknown in ["singularr:index", "folder:movie-folders"] {
+        let (status, _, _) = call(
+            &app,
+            "POST",
+            &format!("/api/v1/jobs/{unknown}/run"),
+            &owner,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{unknown}");
+    }
+    jobs.stop().await;
+
+    assert_eq!(pass_rows(&t.pool).await, before, "no job wrote a pass row");
+    assert_eq!(st.engines.passes(true), passes);
+    assert_eq!(
+        st.engines.forget_other_passes(&t.pool, true).await.unwrap(),
+        0
+    );
+    assert_eq!(pass_rows(&t.pool).await, before);
+    t.drop_db().await;
+}
+
 /// One integration as `GET /api/v1/integrations` lists it.
 async fn listed_integration(
     app: &axum::Router,
@@ -2634,11 +2738,213 @@ async fn listed_integration(
         .unwrap_or_else(|| panic!("no integration {id} in {listed}"))
 }
 
+/// Access per action: on one manager grab is allowed and remove refused. Each action that changes
+/// is one journal event. A value saved before actions had rows reads as before: every action of
+/// the type acts, now as one row per action.
+#[tokio::test]
+async fn each_action_of_a_manager_has_its_own_access() {
+    use singularr::core::outbound::{Class, OutboundError};
+    let Some(t) = TestDb::new("access_per_action").await else {
+        return;
+    };
+    let journal = Journal::new();
+    sqlx::query(
+        "INSERT INTO integration_access (integration, action, access, saved_by)
+         VALUES ('sonarr', '*', 'act', 'user:owner@example.com')",
+    )
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    let mut allow = Allowlist::with_metadata_providers();
+    for (id, base, kind) in [
+        ("radarr", RADARR, ArrKind::Radarr),
+        ("sonarr", SONARR, ArrKind::Sonarr),
+    ] {
+        allow
+            .allow_integration(id, base, singularr::engines::arr::calls(kind))
+            .unwrap();
+    }
+    let out = Outbound::with_transport(allow, Recorded::new());
+    let st = state_over(
+        &t.pool,
+        journal.clone(),
+        &[("RADARR_API_KEY", "a-key"), ("SONARR_API_KEY", "a-key")],
+        &out,
+    );
+    st.engines.access.load(&t.pool).await.unwrap();
+    let sonarr = st.engines.access.of("sonarr");
+    assert_eq!(sonarr.acting, ["search", "grab", "import", "remove"]);
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT action, access FROM integration_access WHERE integration = 'sonarr' ORDER BY action",
+    )
+    .fetch_all(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 4, "{rows:?}");
+    assert!(
+        rows.iter()
+            .all(|(action, access)| action != "*" && access == "act")
+    );
+
+    // Radarr through the route: grab acts, remove stays read.
+    let app = routes::router(st.clone());
+    let session: [(&str, &str); 1] = [("x-auth-request-email", "owner@example.com")];
+    let before = core_store::latest_event_id(&t.pool).await.unwrap();
+    let (status, _, body) = call(
+        &app,
+        "PATCH",
+        "/api/v1/integrations/radarr",
+        &session,
+        Some(r#"{"actions": {"grab": "act", "remove": "read"}}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        kinds(&t.pool, before).await,
+        vec!["integration_access_changed"],
+        "remove was read already"
+    );
+    let release = format!("{RADARR}/api/v3/release");
+    let grab = out
+        .check(
+            Method::Post,
+            &release,
+            &Sent::Json(r#"{"guid": "g", "indexerId": 1}"#.into()),
+        )
+        .unwrap();
+    assert_eq!(grab.class, Class::Act("grab"));
+    let remove = format!("{RADARR}/api/v3/queue/5?removeFromClient=true&blocklist=false");
+    assert!(matches!(
+        out.check(Method::Delete, &remove, &Sent::None),
+        Err(OutboundError::NotAllowed { .. })
+    ));
+    let actions = body["actions"].as_array().unwrap().clone();
+    let of = |id: &str| {
+        actions
+            .iter()
+            .find(|a| a["id"] == id)
+            .map(|a| a["access"].clone())
+    };
+    assert_eq!(
+        (of("grab"), of("remove")),
+        (Some("act".into()), Some("read".into()))
+    );
+
+    // The word of the whole integration: one event for each of the three that change.
+    let before = core_store::latest_event_id(&t.pool).await.unwrap();
+    let (status, _, _) = call(
+        &app,
+        "PATCH",
+        "/api/v1/integrations/radarr",
+        &session,
+        Some(r#"{"access": "act"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(kinds(&t.pool, before).await.len(), 3);
+    assert!(out.check(Method::Delete, &remove, &Sent::None).is_ok());
+    // An action the type does not have is refused.
+    let (status, _, _) = call(
+        &app,
+        "PATCH",
+        "/api/v1/integrations/radarr",
+        &session,
+        Some(r#"{"actions": {"scan": "act"}}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    t.drop_db().await;
+}
+
+/// Consent: an `act` of the environment covers every action of its type. That includes an
+/// action a later version adds. A start names each action it covers that the last start did not
+/// record. The first start records the actions and names none. An access the owner saved covers
+/// the actions it names alone. It is never named.
+#[tokio::test]
+async fn an_act_of_the_environment_names_the_actions_new_since_the_last_start() {
+    let Some(t) = TestDb::new("access_declared").await else {
+        return;
+    };
+    let out = outbound(Recorded::new());
+    let st = state_over(
+        &t.pool,
+        Journal::new(),
+        &[
+            ("RADARR_API_KEY", "a-key"),
+            ("RADARR_ACCESS", "act"),
+            ("SONARR_API_KEY", "a-key"),
+        ],
+        &out,
+    );
+    let book = &st.engines.access;
+    assert!(book.note_declared(&t.pool).await.unwrap().is_empty());
+    assert!(
+        book.note_declared(&t.pool).await.unwrap().is_empty(),
+        "nothing is new"
+    );
+    let recorded: Vec<(String, String)> = sqlx::query_as(
+        "SELECT integration, action FROM integration_actions ORDER BY integration, action",
+    )
+    .fetch_all(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(recorded.len(), 8, "{recorded:?}");
+
+    // The last start knew three of Radarr's four actions and two of Sonarr's.
+    sqlx::query(
+        "DELETE FROM integration_actions
+         WHERE (integration, action) IN (('radarr', 'remove'), ('sonarr', 'import'), ('sonarr', 'remove'))",
+    )
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        book.note_declared(&t.pool).await.unwrap(),
+        vec![
+            "RADARR_ACCESS=act gives Radarr write access to an action the last start did not declare: Remove a download (`remove`)"
+                .to_string()
+        ],
+        "Sonarr's access is nobody's act"
+    );
+    assert!(book.note_declared(&t.pool).await.unwrap().is_empty());
+    t.drop_db().await;
+}
+
 fn state(pool: &PgPool, journal: Journal) -> AppState {
     state_with(pool, journal, &[])
 }
 
 /// The application state over a test database, with more variables set.
+/// The jobs of the runtime over a test's state, started: the folder scans, the index and the
+/// dispatcher. The runtime has a pool of its own, as at boot.
+async fn start_jobs(st: &AppState) -> Jobs {
+    let runtime = PgPoolOptions::new()
+        .max_connections(runtime_jobs::connections())
+        .connect_lazy_with(st.pool.connect_options().as_ref().clone());
+    runtime_jobs::start(
+        &st.config,
+        JobsDeps {
+            runtime,
+            pool: st.pool.clone(),
+            journal: st.journal.clone(),
+            settings: st.settings.clone(),
+            editions: Arc::new(singularr_core::EditionList::shipped().clone()),
+            music: st.music.clone(),
+            home_movies: st.home_movies.clone(),
+            search: st.search.clone(),
+            metadata: st.metadata.clone(),
+            notify: st.notify.clone(),
+            describe: Arc::new(singularr::api::notifications::Describer::new(
+                st.pool.clone(),
+                &st.config,
+                st.settings.clone(),
+            )),
+        },
+    )
+    .await
+    .unwrap()
+}
+
 fn state_with(pool: &PgPool, journal: Journal, extra: &[(&str, &str)]) -> AppState {
     state_on(pool, journal, extra, Recorded::new())
 }
@@ -2670,7 +2976,7 @@ fn state_over(pool: &PgPool, journal: Journal, extra: &[(&str, &str)], out: &Out
     AppState::new(Inner {
         engines: Arc::new(EngineSet::from_config(&config, out)),
         metadata: Arc::new(ProviderSet::from_config(&config, out)),
-        owners: singularr::core::identity::Allowlist::parse(&config.owner_emails),
+        owners: singularr::core::identity::Allowlist::parse(&config.bootstrap.owner_emails),
         requests: Arc::new(Requests::new(&config.request_rules)),
         music: Arc::new(MusicLibrary::new(&config.music.root)),
         home_movies: Arc::new(HomeMovies::new(&config.home_movies.root)),
@@ -2721,132 +3027,6 @@ async fn call(
         .unwrap();
     let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
     (status, content_type, json)
-}
-
-#[tokio::test]
-async fn keys_are_hashed_scoped_and_revocable() {
-    let Some(t) = TestDb::new("keys").await else {
-        return;
-    };
-    let journal = Journal::new();
-    let owners = singularr::core::identity::Allowlist::parse("owner@example.com");
-    let owner = Caller::Owner {
-        email: "owner@example.com".into(),
-    };
-    let created = auth::create_key(
-        &t.pool,
-        &journal,
-        &owner,
-        &NewApiKey {
-            name: "reader".into(),
-            scopes: vec![Scope::Read, Scope::Read],
-        },
-    )
-    .await
-    .unwrap();
-    assert!(created.secret.starts_with("mq_"));
-    assert_eq!(created.key.scopes, vec![Scope::Read]);
-    let stored: (String, String) =
-        sqlx::query_as("SELECT prefix, sha256 FROM api_keys WHERE id = $1")
-            .bind(created.key.id)
-            .fetch_one(&t.pool)
-            .await
-            .unwrap();
-    assert_eq!(stored.0, created.key.prefix);
-    assert_ne!(stored.1, created.secret, "only the hash is stored");
-    assert!(auth::key_matches(&created.secret, &stored.1));
-    assert!(
-        auth::create_key(
-            &t.pool,
-            &journal,
-            &owner,
-            &NewApiKey {
-                name: " ".into(),
-                scopes: vec![Scope::Read]
-            }
-        )
-        .await
-        .is_err()
-    );
-    assert!(
-        auth::create_key(
-            &t.pool,
-            &journal,
-            &owner,
-            &NewApiKey {
-                name: "x".into(),
-                scopes: vec![]
-            }
-        )
-        .await
-        .is_err()
-    );
-
-    let bearer = |secret: &str| {
-        let mut h = axum::http::HeaderMap::new();
-        h.insert("authorization", format!("Bearer {secret}").parse().unwrap());
-        h
-    };
-    let caller = auth::identify(&bearer(&created.secret), &t.pool, &owners)
-        .await
-        .unwrap();
-    assert_eq!(
-        caller,
-        Caller::Key {
-            id: created.key.id,
-            name: "reader".into(),
-            scopes: vec![Scope::Read]
-        }
-    );
-    assert!(
-        auth::list_keys(&t.pool).await.unwrap()[0]
-            .last_used
-            .is_some(),
-        "use is recorded"
-    );
-    // A key with the right prefix and a wrong tail, and one that never existed.
-    let forged = format!(
-        "{}{}",
-        &created.secret[..20],
-        "0".repeat(created.secret.len() - 20)
-    );
-    assert!(
-        auth::identify(&bearer(&forged), &t.pool, &owners)
-            .await
-            .is_err()
-    );
-    assert!(
-        auth::identify(&bearer("mq_00000000000000000000"), &t.pool, &owners)
-            .await
-            .is_err()
-    );
-    assert!(
-        auth::identify(&bearer("not-a-key"), &t.pool, &owners)
-            .await
-            .is_err()
-    );
-
-    auth::revoke_key(&t.pool, &journal, &owner, created.key.id)
-        .await
-        .unwrap();
-    assert!(
-        auth::identify(&bearer(&created.secret), &t.pool, &owners)
-            .await
-            .is_err(),
-        "a revoked key is refused"
-    );
-    assert!(
-        auth::revoke_key(&t.pool, &journal, &owner, created.key.id)
-            .await
-            .is_err()
-    );
-    assert_eq!(kinds(&t.pool, 0).await, vec!["key_created", "key_revoked"]);
-    let events = core_store::events_after(&t.pool, 0, 10).await.unwrap();
-    assert!(
-        !events[0].body.to_string().contains(&created.secret),
-        "the secret is not journaled"
-    );
-    t.drop_db().await;
 }
 
 #[tokio::test]
@@ -4024,13 +4204,15 @@ async fn the_music_folder_becomes_artists_albums_and_tracks() {
     let scan_state = music::state(&t.pool, &unmounted).await.unwrap();
     assert!(!scan_state.ok && scan_state.error.is_some());
 
-    // The routes.
+    // The routes. A scan from the API is a run of the folder's job: the runtime runs it.
     let root = folder.root();
-    let app = routes::router(state_with(
+    let st = state_with(
         &t.pool,
         journal.clone(),
         &[("SINGULARR_MUSIC_ROOT", root.as_str())],
-    ));
+    );
+    let jobs = start_jobs(&st).await;
+    let app = routes::router(st);
     let owner = Caller::Owner {
         email: "owner@example.com".into(),
     };
@@ -4105,6 +4287,8 @@ async fn the_music_folder_becomes_artists_albums_and_tracks() {
     let (status, _, body) = call(&app, "POST", "/api/v1/music/scan", &session, None).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["folder"], "music");
+    assert_eq!(body["found"], 3, "the run's report");
+    jobs.stop().await;
     t.drop_db().await;
 }
 
@@ -9451,12 +9635,13 @@ async fn what_singularr_may_do_with_an_integration_is_its_own_permission() {
             .cloned()
             .unwrap_or_else(|| panic!("{id} is in the workspace record"))
     };
-    let send = json!([{"id": "send", "label": "Send a file to a flow"}]);
+    // Each action with its own access.
+    let send = json!([{"id": "send", "label": "Send a file to a flow", "access": "read"}]);
     let manager = json!([
-        {"id": "search", "label": "Search for releases"},
-        {"id": "grab", "label": "Grab a release"},
-        {"id": "import", "label": "Import a refused download"},
-        {"id": "remove", "label": "Remove a download"}
+        {"id": "search", "label": "Search for releases", "access": "read"},
+        {"id": "grab", "label": "Grab a release", "access": "read"},
+        {"id": "import", "label": "Import a refused download", "access": "read"},
+        {"id": "remove", "label": "Remove a download", "access": "read"}
     ]);
 
     // By default Singularr observes: every integration is read, and only the processing
@@ -9486,13 +9671,13 @@ async fn what_singularr_may_do_with_an_integration_is_its_own_permission() {
             &json!("read"),
             &json!("default"),
             &json!([
-                {"id": "limits", "label": "Change worker limits"},
-                {"id": "pause", "label": "Pause and resume nodes"},
-                {"id": "cancel", "label": "Cancel a worker's file"},
-                {"id": "requeue", "label": "Requeue a file"},
-                {"id": "scan", "label": "Scan a library"},
-                {"id": "watch", "label": "Switch folder watching"},
-                {"id": "flow", "label": "Assign a flow to a library"}
+                {"id": "limits", "label": "Change worker limits", "access": "read"},
+                {"id": "pause", "label": "Pause and resume nodes", "access": "read"},
+                {"id": "cancel", "label": "Cancel a worker's file", "access": "read"},
+                {"id": "requeue", "label": "Requeue a file", "access": "read"},
+                {"id": "scan", "label": "Scan a library", "access": "read"},
+                {"id": "watch", "label": "Switch folder watching", "access": "read"},
+                {"id": "flow", "label": "Assign a flow to a library", "access": "read"}
             ])
         )
     );
@@ -9658,7 +9843,10 @@ async fn what_singularr_may_do_with_an_integration_is_its_own_permission() {
         (&allowed["id"], &allowed["access"], &allowed["accessSource"]),
         (&json!("hush"), &json!("act"), &json!("saved"))
     );
-    assert_eq!(allowed["actions"], send);
+    assert_eq!(
+        allowed["actions"],
+        json!([{"id": "send", "label": "Send a file to a flow", "access": "act"}])
+    );
     assert_eq!(allowed["writes"], json!(["Send a file to a flow"]));
     let access = field(&allowed, "integrations.hush.access").unwrap();
     assert_eq!(
@@ -9700,7 +9888,7 @@ async fn what_singularr_may_do_with_an_integration_is_its_own_permission() {
         (
             &json!("integration.access"),
             &json!("integration_access_changed"),
-            &json!("Access changed to write")
+            &json!("Send a file to a flow: access changed to write")
         )
     );
     assert_eq!(
@@ -9713,7 +9901,14 @@ async fn what_singularr_may_do_with_an_integration_is_its_own_permission() {
     );
     assert_eq!(
         changes[0]["body"],
-        json!({"integration": "hush", "name": "HUSH", "from": "read", "to": "act"})
+        json!({
+            "integration": "hush",
+            "name": "HUSH",
+            "action": "send",
+            "label": "Send a file to a flow",
+            "from": "read",
+            "to": "act"
+        })
     );
     // Asked for what is in force already, nothing is written.
     let (status, _, same) = call(
@@ -9749,7 +9944,10 @@ async fn what_singularr_may_do_with_an_integration_is_its_own_permission() {
     );
     let page = get_ok(&app, "/api/v1/journal?kind=integration.access").await;
     assert_eq!(page["events"].as_array().unwrap().len(), 2);
-    assert_eq!(page["events"][0]["summary"], "Access changed to read-only");
+    assert_eq!(
+        page["events"][0]["summary"],
+        "Send a file to a flow: access changed to read-only"
+    );
 
     // What was saved is in force again after a restart, once it is read from the database.
     let (status, _, _) = call(
@@ -9971,7 +10169,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
             .cloned()
             .unwrap_or_else(|| panic!("{flow} is among the options"))
     };
-    let read_only = "HUSH is read-only.";
+    let read_only = "Send a file to a flow is read-only on HUSH.";
 
     // The options, while Singularr may only read the bridge. The path is the server's: the
     // title's folder as its manager names it, and the file's name.
@@ -11429,7 +11627,17 @@ async fn the_worker_is_changed_by_the_owner_only_with_write_access() {
 
     // Read access: every route says so, and nothing is asked of the worker, not even a read.
     let before = recorded.calls_sent().len();
-    for (path, body) in &every {
+    // Each refusal names its route's own action.
+    let labels = [
+        "Change worker limits",
+        "Pause and resume nodes",
+        "Cancel a worker's file",
+        "Requeue a file",
+        "Scan a library",
+        "Switch folder watching",
+        "Assign a flow to a library",
+    ];
+    for ((path, body), label) in every.iter().zip(labels) {
         let (status, content_type, problem) =
             call(&app, "POST", path, &session, body.as_deref()).await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{path}: {problem}");
@@ -11438,7 +11646,7 @@ async fn the_worker_is_changed_by_the_owner_only_with_write_access() {
             (&problem["code"], &problem["detail"]),
             (
                 &json!("singularr.not_allowed"),
-                &json!("Tdarr is read-only.")
+                &json!(format!("{label} is read-only on Tdarr."))
             ),
             "{path}"
         );
@@ -11915,6 +12123,9 @@ async fn the_worker_page_and_the_rules_routes_answer() {
     // queue, its libraries; what it does not give is named.
     let page = get_ok(&app, "/api/v1/processing/workers/tdarr").await;
     assert_eq!(page["access"], "read");
+    let actions = page["actions"].as_array().unwrap();
+    assert_eq!(actions.len(), 7, "{actions:?}");
+    assert!(actions.iter().all(|a| a["access"] == "read"));
     assert_eq!(page["service"]["id"], "tdarr");
     assert_eq!(
         page["service"]["libraries"].as_array().map(Vec::len),
@@ -12125,7 +12336,7 @@ async fn the_worker_page_and_the_rules_routes_answer() {
         (
             StatusCode::FORBIDDEN,
             &json!("singularr.not_allowed"),
-            &json!("HUSH is read-only.")
+            &json!("Send a file to a flow is read-only on HUSH.")
         )
     );
     assert_eq!(staged_calls(&recorded), 0);
@@ -12400,7 +12611,7 @@ async fn the_managers_are_asked_by_the_owner_only_with_write_access() {
             problem["detail"]
                 .as_str()
                 .unwrap()
-                .ends_with("is read-only."),
+                .contains(" is read-only on "),
             "{problem}"
         );
     }

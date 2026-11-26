@@ -38,6 +38,7 @@ Rules for every string a person sees in Singularr: the web client and anything t
 | Run | Job (in processing) |
 | Read-only | Observing |
 | Write access | Act, acting |
+| Partial write access | Mixed access, some access |
 | Request | Ask |
 | Can be upgraded | Can be better, below the profile |
 | Not released | Not out yet |

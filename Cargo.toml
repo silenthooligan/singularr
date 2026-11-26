@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/singularr-core", "crates/singularr-sdk", "app"]
+members = ["crates/singularr-core", "crates/singularr-sdk", "crates/singularr-platform", "app"]
 
 [workspace.package]
 version = "0.1.2"
@@ -16,3 +16,4 @@ regex = "1"
 thiserror = "2"
 singularr-core = { path = "crates/singularr-core" }
 singularr-sdk = { path = "crates/singularr-sdk" }
+singularr-platform = { path = "crates/singularr-platform" }

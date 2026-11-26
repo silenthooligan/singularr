@@ -49,8 +49,9 @@
   };
   const conditionChips = (c, ws) => FIELDS.map(f => [f, get(c || {}, f)]).filter(([, v]) => v != null && v !== '' && !(Array.isArray(v) && !v.length));
 
-  /* A control that changes a service: live while the service has write access, else drawn as one that cannot act. */
-  const may = svc => svc?.access === 'act' || svc?.service?.access === 'act';
+  /* A control that changes a service: live while its own action has write access on the service (the page's
+     actions), else drawn as one that cannot act. */
+  const may = (page, action) => (page?.actions || []).some(a => a.id === action && a.access === 'act');
   const tip = name => `Needs write access to ${name}`;
   const need = name => ` aria-disabled="true" data-tip="${MQ.esc(tip(name))}"`;
   const btn = (label, attrs, ok, name, cls = '') => html`<button type="button" class="mq-btn mq-btn--sm ${cls}" ${raw(attrs)}${raw(ok ? '' : need(name))}>${label}</button>`;
@@ -111,15 +112,15 @@
         view.innerHTML = String(MQ.empty('Loading', '', 'refresh'));
         const page = await workerPage(w.id);
         if (!page) { view.innerHTML = String(MQ.empty(MQ.live ? "Couldn't load worker" : 'Not available', '', 'alert')); return; }
-        const ok = may(page); const name = w.name;
+        const can = action => may(page, action); const name = w.name;
         const node = n => html`<div class="pr-node" data-node="${n.id}">
-          <div class="pr-node-head"><b>${n.name}</b>${n.paused ? MQ.badge('attention', 'Paused') : ''}<span class="mq-spacer"></span>${btn(n.paused ? 'Resume' : 'Pause', `data-pause="${n.paused ? '0' : '1'}"`, ok, name)}</div>
+          <div class="pr-node-head"><b>${n.name}</b>${n.paused ? MQ.badge('attention', 'Paused') : ''}<span class="mq-spacer"></span>${btn(n.paused ? 'Resume' : 'Pause', `data-pause="${n.paused ? '0' : '1'}"`, can('pause'), name)}</div>
           <div class="pr-limits">${KINDS.map(([k, label]) => html`<div class="pr-limit"><span>${label}</span><span class="pr-step">
-            <button type="button" class="mq-btn mq-btn--sm mq-btn--icon" data-limit="${k}" data-to="${(n.limits?.[k] || 0) - 1}" aria-label="Fewer workers"${raw(ok && (n.limits?.[k] || 0) > 0 ? '' : need(name))}>${icon('minus', 'mq-icon--sm')}</button>
+            <button type="button" class="mq-btn mq-btn--sm mq-btn--icon" data-limit="${k}" data-to="${(n.limits?.[k] || 0) - 1}" aria-label="Fewer workers"${raw(can('limits') && (n.limits?.[k] || 0) > 0 ? '' : need(name))}>${icon('minus', 'mq-icon--sm')}</button>
             <b class="num">${n.limits?.[k] ?? 0}</b>
-            <button type="button" class="mq-btn mq-btn--sm mq-btn--icon" data-limit="${k}" data-to="${(n.limits?.[k] || 0) + 1}" aria-label="More workers"${raw(ok ? '' : need(name))}>${icon('plus', 'mq-icon--sm')}</button></span></div>`)}</div>
+            <button type="button" class="mq-btn mq-btn--sm mq-btn--icon" data-limit="${k}" data-to="${(n.limits?.[k] || 0) + 1}" aria-label="More workers"${raw(can('limits') ? '' : need(name))}>${icon('plus', 'mq-icon--sm')}</button></span></div>`)}</div>
           <div class="pr-busy">${(n.workers || []).length ? n.workers.map(b => html`<div class="pr-busy-row"><span><code>${b.file ? b.file.split(/[\\/]/).pop() : ''}</code> <span class="pr-meta">${MQ.join([b.status, b.kind], ' · ')}</span></span>
-            <span>${MQ.progress(b.percent || 0, 'proc')}</span>${btn('Cancel file', `data-cancel="${b.id || ''}"`, ok && b.id, name)}</div>`) : html`<span class="pr-meta">No worker busy</span>`}</div></div>`;
+            <span>${MQ.progress(b.percent || 0, 'proc')}</span>${btn('Cancel file', `data-cancel="${b.id || ''}"`, can('cancel') && b.id, name)}</div>`) : html`<span class="pr-meta">No worker busy</span>`}</div></div>`;
         const r = page.resources;
         view.innerHTML = String(html`${workers.length > 1 ? html`<div id="pick"></div>` : ''}
           ${page.unread?.length ? MQ.callout('Not read', page.unread.join(', '), 'warn') : ''}
@@ -156,18 +157,18 @@
         const w = workerOf(MQ.hash.get('worker'));
         if (!w) { view.innerHTML = String(MQ.empty('No libraries')); return; }
         const page = await workerPage(w.id);
-        const ok = may(page); const name = w.name;
+        const can = action => may(page, action); const name = w.name;
         const libs = (page?.service?.libraries || w.libraries || []).slice().sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
         const flowsOf = page?.service?.flows || w.flows || [];
         view.innerHTML = String(html`<div id="libs"></div>`);
         MQ.table($('#libs', view), { id: 'pr-libs', rows: libs, toolbar: false, pageSize: 0, empty: { title: 'No libraries' },
           columns: [
             { key: 'name', label: 'Library', always: true, render: l => html`<span class="mq-cell-two"><b>${l.name}</b><small class="mono">${l.folder || ''}</small></span>` },
-            { key: 'flow', label: 'Flow', value: l => l.flow?.name || '', render: l => held(ok, name, html`<select class="mq-select" data-flow="${l.id}" aria-label="Flow"${raw(ok ? '' : ' disabled')}>${!l.flow ? html`<option value="">None</option>` : ''}${flowsOf.map(f => html`<option value="${f.id}"${raw(f.id === l.flow?.id ? ' selected' : '')}>${f.name || f.id}</option>`)}${l.flow && !flowsOf.some(f => f.id === l.flow.id) ? html`<option value="${l.flow.id}" selected>${l.flow.name}</option>` : ''}</select>`) },
-            { key: 'watching', label: 'Watching', render: l => held(ok, name, html`<input type="checkbox" class="mq-switch" data-watch="${l.id}" aria-label="Folder watching"${raw(l.watching ? ' checked' : '')}${raw(ok ? '' : ' disabled')}>`) },
+            { key: 'flow', label: 'Flow', value: l => l.flow?.name || '', render: l => held(can('flow'), name, html`<select class="mq-select" data-flow="${l.id}" aria-label="Flow"${raw(can('flow') ? '' : ' disabled')}>${!l.flow ? html`<option value="">None</option>` : ''}${flowsOf.map(f => html`<option value="${f.id}"${raw(f.id === l.flow?.id ? ' selected' : '')}>${f.name || f.id}</option>`)}${l.flow && !flowsOf.some(f => f.id === l.flow.id) ? html`<option value="${l.flow.id}" selected>${l.flow.name}</option>` : ''}</select>`) },
+            { key: 'watching', label: 'Watching', render: l => held(can('watch'), name, html`<input type="checkbox" class="mq-switch" data-watch="${l.id}" aria-label="Folder watching"${raw(l.watching ? ' checked' : '')}${raw(can('watch') ? '' : ' disabled')}>`) },
             { key: 'transcodes', label: 'Transcodes', type: 'num', cls: 'hide-md' },
             { key: 'savedBytes', label: 'Saved', type: 'size', cls: 'hide-md' },
-            { key: 'scan', label: '', sort: false, td: 'c-actions', render: l => btn('Scan', `data-scan="${l.id}"`, ok, name) },
+            { key: 'scan', label: '', sort: false, td: 'c-actions', render: l => btn('Scan', `data-scan="${l.id}"`, can('scan'), name) },
           ] });
         const at = id => `/processing/workers/${encodeURIComponent(w.id)}/libraries/${encodeURIComponent(id)}`;
         const done = (r, word) => { if (!r.ok) { failed(r, `Couldn't ${word}`); } else { MQ.toast('Saved', 'ok'); delete pages[w.id]; } };

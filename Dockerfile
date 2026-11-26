@@ -111,11 +111,19 @@ RUN apt-get update \
 COPY --from=ffmpeg-static /out/bin/ /usr/local/bin/
 ENV SINGULARR_TEST_MEDIA=required
 COPY . .
+# Cargo takes a crate of the workspace as built when none of its files is newer than its last
+# build. The copied files keep their times from the build context. BuildKit also reuses an
+# earlier copy of the same sources with that copy's times. The target directory is a cache that
+# the checks of one machine share. A check whose files are older than the cached build of
+# another checkout would test that build. This step holds the lock of the target directory. It
+# first sets the time of every copied file to now. Cargo then compiles each crate of the
+# workspace from these sources. The dependencies stay compiled in the cache.
 RUN --mount=type=cache,id=singularr-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=singularr-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=singularr-check-target,target=/build/target,sharing=locked \
     --mount=type=tmpfs,target=/run/singularr-pg \
-    bash tools/gate.sh
+    find . -path ./target -prune -o -type f -exec touch {} + \
+    && bash tools/gate.sh
 
 FROM ${RUNTIME_IMAGE} AS runtime-base
 

@@ -516,6 +516,13 @@ fn facts_name_what_matters_of_each_event() {
         facts_of("integration_access_changed", json!({"to": "act"})),
         pairs(&[("Access", "Write access")])
     );
+    assert_eq!(
+        facts_of(
+            "integration_access_changed",
+            json!({"action": "grab", "label": "Grab a release", "to": "read"})
+        ),
+        pairs(&[("Action", "Grab a release"), ("Access", "Read-only")])
+    );
     assert!(facts_of("title_added", json!({"title": "x"})).is_empty());
     assert_eq!(span(691_200), "8 d");
     assert_eq!(span(-5), "0 min");

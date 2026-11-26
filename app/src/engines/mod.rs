@@ -40,8 +40,9 @@ pub mod sabnzbd;
 pub mod seerr;
 #[cfg(feature = "ssr")]
 pub mod service;
+/// The integrations' rows: the platform's (`singularr_platform::integrations`).
 #[cfg(feature = "ssr")]
-pub mod store;
+pub use singularr_platform::integrations as store;
 #[cfg(feature = "ssr")]
 pub mod tautulli;
 #[cfg(feature = "ssr")]

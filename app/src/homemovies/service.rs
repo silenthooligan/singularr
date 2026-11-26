@@ -11,15 +11,15 @@ use crate::core::error::{AppError, AppResult};
 use crate::core::journal::{Journal, event};
 use crate::core::model::{FolderScan, Page, Paging, ScanReport};
 use crate::core::observe;
+use crate::core::runtime::{Cx, Done, Failed, Handler};
 use crate::core::units;
-use crate::lifecycle::sync::jitter;
-use serde_json::json;
+use async_trait::async_trait;
+use serde_json::{Value, json};
 use sqlx::PgPool;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::task::JoinHandle;
+use std::time::Instant;
 
 pub const FOLDER: &str = "home_movies";
 
@@ -589,6 +589,8 @@ pub async fn scan(
             store::record_scan(pool, &lib.root_text(), true, took_ms, None, &counts).await?;
             Ok(report)
         }
+        // A scan whose lease was lost commits nothing: its scan state stays the last run's.
+        Err(AppError::Db(e)) if crate::core::runtime::lost(&e) => Err(AppError::Db(e)),
         Err(e) => {
             let message = e.to_string();
             if let Err(db) = store::record_scan(
@@ -633,50 +635,62 @@ pub async fn state(pool: &PgPool, lib: &HomeMovies) -> AppResult<FolderScan> {
     })
 }
 
-/// Scan every `interval`, after a random delay of up to `jitter_max`.
-pub fn spawn_scans(
-    pool: PgPool,
-    journal: Journal,
-    lib: Arc<HomeMovies>,
-    interval: Duration,
-    jitter_max: Duration,
-) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let job = crate::core::jobs::registry()
-            .register(crate::core::jobs::JobSpec::folder("home-movies", interval));
-        job.wait(jitter(jitter_max)).await;
-        loop {
-            let started = job.begin();
-            match scan(&pool, &journal, &lib, "scan:home_movies").await {
-                Ok(r) => {
-                    if r.added + r.removed + r.changed > 0 {
-                        tracing::info!(
-                            added = r.added,
-                            missing = r.removed,
-                            changed = r.changed,
-                            tapes = r.found,
-                            "home movies updated"
-                        );
-                    }
-                    job.end(
-                        started,
-                        Ok(format!(
-                            "{}, {} added, {} missing, {} changed",
-                            units::counted(r.found, "recording", "recordings"),
-                            units::count(r.added),
-                            units::count(r.removed),
-                            units::count(r.changed)
-                        )),
+/// The key of the home movies folder's scan in the job runtime.
+pub const JOB: &str = "folder:home-movies";
+
+/// The home movies folder's job: the scan, its writes through a journal fenced by the run's
+/// lease. The events name the payload's actor when a person asked for the run. They name
+/// `scan:home_movies` otherwise. The run's value is the scan's report.
+pub struct ScanJob {
+    pub pool: PgPool,
+    pub journal: Journal,
+    pub lib: Arc<HomeMovies>,
+}
+
+#[async_trait]
+impl Handler for ScanJob {
+    async fn run(&self, cx: Cx) -> Result<Done, Failed> {
+        let actor = cx
+            .job
+            .payload
+            .get("actor")
+            .and_then(Value::as_str)
+            .unwrap_or("scan:home_movies")
+            .to_string();
+        let journal = self.journal.fenced(Arc::new(cx.lease));
+        match scan(&self.pool, &journal, &self.lib, &actor).await {
+            Ok(r) => {
+                if r.added + r.removed + r.changed > 0 {
+                    tracing::info!(
+                        added = r.added,
+                        missing = r.removed,
+                        changed = r.changed,
+                        tapes = r.found,
+                        "home movies updated"
                     );
                 }
-                Err(e) => {
-                    tracing::warn!(root = %lib.root_text(), error = %e, "home movies scan failed");
-                    job.end(started, Err(e.to_string()));
-                }
+                Ok(Done {
+                    detail: format!(
+                        "{}, {} added, {} missing, {} changed",
+                        units::counted(r.found, "recording", "recordings"),
+                        units::count(r.added),
+                        units::count(r.removed),
+                        units::count(r.changed)
+                    ),
+                    value: serde_json::to_value(&r).ok(),
+                    again: None,
+                })
             }
-            job.wait(interval).await;
+            Err(e) => {
+                tracing::warn!(root = %self.lib.root_text(), error = %e, "home movies scan failed");
+                Err(Failed {
+                    error: e.to_string(),
+                    class: Some(e.code().to_string()),
+                    again: None,
+                })
+            }
         }
-    })
+    }
 }
 
 #[cfg(test)]

@@ -352,7 +352,7 @@ async fn apply(
         let path = file.path.clone().unwrap_or_default();
         let facts = Facts {
             processor,
-            access: engines.access.of(&rule.service).access,
+            access: engines.access.of(&rule.service).of("send"),
             sync,
             sent_before: sent.contains(&path),
             processed: file

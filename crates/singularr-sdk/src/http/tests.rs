@@ -1177,3 +1177,47 @@ fn every_error_has_its_place_in_the_taxonomy() {
     let refused = OutboundError::HostNotAllowed { host: "h".into() }.taxonomy();
     assert!(refused.act_settled_no() && !refused.retry_read() && refused.class() == "refused");
 }
+
+/// A switch per action: one act passes while another of the same integration is refused. The
+/// words of a grant read `read`, `act` or a list of action ids.
+#[test]
+fn each_action_has_its_own_switch() {
+    let mut a = Allowlist::default();
+    a.allow_integration(
+        "manager",
+        "http://10.0.0.61:7878",
+        Calls::default()
+            .act("grab", Method::Post, "/api/v3/release")
+            .act("remove", Method::Delete, "/api/v3/queue/{id}"),
+    )
+    .unwrap();
+    let switch = a.switch("manager").unwrap();
+    switch.set_actions(["grab"]);
+    let grab = "http://10.0.0.61:7878/api/v3/release";
+    let remove = "http://10.0.0.61:7878/api/v3/queue/7";
+    assert_eq!(
+        a.classify(Method::Post, grab, &Body::None).unwrap().2,
+        Class::Act("grab")
+    );
+    assert!(matches!(
+        a.classify(Method::Delete, remove, &Body::None),
+        Err(OutboundError::NotAllowed { .. })
+    ));
+    assert_eq!(switch.get(), Access::Act, "one action acts");
+    switch.set(Access::Read);
+    assert!(a.classify(Method::Post, grab, &Body::None).is_err());
+    switch.set(Access::Act);
+    assert!(a.classify(Method::Delete, remove, &Body::None).is_ok());
+
+    assert_eq!(Grant::parse(" Act "), Some(Grant::Act));
+    assert_eq!(Grant::parse("read"), Some(Grant::Read));
+    let listed = Grant::parse("grab, search").unwrap();
+    assert_eq!(listed, Grant::Actions(vec!["grab".into(), "search".into()]));
+    assert_eq!(
+        (listed.of("grab"), listed.of("remove")),
+        (Access::Act, Access::Read)
+    );
+    assert_eq!(listed.as_text(), "grab,search");
+    assert_eq!(Grant::parse("grab; remove"), None);
+    assert_eq!(Grant::parse(" , "), None);
+}

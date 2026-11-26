@@ -116,9 +116,7 @@ async fn music_scan(
     Extension(caller): Extension<Caller>,
 ) -> ApiResult<ScanReport> {
     caller.require(Scope::Library)?;
-    Ok(Json(
-        music::scan(&state.pool, &state.journal, &state.music, &caller.actor()).await?,
-    ))
+    Ok(Json(music::scan_now(&state.pool, &caller.actor()).await?))
 }
 
 /// The tapes, filtered and paged, oldest first, with the years, people and places of all

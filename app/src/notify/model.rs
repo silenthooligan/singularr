@@ -696,6 +696,9 @@ pub fn facts(kind: &str, body: &Value) -> Vec<Fact> {
             }
         }
         "integration_access_changed" => {
+            if let Some(label) = text(body, "label") {
+                out.push(Fact::new("Action", label));
+            }
             let to = text(body, "to");
             out.push(Fact::new(
                 "Access",

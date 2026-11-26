@@ -45,6 +45,7 @@
     "accessSource": "saved",
     "actions": [
      {
+      "access": "act",
       "id": "send",
       "label": "Send a file to a flow"
      }

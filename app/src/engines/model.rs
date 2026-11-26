@@ -44,15 +44,10 @@ pub struct EngineStatus {
     pub failures: i32,
 }
 
-/// One thing Singularr can do to an integration beyond reading it: `{id, label}`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "ssr", derive(utoipa::ToSchema))]
-pub struct ActionView {
-    /// `send`.
-    pub id: String,
-    /// `Send a file to a flow`.
-    pub label: String,
-}
+/// One thing Singularr can do to an integration beyond reading it: the platform's, at its old
+/// path.
+#[cfg(feature = "ssr")]
+pub use singularr_platform::access::ActionView;
 
 /// One configured integration and its health, as the workspace record names it:
 /// `{id, type, name, role, state, version, detail, access, accessSource, actions}`.
@@ -76,7 +71,8 @@ pub struct IntegrationView {
     pub version: Option<String>,
     /// The state in words: why it is `warn` or `down`, or what the last pass read.
     pub detail: String,
-    /// What Singularr may do with it: `read`, or `act` (read it and do what `actions` lists).
+    /// What Singularr may do with it: `read`, or `act` while at least one of its `actions` has
+    /// the access `act`.
     pub access: String,
     /// Where `access` comes from, in the words of a setting's source: `default`,
     /// `environment`, `file` or `saved`. The environment and the file fix it.

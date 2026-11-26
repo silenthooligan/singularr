@@ -6,6 +6,8 @@ pub mod model;
 #[cfg(feature = "ssr")]
 pub mod downloads;
 #[cfg(feature = "ssr")]
+pub mod jobs;
+#[cfg(feature = "ssr")]
 pub mod server;
 #[cfg(feature = "ssr")]
 pub mod service;

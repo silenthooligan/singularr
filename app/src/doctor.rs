@@ -112,7 +112,7 @@ pub async fn run() -> ExitCode {
         );
     }
 
-    if config.edge_token_placeholder {
+    if config.bootstrap.edge_token_placeholder {
         report.line(
             Level::Fail,
             "Edge token",
@@ -126,7 +126,10 @@ pub async fn run() -> ExitCode {
         Err(e) => report.line(
             Level::Fail,
             "Database",
-            &format!("{} unreachable: {e}", redact_url(&config.database_url)),
+            &format!(
+                "{} unreachable: {e}",
+                redact_url(&config.bootstrap.database_url)
+            ),
             Some("Check DATABASE_URL and that the database exists"),
         ),
         Ok(pool) => {
@@ -134,7 +137,7 @@ pub async fn run() -> ExitCode {
                 Ok(()) => report.line(
                     Level::Ok,
                     "Database",
-                    &format!("{} reachable", redact_url(&config.database_url)),
+                    &format!("{} reachable", redact_url(&config.bootstrap.database_url)),
                     None,
                 ),
                 Err(e) => report.line(
@@ -200,19 +203,20 @@ pub async fn run() -> ExitCode {
     }
 
     // Engines.
-    let outbound =
-        match allowlist(&config).and_then(|allow| Outbound::new(allow, config.http_timeout)) {
-            Ok(outbound) => outbound,
-            Err(e) => {
-                report.line(
-                    Level::Fail,
-                    "Integrations",
-                    &e.to_string(),
-                    Some("Check the integration addresses"),
-                );
-                return ExitCode::FAILURE;
-            }
-        };
+    let outbound = match allowlist(&config)
+        .and_then(|allow| Outbound::new(allow, config.bootstrap.http_timeout))
+    {
+        Ok(outbound) => outbound,
+        Err(e) => {
+            report.line(
+                Level::Fail,
+                "Integrations",
+                &e.to_string(),
+                Some("Check the integration addresses"),
+            );
+            return ExitCode::FAILURE;
+        }
+    };
     let engines = EngineSet::from_config(&config, &outbound);
     for slot in engines.slots.iter().filter(|s| !s.configured) {
         let hint = match config.integration(&slot.id) {

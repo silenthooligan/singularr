@@ -1,8 +1,9 @@
 //! The index pass: every movie, show, collection, album and artist the library has, as search
-//! documents, written to every provider. In full at start, again after the catalog or the
-//! music changes (a journal event, then a quiet half minute so a sync pass is indexed once),
-//! and every `SINGULARR_SEARCH_INDEX_SECS`. Each pass also fetches the TMDB records of
-//! collections not stored yet, a few at a time, so the collections list fills up.
+//! documents, written to every provider. It is the job `singularr:index` of the runtime. It runs
+//! in full shortly after each start and every `SINGULARR_SEARCH_INDEX_SECS`. A journal event of
+//! the catalog or the music asks for it again after a quiet half minute: a sync pass is indexed
+//! once. Each pass also fetches the TMDB records of collections not stored yet, a few at a time.
+//! The collections list fills up this way.
 
 use super::IndexReport;
 use super::Search;
@@ -10,20 +11,27 @@ use super::model::SearchDoc;
 use crate::catalog::store as catalog_store;
 use crate::core::error::AppResult;
 use crate::core::journal::Journal;
+use crate::core::runtime::{self, Cx, Done, Failed, Handler};
+use crate::core::units;
 use crate::metadata::MetadataProvider;
 use crate::metadata::records::{RECORD_TTL, collection_path};
 use crate::metadata::service::ProviderSet;
 use crate::metadata::store as metadata_store;
 use crate::music::model::server_music_id;
 use crate::music::store as music_store;
+use async_trait::async_trait;
+use serde_json::json;
 use sqlx::PgPool;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast::error::{RecvError, TryRecvError};
 
-/// The first pass waits this long after the start.
-const START_DELAY: Duration = Duration::from_secs(5);
+/// The key of the index pass in the job runtime.
+pub const JOB: &str = "singularr:index";
+
+/// The first pass waits this long after a start.
+pub const START_DELAY: Duration = Duration::from_secs(5);
 /// After a change, the pass waits this long for the rest of a sync pass's writes.
 const QUIET: Duration = Duration::from_secs(30);
 /// Collection records fetched from TMDB per pass.
@@ -182,61 +190,68 @@ pub fn relevant(kind: &str) -> bool {
     )
 }
 
-pub struct IndexDeps {
+/// The index's job: one pass. It runs whether or not the sync does: it reads Singularr's own
+/// tables. Its writes replace the whole index: a run after one that lost its lease writes it
+/// again in full.
+pub struct IndexJob {
     pub pool: PgPool,
-    pub journal: Journal,
     pub search: Arc<Search>,
     pub metadata: Arc<ProviderSet>,
-    pub interval: Duration,
 }
 
-/// The index loop. It runs whether or not the sync does: it reads Singularr's own tables.
-pub fn spawn(deps: IndexDeps) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(run(deps))
-}
-
-async fn run(deps: IndexDeps) {
-    let mut events = deps.journal.subscribe();
-    let mut open = true;
-    tokio::time::sleep(START_DELAY).await;
-    loop {
+#[async_trait]
+impl Handler for IndexJob {
+    async fn run(&self, _cx: Cx) -> Result<Done, Failed> {
         let started = Instant::now();
-        match pass(&deps.pool, &deps.search, &deps.metadata).await {
-            Ok(r) => tracing::info!(
-                documents = r.documents,
-                builtin = ?r.builtin,
-                meilisearch = ?r.meilisearch,
-                ms = started.elapsed().as_millis() as u64,
-                "search index written"
-            ),
-            Err(e) => tracing::warn!(error = %e, "the search index could not be written"),
-        }
-        let next = tokio::time::sleep(deps.interval);
-        tokio::pin!(next);
-        loop {
-            if !open {
-                (&mut next).await;
-                break;
+        match pass(&self.pool, &self.search, &self.metadata).await {
+            Ok(r) => {
+                tracing::info!(
+                    documents = r.documents,
+                    builtin = ?r.builtin,
+                    meilisearch = ?r.meilisearch,
+                    ms = started.elapsed().as_millis() as u64,
+                    "search index written"
+                );
+                Ok(Done::from(units::counted(
+                    i64::try_from(r.documents).unwrap_or(i64::MAX),
+                    "document",
+                    "documents",
+                )))
             }
-            tokio::select! {
-                () = &mut next => break,
-                got = events.recv() => match got {
-                    Ok(e) if relevant(&e.kind) => {
-                        tokio::time::sleep(QUIET).await;
-                        // Everything that arrived meanwhile is in this pass.
-                        while matches!(
-                            events.try_recv(),
-                            Ok(_) | Err(TryRecvError::Lagged(_))
-                        ) {}
-                        break;
-                    }
-                    Ok(_) => {}
-                    Err(RecvError::Lagged(_)) => break,
-                    Err(RecvError::Closed) => open = false,
-                },
+            Err(e) => {
+                tracing::warn!(error = %e, "the search index could not be written");
+                Err(Failed {
+                    error: e.to_string(),
+                    class: Some(e.code().to_string()),
+                    again: None,
+                })
             }
         }
     }
+}
+
+/// The index's trigger: a pass after the catalog or the music changes. It waits a quiet half
+/// minute after the event: a sync pass is indexed once. A pass going then is let end. The index
+/// is written again after it. The pass after a start and the interval are its schedule's.
+pub fn spawn_trigger(pool: PgPool, journal: &Journal) -> tokio::task::JoinHandle<()> {
+    let mut events = journal.subscribe();
+    tokio::spawn(async move {
+        loop {
+            match events.recv().await {
+                Ok(e) if relevant(&e.kind) => {
+                    tokio::time::sleep(QUIET).await;
+                    // Everything that arrived meanwhile is in this pass.
+                    while matches!(events.try_recv(), Ok(_) | Err(TryRecvError::Lagged(_))) {}
+                }
+                Ok(_) => continue,
+                Err(RecvError::Lagged(_)) => {}
+                Err(RecvError::Closed) => return,
+            }
+            if let Err(e) = runtime::run_after(&pool, JOB, json!({})).await {
+                tracing::warn!(error = %e, "the search index could not be asked for a pass");
+            }
+        }
+    })
 }
 
 #[cfg(test)]

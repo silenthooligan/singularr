@@ -45,7 +45,8 @@ tests need PostgreSQL 18 (`tools/gate.sh` starts a throwaway one).
 |---|---|
 | Release parsing, the policy and its evaluation (no I/O) | `crates/singularr-core/` |
 | The connector SDK: the way out's types, the declared calls, the rules, the kinds of engine and their items (no I/O) | `crates/singularr-sdk/` |
-| Server core: configuration, the journal, the outbound allowlist | `app/src/core/` |
+| The platform: the bootstrap, the database and the migration runner, the journal, callers and API keys, the HTTP sender, mail, ffmpeg runs, the settings mechanism, the access per action | `crates/singularr-platform/` |
+| Server core: configuration, the migrations, the location database. The platform's modules keep their paths here | `app/src/core/` |
 | Adapters, one per service, and one manifest per type (`manifests.rs`) | `app/src/engines/` |
 | Routes under `/api/v1` | `app/src/api/` |
 | Search, grab and import through the managers | `app/src/acquire/` |
@@ -54,7 +55,7 @@ tests need PostgreSQL 18 (`tools/gate.sh` starts a throwaway one).
 
 ## Conventions
 
-- **Outbound calls:** each adapter lists the calls it may send (`Calls` in `app/src/core/outbound.rs`).
+- **Outbound calls:** each adapter lists the calls it may send (`Calls` in `crates/singularr-sdk/src/http.rs`).
   A new call needs a test that passes it in its declared form and refuses it in any other form.
 - **Interface text:** follows [docs/copy.md](docs/copy.md). Controls have labels. The interface never
   addresses the person.

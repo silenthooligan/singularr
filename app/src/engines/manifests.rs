@@ -1,13 +1,14 @@
 //! One manifest per integration type: every fact of a type in one place. The configuration,
 //! the panels, the Test answer, the access book, the integration lines and the doctor read
-//! them. A new type is its adapter, its manifest and one line in [`ALL`] and in
-//! [`IntegrationType::manifest`].
+//! them. A new type is its adapter, its manifest and one line in [`ALL`], in
+//! [`IntegrationType::manifest`] and in `IntegrationType::as_str`.
 //!
 //! The types are those of the configuration (`core::config::IntegrationType`). The facts live
-//! here, beside the adapters whose actions they name. The configuration reads them through
-//! [`IntegrationType::manifest`].
+//! here, beside the adapters whose actions they name. The configuration's parsing reads them from
+//! the table it is handed ([`MANIFESTS`]): the constructors of the configuration are here.
+//! Every other reader asks [`IntegrationType::manifest`] or the methods beside it.
 
-use crate::core::config::IntegrationType;
+use crate::core::config::{Config, ConfigError, Env, IntegrationType, Manifests, ProcessEnv};
 use singularr_sdk::http::HttpProfile;
 use singularr_sdk::manifest::{CountWords, Group, Kind, Manifest, Maturity, PassSpec, SecretSpec};
 
@@ -445,7 +446,79 @@ pub static ALL: [&Manifest; 15] = [
     &TAUTULLI,
 ];
 
+/// Every type's manifest, as the configuration's parsing asks for it.
+pub const MANIFESTS: Manifests = Manifests(IntegrationType::manifest);
+
+/// The configuration with the table of this version: the constructors the program and its tests
+/// call. The parsing is `core::config`'s.
+impl Config {
+    pub fn from_env() -> Result<Config, ConfigError> {
+        Config::from(&ProcessEnv)
+    }
+
+    /// The configuration of this environment, with the instance file it names.
+    pub fn from(env: &dyn Env) -> Result<Config, ConfigError> {
+        Config::read(env, MANIFESTS)
+    }
+
+    /// The configuration of this environment and this instance file text (path, text).
+    pub fn with_instance(
+        env: &dyn Env,
+        instance: Option<(&str, &str)>,
+    ) -> Result<Config, ConfigError> {
+        Config::parse(env, instance, MANIFESTS)
+    }
+}
+
 impl IntegrationType {
+    /// The product name, the display name an integration takes when it is given none.
+    // The manifest's `label` is the type as Settings lists it (Plex Media Server). This one is
+    // its `name` (Plex).
+    #[allow(clippy::misnamed_getters)]
+    pub fn label(self) -> &'static str {
+        self.manifest().name
+    }
+
+    /// What an integration of this type does, unless its entry says otherwise.
+    pub fn default_role(self) -> &'static str {
+        self.manifest().role
+    }
+
+    /// The variable prefixes of the environment form, the product's own name first.
+    /// `PLEXSEERR` is the older name of `SEERR` and keeps working.
+    pub fn env_prefixes(self) -> &'static [&'static str] {
+        self.manifest().env_prefixes
+    }
+
+    /// The end of the secret's variable name: `PLEX_TOKEN`, `QBIT_PASS`, `RADARR_API_KEY`.
+    pub fn secret_suffix(self) -> &'static str {
+        self.manifest().secret.env_suffix
+    }
+
+    /// qBittorrent can trust its subnet, Transmission and NZBGet can run without a password, and
+    /// Tdarr and the HUSH bridge without a key, so for them an address alone is a usable
+    /// integration.
+    pub fn secret_optional(self) -> bool {
+        self.manifest().secret.optional
+    }
+
+    /// The types that sign in with a user name beside their password.
+    pub fn takes_user(self) -> bool {
+        self.manifest().takes_user
+    }
+
+    /// The types that process files after their import: a worker (Tdarr) and a bridge in
+    /// front of one (HUSH).
+    pub fn processes(self) -> bool {
+        self.manifest().fills(Kind::Processor)
+    }
+
+    /// The types whose items open in the server's own web app, at an address of its own when one
+    /// is set (`<PREFIX>_WEB_URL`, the instance file's `web_url`): Jellyfin and Emby. A Plex item opens in Plex's web app (`SINGULARR_PLEX_WEB_URL`).
+    pub fn has_web_app(self) -> bool {
+        self.manifest().web_url
+    }
+
     /// The type's manifest.
     pub fn manifest(self) -> &'static Manifest {
         match self {
@@ -528,7 +601,30 @@ pub(crate) mod tests {
         assert_eq!(ids, types, "ALL is in the order of IntegrationType::ALL");
         for kind in IntegrationType::ALL {
             assert_eq!(IntegrationType::parse(kind.manifest().type_id), Some(kind));
+            assert_eq!(kind.manifest().type_id, kind.as_str(), "one id per type");
+            assert_eq!(MANIFESTS.of(kind).type_id, kind.as_str());
         }
+    }
+
+    /// An action id is a word the lists of `<PREFIX>_ACCESS` take: a-z, 0-9 and -, and neither
+    /// `read` nor `act`.
+    #[test]
+    fn an_action_id_is_a_word_the_access_lists_take() {
+        for bad in ["Grab", "grab a", "grab,search", "-grab", "read", "act"] {
+            let actions: &'static [singularr_sdk::manifest::Action] =
+                Box::leak(Box::new([singularr_sdk::manifest::Action {
+                    id: bad,
+                    label: "Grab a release",
+                }]));
+            let m = Manifest { actions, ..SAMPLE };
+            assert!(check_manifest(&m).is_err(), "{bad}");
+        }
+        let actions: &'static [singularr_sdk::manifest::Action] =
+            Box::leak(Box::new([singularr_sdk::manifest::Action {
+                id: "grab-2",
+                label: "Grab a release",
+            }]));
+        check_manifest(&Manifest { actions, ..SAMPLE }).unwrap();
     }
 
     /// The words of a pass's line keep the order they always had.

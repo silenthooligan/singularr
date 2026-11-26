@@ -11,10 +11,10 @@ use singularr::core::journal::Journal;
 use singularr::core::outbound::{Allowlist, Outbound};
 use singularr::core::{db, http, observe};
 use singularr::engines::service::{EngineSet, allowlist};
-use singularr::homemovies::service::{self as homemovies, HomeMovies};
+use singularr::homemovies::service::HomeMovies;
 use singularr::lifecycle::sync::{self, SyncDeps};
 use singularr::metadata::service::ProviderSet;
-use singularr::music::service::{self as music, MusicLibrary};
+use singularr::music::service::MusicLibrary;
 use singularr::plays::service::{self as plays, PlaysDeps};
 use singularr::policy;
 use singularr::processing::service::{self as processing, ProcessingDeps};
@@ -92,7 +92,7 @@ async fn serve_owner() -> Result<(), String> {
     let config = Config::from_env().map_err(|e| e.to_string())?;
     // The whole configuration, with every secret replaced.
     println!("{config}");
-    if config.edge_token_placeholder {
+    if config.bootstrap.edge_token_placeholder {
         // The identity middleware would take the placeholder for the token, which anyone can
         // guess.
         return Err(
@@ -129,7 +129,7 @@ async fn serve_owner() -> Result<(), String> {
     let pool = db::connect(&config).await.map_err(|e| {
         format!(
             "the database is not reachable: {e}. Check DATABASE_URL (now {}) and that the database exists.",
-            singularr::core::config::redact_url(&config.database_url)
+            singularr::core::config::redact_url(&config.bootstrap.database_url)
         )
     })?;
     db::migrate(&pool)
@@ -154,6 +154,7 @@ async fn serve_owner() -> Result<(), String> {
     // Every setting with its source: the environment, the instance file, a value saved in the
     // interface, or the default.
     let instance_text = config
+        .bootstrap
         .instance_path
         .as_deref()
         .and_then(|path| std::fs::read_to_string(path).ok());
@@ -172,7 +173,8 @@ async fn serve_owner() -> Result<(), String> {
     for (origin, rule) in allow.hosts() {
         tracing::info!(target: "singularr::outbound", origin = %origin, label = %rule.label, read_only = rule.read_only, reads = rule.reads.len(), acts = rule.acts.len(), gets = rule.gets.len(), "outbound allowlist");
     }
-    let outbound = Outbound::new(allow, config.http_timeout).map_err(|e| e.to_string())?;
+    let outbound =
+        Outbound::new(allow, config.bootstrap.http_timeout).map_err(|e| e.to_string())?;
     let engines = Arc::new(EngineSet::from_config(&config, &outbound));
     // What Singularr may do with each integration: what the configuration fixes is in force
     // already, what the owner saved in the interface is put in force here.
@@ -181,8 +183,22 @@ async fn serve_owner() -> Result<(), String> {
         .load(&pool)
         .await
         .map_err(|e| format!("the saved access of the integrations could not be read: {e}"))?;
-    for (id, name) in engines.access.acting() {
-        tracing::info!(integration = %id, "Singularr may act on {name}");
+    for (id, name, actions) in engines.access.acting_actions() {
+        tracing::info!(
+            integration = %id,
+            actions = %actions.join(","),
+            "Singularr may act on {name}: {}",
+            actions.join(", ")
+        );
+    }
+    // The consent an `act` of the environment or the file gave named the actions of its time.
+    for warning in engines
+        .access
+        .note_declared(&pool)
+        .await
+        .map_err(|e| format!("the actions of the integrations could not be recorded: {e}"))?
+    {
+        tracing::warn!("{warning}");
     }
     let metadata =
         Arc::new(ProviderSet::from_config(&config, &outbound).with_locale(settings.locale()));
@@ -209,7 +225,7 @@ async fn serve_owner() -> Result<(), String> {
         .await
         .map_err(|e| format!("the policy could not be recorded: {e}"))?;
 
-    let owners = identity::Allowlist::parse(&config.owner_emails);
+    let owners = identity::Allowlist::parse(&config.bootstrap.owner_emails);
     // No proxy is trusted until one is listed, and a fresh install says so here.
     let edge = Edge::from_env(&ProcessEnv);
     if edge.trusted().is_empty() {
@@ -326,48 +342,16 @@ async fn serve_owner() -> Result<(), String> {
     let intents = singularr::requests::intents::spawn(pool.clone(), journal.clone(), rules);
     let music_library = Arc::new(MusicLibrary::new(&config.music.root));
     let home_movies = Arc::new(HomeMovies::new(&config.home_movies.root));
-    let scans = [
-        sync::spawn_folder_scans(
-            pool.clone(),
-            journal.clone(),
-            Arc::new(editions.list.clone()),
-            config.movie_folders.roots.clone(),
-            config.movie_folders.interval,
-            config.sync.jitter,
-        ),
-        music::spawn_scans(
-            pool.clone(),
-            journal.clone(),
-            music_library.clone(),
-            config.music.interval,
-            config.sync.jitter,
-        ),
-        homemovies::spawn_scans(
-            pool.clone(),
-            journal.clone(),
-            home_movies.clone(),
-            config.home_movies.interval,
-            config.sync.jitter,
-        ),
-    ];
 
-    // The search index: in full shortly after the start, then after changes. It reads
-    // Singularr's own tables, so it runs whether or not the sync does.
-    let indexer = singularr::search::index::spawn(singularr::search::index::IndexDeps {
-        pool: pool.clone(),
-        journal: journal.clone(),
-        search: search.clone(),
-        metadata: metadata.clone(),
-        interval: config.search.interval,
-    });
-
-    // Notifications: every channel's address into the way out, then the dispatcher, which
-    // follows the journal whether or not the sync runs. Mail leaves through core::smtp.
+    // Notifications: every channel's address into the way out. The dispatcher is a job of the
+    // runtime (below). Mail leaves through core::smtp.
     let notify = singularr::notify::service::Notifier::new(
         pool.clone(),
         journal.clone(),
         outbound.clone(),
-        Arc::new(singularr::core::smtp::Smtp::new(config.http_timeout)),
+        Arc::new(singularr::core::smtp::Smtp::new(
+            config.bootstrap.http_timeout,
+        )),
     );
     let channels = notify
         .load()
@@ -378,13 +362,39 @@ async fn serve_owner() -> Result<(), String> {
         let (host, label) = (listed.host(), listed.label);
         tracing::info!(target: "singularr::outbound", key = %key, host = %host, label = %label, "notification target");
     }
-    let dispatcher = notify
-        .clone()
-        .spawn(Arc::new(singularr::api::notifications::Describer::new(
-            pool.clone(),
-            &config,
-            settings.clone(),
-        )));
+
+    // The job runtime: the three folder scans, the search index and the notification dispatcher,
+    // whether or not the sync runs. The scans read mounts. The index and the dispatcher read
+    // Singularr's own tables. The runtime's own statements have a pool of their own: a heartbeat
+    // never waits behind a query of the app.
+    let runtime_pool = db::connect_url(
+        &config.bootstrap.database_url,
+        singularr::lifecycle::jobs::connections(),
+    )
+    .await
+    .map_err(|e| format!("the job runtime could not reach the database: {e}"))?;
+    let jobs = singularr::lifecycle::jobs::start(
+        &config,
+        singularr::lifecycle::jobs::JobsDeps {
+            runtime: runtime_pool,
+            pool: pool.clone(),
+            journal: journal.clone(),
+            settings: settings.clone(),
+            editions: Arc::new(editions.list.clone()),
+            music: music_library.clone(),
+            home_movies: home_movies.clone(),
+            search: search.clone(),
+            metadata: metadata.clone(),
+            notify: notify.clone(),
+            describe: Arc::new(singularr::api::notifications::Describer::new(
+                pool.clone(),
+                &config,
+                settings.clone(),
+            )),
+        },
+    )
+    .await
+    .map_err(|e| format!("the job schedules could not be written: {e}"))?;
 
     let state = AppState::new(Inner {
         notify,
@@ -443,7 +453,10 @@ async fn serve_owner() -> Result<(), String> {
         .await
         .map_err(|e| format!("cannot listen on {addr}: {e}"))?;
     tracing::info!("Singularr is listening on http://{addr}");
-    axum::serve(
+    // The job runtime's stop: the shutdown signal begins it. The process ends after it.
+    let (stopped, stopping) = tokio::sync::watch::channel(false);
+    let mut waiting = stopping.clone();
+    let served = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
@@ -457,23 +470,46 @@ async fn serve_owner() -> Result<(), String> {
             .iter()
             .chain(processing_loops.iter())
             .chain(play_loops.iter())
-            .chain(scans.iter())
         {
             task.abort();
         }
         intents.abort();
-        indexer.abort();
         if let Some(locations) = &locations {
             locations.abort();
         }
-        dispatcher.abort();
         gauges.abort();
-        // Open event streams would hold the server open; give requests a moment, then go.
-        tokio::spawn(async {
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        // Running jobs have the runtime's grace period to finish. A job still running then goes
+        // back to its queue.
+        tokio::spawn(async move {
+            jobs.stop().await;
+            let _ = stopped.send(true);
+        });
+        // Open event streams would hold the server open. After the runtime's stop and a moment
+        // for requests the process goes.
+        let mut stopping = stopping;
+        tokio::spawn(async move {
+            tokio::join!(
+                async {
+                    let _ = stopping.wait_for(|done| *done).await;
+                },
+                tokio::time::sleep(std::time::Duration::from_secs(3))
+            );
             std::process::exit(0);
         });
     })
     .await
-    .map_err(|e| format!("the server stopped: {e}"))
+    .map_err(|e| format!("the server stopped: {e}"));
+    // The server ended first: the runtime's stop ends here. Its grace period and 3 s are 13 s,
+    // inside the 15 s a compose stop allows.
+    if served.is_ok() {
+        let done = tokio::time::timeout(
+            std::time::Duration::from_secs(14),
+            waiting.wait_for(|done| *done),
+        )
+        .await;
+        if done.is_err() {
+            tracing::warn!("the job runtime did not stop within 14 s");
+        }
+    }
+    served
 }

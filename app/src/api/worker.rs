@@ -9,15 +9,15 @@
 //! service took as a `processing_worker_changed` event. `core::outbound` holds the same line on
 //! the way out, each act in the one form its adapter declares.
 
-use super::processing::{
-    NodeView, SYNC_OFF, ServiceView, WorkerQueueView, not_allowed, problem, read_only_words,
-};
+use super::processing::{NodeView, SYNC_OFF, ServiceView, WorkerQueueView, not_allowed, problem};
 use super::routes::{ApiJson, ApiPath};
 use super::state::AppState;
 use crate::core::auth::Caller;
 use crate::core::error::AppError;
-use crate::core::outbound::{Access, OutboundError};
+use crate::core::outbound::OutboundError;
 use crate::core::schema::ProblemDoc;
+use crate::engines::access::read_only_words;
+use crate::engines::model::ActionView;
 use crate::engines::{Acted, EngineError, Processor, WorkerAct, WorkerKind, WorkerSetup};
 use crate::processing::model::{file_name, queue_of};
 use crate::processing::service::{self as processing, ActsDone};
@@ -111,12 +111,13 @@ impl From<AppError> for Stop {
 }
 
 /// The worker service an act is for, with its name, once it may be asked: the caller is the
-/// owner, the integration is a configured worker, Singularr may act on it, and the integrations
-/// are read. Nothing is asked of the service before all of these hold.
+/// owner, the integration is a configured worker, the act's action has write access, and the
+/// integrations are read. Nothing is asked of the service before all of these hold.
 fn acting(
     state: &AppState,
     caller: &Caller,
     service: &str,
+    action: &str,
 ) -> Result<(Arc<dyn Processor>, String), Stop> {
     if !matches!(caller, Caller::Owner { .. }) {
         return Err(Stop::from(
@@ -139,8 +140,12 @@ fn acting(
         .integration(service)
         .map(|i| i.name.clone())
         .unwrap_or_else(|| service.to_string());
-    if state.engines.access.of(service).access != Access::Act {
-        return Err(Stop::from(not_allowed(read_only_words(&name))));
+    let access = state.engines.access.of(service);
+    if !access.allows(action) {
+        return Err(Stop::from(not_allowed(read_only_words(
+            access.label(action),
+            &name,
+        ))));
     }
     if !state.config.sync.enabled {
         return Err(Stop::from(problem(
@@ -219,7 +224,8 @@ async fn run(
         ),
         // The access was taken back while this was on its way.
         Err(EngineError::Outbound(OutboundError::NotAllowed { .. })) => {
-            not_allowed(read_only_words(name))
+            let access = state.engines.access.of(processor.id());
+            not_allowed(read_only_words(access.label(word), name))
         }
         Err(e) => could_not_reach(name, &e),
     }
@@ -271,7 +277,7 @@ fn either(result: Result<Response, Stop>) -> Response {
 
 /// Set how many workers of one kind a node runs: `{"kind": "transcodeGpu", "to": 3}`. The
 /// worker takes a limit one step at a time, so a change of three is three calls. The owner
-/// alone, while Singularr may act on the worker.
+/// alone, while the worker's `limits` has write access.
 #[utoipa::path(post, path = "/api/v1/processing/workers/{service}/nodes/{node}/limits", tag = "processing",
     params(("service" = String, Path, description = "The worker's integration id"), ("node" = String, Path, description = "The node's id")),
     request_body = LimitRequest,
@@ -287,7 +293,7 @@ async fn worker_limits(
 ) -> Response {
     either(
         async {
-            let (processor, name) = acting(&state, &caller, &service)?;
+            let (processor, name) = acting(&state, &caller, &service, "limits")?;
             let kind = WorkerKind::parse(&body.kind).ok_or_else(|| {
                 AppError::bad_request(format!(
                     "`kind` is transcodeGpu, transcodeCpu, healthGpu or healthCpu, not `{}`.",
@@ -323,8 +329,8 @@ async fn worker_limits(
     )
 }
 
-/// Pause a node (`{"paused": true}`) or resume it. The owner alone, while Singularr may act on
-/// the worker.
+/// Pause a node (`{"paused": true}`) or resume it. The owner alone, while the worker's `pause`
+/// has write access.
 #[utoipa::path(post, path = "/api/v1/processing/workers/{service}/nodes/{node}/pause", tag = "processing",
     params(("service" = String, Path, description = "The worker's integration id"), ("node" = String, Path, description = "The node's id")),
     request_body = PauseRequest,
@@ -338,7 +344,7 @@ async fn worker_pause(
 ) -> Response {
     either(
         async {
-            let (processor, name) = acting(&state, &caller, &service)?;
+            let (processor, name) = acting(&state, &caller, &service, "pause")?;
             let found = node_of(&processor, &name, &node).await?;
             let acts = [WorkerAct::Pause {
                 node: node.clone(),
@@ -351,8 +357,8 @@ async fn worker_pause(
     )
 }
 
-/// Cancel what one worker of a node is on. The owner alone, while Singularr may act on the
-/// worker service.
+/// Cancel what one worker of a node is on. The owner alone, while the worker's `cancel` has
+/// write access.
 #[utoipa::path(post, path = "/api/v1/processing/workers/{service}/nodes/{node}/workers/{worker}/cancel", tag = "processing",
     params(("service" = String, Path, description = "The worker's integration id"), ("node" = String, Path, description = "The node's id"),
         ("worker" = String, Path, description = "The worker's own id, as `workers[].id` names it")),
@@ -365,7 +371,7 @@ async fn worker_cancel(
 ) -> Response {
     either(
         async {
-            let (processor, name) = acting(&state, &caller, &service)?;
+            let (processor, name) = acting(&state, &caller, &service, "cancel")?;
             let busy = processor
                 .workers()
                 .await
@@ -396,7 +402,7 @@ async fn worker_cancel(
 
 /// Put one file back in the worker's transcode queue: by its path in the worker (it lies in the
 /// folder of one of the worker's libraries), or by a run, whose file waits at its queue path.
-/// The owner alone, while Singularr may act on the worker.
+/// The owner alone, while the worker's `requeue` has write access.
 #[utoipa::path(post, path = "/api/v1/processing/workers/{service}/requeue", tag = "processing",
     params(("service" = String, Path, description = "The worker's integration id")),
     request_body = RequeueRequest,
@@ -410,7 +416,7 @@ async fn worker_requeue(
 ) -> Response {
     either(
         async {
-            let (processor, name) = acting(&state, &caller, &service)?;
+            let (processor, name) = acting(&state, &caller, &service, "requeue")?;
             let word = |v: &Option<String>| {
                 v.as_deref()
                     .map(str::trim)
@@ -455,8 +461,8 @@ async fn worker_requeue(
     )
 }
 
-/// Look for new files in a library's folder. The owner alone, while Singularr may act on the
-/// worker.
+/// Look for new files in a library's folder. The owner alone, while the worker's `scan` has
+/// write access.
 #[utoipa::path(post, path = "/api/v1/processing/workers/{service}/libraries/{library}/scan", tag = "processing",
     params(("service" = String, Path, description = "The worker's integration id"), ("library" = String, Path, description = "The library's id in the worker")),
     responses((status = 200, body = ActAnswer), (status = 403, body = ProblemDoc), (status = 404, body = ProblemDoc),
@@ -468,7 +474,7 @@ async fn worker_scan(
 ) -> Response {
     either(
         async {
-            let (processor, name) = acting(&state, &caller, &service)?;
+            let (processor, name) = acting(&state, &caller, &service, "scan")?;
             let (_, found) = library_of(&processor, &name, &library)?;
             let acts = [WorkerAct::Scan {
                 library: found.id.clone(),
@@ -482,7 +488,7 @@ async fn worker_scan(
 }
 
 /// Watch a library's folder for new files (`{"on": true}`), or stop. The owner alone, while
-/// Singularr may act on the worker.
+/// the worker's `watch` has write access.
 #[utoipa::path(post, path = "/api/v1/processing/workers/{service}/libraries/{library}/watch", tag = "processing",
     params(("service" = String, Path, description = "The worker's integration id"), ("library" = String, Path, description = "The library's id in the worker")),
     request_body = WatchRequest,
@@ -496,7 +502,7 @@ async fn worker_watch(
 ) -> Response {
     either(
         async {
-            let (processor, name) = acting(&state, &caller, &service)?;
+            let (processor, name) = acting(&state, &caller, &service, "watch")?;
             let (_, found) = library_of(&processor, &name, &library)?;
             let acts = [WorkerAct::Watch {
                 library: found.id.clone(),
@@ -511,7 +517,7 @@ async fn worker_watch(
 }
 
 /// Run one of the worker's flows in a library: `{"flow": "<flow id>"}`. The owner alone,
-/// while Singularr may act on the worker.
+/// while the worker's `flow` has write access.
 #[utoipa::path(post, path = "/api/v1/processing/workers/{service}/libraries/{library}/flow", tag = "processing",
     params(("service" = String, Path, description = "The worker's integration id"), ("library" = String, Path, description = "The library's id in the worker")),
     request_body = FlowRequest,
@@ -525,7 +531,7 @@ async fn worker_flow(
 ) -> Response {
     either(
         async {
-            let (processor, name) = acting(&state, &caller, &service)?;
+            let (processor, name) = acting(&state, &caller, &service, "flow")?;
             let (setup, found) = library_of(&processor, &name, &library)?;
             let wanted = body.flow.trim();
             let flow = setup.flow(wanted).cloned().ok_or_else(|| {
@@ -605,8 +611,12 @@ pub struct ResourcesView {
 pub struct WorkerPage {
     /// The service as the processing page lists it.
     pub service: ServiceView,
-    /// What Singularr may do with it: `read` or `act`.
+    /// What Singularr may do with it: `act` while at least one of its `actions` has the access
+    /// `act`, else `read`.
     pub access: String,
+    /// Each action of the worker with its access. An act of the page passes while its own action
+    /// has the access `act`.
+    pub actions: Vec<ActionView>,
     /// Its nodes with what each worker is on. Empty when it does not answer.
     pub nodes: Vec<NodeOfWorker>,
     /// What does not answer, in a few words: the nodes, the queue, the resources, the history.
@@ -750,14 +760,10 @@ async fn worker_page(
             Err(_) => unread.push("History".to_string()),
         }
     }
+    let access = state.engines.access.of(&service);
     Ok(Json(WorkerPage {
-        access: state
-            .engines
-            .access
-            .of(&service)
-            .access
-            .as_str()
-            .to_string(),
+        access: access.access.as_str().to_string(),
+        actions: access.action_views(),
         service: view,
         nodes,
         unread,

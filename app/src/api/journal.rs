@@ -686,10 +686,14 @@ pub fn summary(e: &Event, names: &Names) -> String {
         },
         // The access to an integration, as the owner set it.
         "integration_access_changed" => {
-            if text(b, "to") == Some("act") {
-                "Access changed to write".to_string()
+            let to = if text(b, "to") == Some("act") {
+                "write"
             } else {
-                "Access changed to read-only".to_string()
+                "read-only"
+            };
+            match text(b, "label") {
+                Some(label) => format!("{label}: access changed to {to}"),
+                None => format!("Access changed to {to}"),
             }
         }
         // A processing rule the owner added or saved again, or removed.

@@ -7,14 +7,14 @@
 //! is a configured processing service and its flow one that service offers, its conditions ask
 //! something of the file, and the traits it names are the policy's.
 
-use super::processing::{RunTitle, not_allowed, problem, read_only_words};
+use super::processing::{RunTitle, not_allowed, problem};
 use super::routes::{ApiJson, ApiPath, ApiQuery};
 use super::state::AppState;
 use crate::core::auth::Caller;
 use crate::core::error::{AppError, AppResult};
 use crate::core::journal::event;
-use crate::core::outbound::Access;
 use crate::core::schema::ProblemDoc;
+use crate::engines::access::read_only_words;
 use crate::processing::model::{Run, file_name};
 use crate::processing::rules::{
     self, ON_IMPORT, ON_REQUEST, REQUEST_MAX, RuleBody, RuleConditions, RuleRow,
@@ -610,8 +610,9 @@ async fn rules_run(
         ));
     }
     let (name, _) = names(&state, &rule);
-    if state.engines.access.of(&rule.service).access != Access::Act {
-        return Ok(not_allowed(read_only_words(&name)));
+    let access = state.engines.access.of(&rule.service);
+    if !access.allows("send") {
+        return Ok(not_allowed(read_only_words(access.label("send"), &name)));
     }
     let active = state.policy.current();
     let ran = rules::request_run(

@@ -18,8 +18,9 @@
      search     row -> text to search (default: the text of the text columns); searchPlaceholder
      sort       { key, dir: 'asc' | 'desc' }  the default order
      pageSize   rows per page (default 50; 0 shows all and hides paging)
-     selectable true to add checkboxes; bulk: [{ label, icon, tone, primary, onClick(rows), needs, kind }] actions for
-                the selection (without onClick a bulk button cannot act: drawn by MQ.act with its needs and kind)
+     selectable true to add checkboxes; bulk: [{ label, icon, tone, primary, onClick(rows), needs, kind, action }]
+                actions for the selection (without onClick a bulk button cannot act: drawn by MQ.act with its needs,
+                kind and action)
      rowHref    row -> address (a click on the row goes there)
      onRow      (row, tr) -> void (a click opens something; the row is marked open until MQ.table.unmark())
      rowId      row -> id (default row.id)
@@ -200,7 +201,7 @@
       bulk.hidden = !selected.size;
       if (selected.size) bulk.innerHTML = String(html`<span><b>${fmt.num(selected.size)}</b> selected</span>${(cfg.bulk || []).map((b, i) => (b.onClick
         ? html`<button class="mq-btn mq-btn--sm${b.tone === 'bad' ? ' mq-btn--danger' : ''}${b.primary ? ' mq-btn--primary' : ''}" data-bulk="${i}">${b.icon ? icon(b.icon, 'mq-icon--sm') : ''}${b.label}</button>`
-        : MQ.act(b.label, { sm: true, icon: b.icon, danger: b.tone === 'bad', needs: b.needs, kind: b.kind })))}<button class="mq-btn mq-btn--ghost mq-btn--sm" data-none>Clear</button>`);
+        : MQ.act(b.label, { sm: true, icon: b.icon, danger: b.tone === 'bad', needs: b.needs, kind: b.kind, action: b.action })))}<button class="mq-btn mq-btn--ghost mq-btn--sm" data-none>Clear</button>`);
       cursor = Math.min(cursor, shown.length - 1);
       cfg.onShow?.(shown);
     }

@@ -177,7 +177,7 @@ async fn title_releases(
 }
 
 /// Grab a release the last search of the title found (kept 30 minutes), by its guid and its
-/// indexer. The owner alone, while Singularr may act on the manager.
+/// indexer. The owner alone, while the manager's `grab` has write access.
 #[utoipa::path(post, path = "/api/v1/titles/{id}/grab", tag = "acquire",
     params(("id" = String, Path, description = "The title's id")),
     request_body = GrabRequest,
@@ -208,8 +208,8 @@ async fn title_grab(
 }
 
 /// Ask the manager to search for the title: the movie; a whole show, one season (`season`) or
-/// episodes of a season (`season` and `episodes`). The owner alone, while Singularr may act on
-/// the manager.
+/// episodes of a season (`season` and `episodes`). The owner alone, while the manager's
+/// `search` has write access.
 #[utoipa::path(post, path = "/api/v1/titles/{id}/search", tag = "acquire",
     params(("id" = String, Path, description = "The title's id")),
     request_body = SearchRequest,
@@ -239,8 +239,8 @@ async fn title_search(
 }
 
 /// Import a download its manager refused, as it is: the files its manual import offers, in the
-/// import mode its download client allows. The owner alone, while Singularr may act on the
-/// manager that owns the download.
+/// import mode its download client allows. The owner alone, while `import` has write access
+/// on the manager that owns the download.
 #[utoipa::path(post, path = "/api/v1/activity/queue/{id}/import", tag = "acquire",
     params(("id" = String, Path, description = "The queue row's id: `q-<hash>`")),
     responses((status = 200, body = ActAnswer), (status = 403, body = ProblemDoc), (status = 404, body = ProblemDoc),
@@ -260,8 +260,8 @@ async fn queue_import(
 }
 
 /// Take a download out of its manager's queue and the download client; with `blocklist=true`
-/// its release is not grabbed again. The owner alone, while Singularr may act on the manager
-/// that owns the download.
+/// its release is not grabbed again. The owner alone, while `remove` has write access on the
+/// manager that owns the download.
 #[utoipa::path(delete, path = "/api/v1/activity/queue/{id}", tag = "acquire",
     params(("id" = String, Path, description = "The queue row's id: `q-<hash>`"), RemoveQuery),
     responses((status = 200, body = ActAnswer), (status = 403, body = ProblemDoc), (status = 404, body = ProblemDoc),
@@ -285,8 +285,8 @@ async fn queue_remove(
 }
 
 /// Search for titles of the wanted list: movies, and single episodes of shows (`season` and
-/// `episode`), at most 50, one command per manager. The owner alone, while Singularr may act on
-/// every manager named; nothing is sent when one of them is read-only.
+/// `episode`), at most 50, one command per manager. The owner alone, while `search` has write
+/// access on every manager named. Nothing is sent while one of them is read-only.
 #[utoipa::path(post, path = "/api/v1/search", tag = "acquire",
     request_body = SearchManyRequest,
     responses((status = 200, body = SearchManyAnswer), (status = 400, body = ProblemDoc),

@@ -12,21 +12,28 @@
 //! the instance file named by `SINGULARR_INSTANCE` (`singularr.toml`), which names each secret's
 //! variable and never holds a secret itself. The workspace names and public addresses are configuration too.
 //!
-//! What Singularr may do with an integration (`read`, or `act`) can be fixed here too:
+//! What Singularr may do with each action of an integration can be fixed here too:
 //! `<TYPE>_ACCESS` in the environment form, `access` on the integration in the instance file.
-//! Left out, it is what the owner saved in the interface, else `read`.
+//! Each takes `read`, `act` (every action of the type) or a comma list of action ids. Left out,
+//! each action has what the owner saved in the interface, else `read`.
+//!
+//! The bootstrap is the platform's (`singularr_platform::config`): the database, the instance
+//! file's path, the owners and the edge, the time limit of a call and the face. Its names keep
+//! their paths here. The parsing knows no manifest of its own: it reads each type's facts from
+//! the table it is handed ([`Manifests`]). The engines hold the table and the constructors that
+//! pass it (`Config::from`, `Config::with_instance`).
 
-use super::outbound::Access;
-use singularr_sdk::manifest::Kind;
-use std::collections::BTreeMap;
+use super::outbound::Grant;
+pub use singularr_platform::config::{
+    Bootstrap, ConfigError, Env, Face, PLACEHOLDER, ProcessEnv, redact_url,
+};
+use singularr_platform::config::{seconds, set};
+use singularr_sdk::manifest::Manifest;
 use std::fmt;
 use std::time::Duration;
 
-/// The value `.env` ships with for every secret.
-pub const PLACEHOLDER: &str = "CHANGEME";
-
-/// The kinds of integration this version knows. Each has a manifest
-/// (`engines::manifests`): the methods below read their facts from it.
+/// The kinds of integration this version knows. Each has a manifest (`engines::manifests`). The
+/// parsing reads it from the table it is handed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IntegrationType {
     Plex,
@@ -69,8 +76,26 @@ impl IntegrationType {
         IntegrationType::Tautulli,
     ];
 
+    /// The type's id, as the instance file and the API name it. Its manifest names it too
+    /// (`engines::manifests` holds the two to one id).
     pub fn as_str(self) -> &'static str {
-        self.manifest().type_id
+        match self {
+            IntegrationType::Plex => "plex",
+            IntegrationType::Jellyfin => "jellyfin",
+            IntegrationType::Emby => "emby",
+            IntegrationType::Radarr => "radarr",
+            IntegrationType::Sonarr => "sonarr",
+            IntegrationType::Qbittorrent => "qbittorrent",
+            IntegrationType::Transmission => "transmission",
+            IntegrationType::Deluge => "deluge",
+            IntegrationType::Sabnzbd => "sabnzbd",
+            IntegrationType::Nzbget => "nzbget",
+            IntegrationType::Prowlarr => "prowlarr",
+            IntegrationType::Tdarr => "tdarr",
+            IntegrationType::Hush => "hush",
+            IntegrationType::Seerr => "seerr",
+            IntegrationType::Tautulli => "tautulli",
+        }
     }
 
     pub fn parse(text: &str) -> Option<IntegrationType> {
@@ -81,42 +106,6 @@ impl IntegrationType {
             .or_else(|| (t == "qbit").then_some(IntegrationType::Qbittorrent))
     }
 
-    /// The product name, the display name an integration takes when it is given none.
-    // The manifest's `label` is the type as Settings lists it (Plex Media Server). This one is
-    // its `name` (Plex).
-    #[allow(clippy::misnamed_getters)]
-    pub fn label(self) -> &'static str {
-        self.manifest().name
-    }
-
-    /// What an integration of this type does, unless its entry says otherwise.
-    pub fn default_role(self) -> &'static str {
-        self.manifest().role
-    }
-
-    /// The variable prefixes of the environment form, the product's own name first.
-    /// `PLEXSEERR` is the older name of `SEERR` and keeps working.
-    pub fn env_prefixes(self) -> &'static [&'static str] {
-        self.manifest().env_prefixes
-    }
-
-    /// The end of the secret's variable name: `PLEX_TOKEN`, `QBIT_PASS`, `RADARR_API_KEY`.
-    pub fn secret_suffix(self) -> &'static str {
-        self.manifest().secret.env_suffix
-    }
-
-    /// qBittorrent can trust its subnet, Transmission and NZBGet can run without a password, and
-    /// Tdarr and the HUSH bridge without a key, so for them an address alone is a usable
-    /// integration.
-    pub fn secret_optional(self) -> bool {
-        self.manifest().secret.optional
-    }
-
-    /// The types that sign in with a user name beside their password.
-    pub fn takes_user(self) -> bool {
-        self.manifest().takes_user
-    }
-
     /// The download client of this type, for a type that is one.
     pub fn client(self) -> Option<ClientKind> {
         ClientKind::ALL
@@ -124,21 +113,21 @@ impl IntegrationType {
             .find(|c| c.integration() == self)
     }
 
-    /// The types that process files after their import: a worker (Tdarr) and a bridge in
-    /// front of one (HUSH).
-    pub fn processes(self) -> bool {
-        self.manifest().fills(Kind::Processor)
-    }
-
     /// The media server types: the servers that hold the libraries and play them.
     pub fn serves_media(self) -> bool {
         MediaServerKind::of(self).is_some()
     }
+}
 
-    /// The types whose items open in the server's own web app, at an address of its own when one
-    /// is set (`<PREFIX>_WEB_URL`, the instance file's `web_url`): Jellyfin and Emby. A Plex item opens in Plex's web app (`SINGULARR_PLEX_WEB_URL`).
-    pub fn has_web_app(self) -> bool {
-        self.manifest().web_url
+/// Where the parsing finds each type's manifest: the engines' table
+/// (`engines::manifests::MANIFESTS`).
+#[derive(Clone, Copy)]
+pub struct Manifests(pub fn(IntegrationType) -> &'static Manifest);
+
+impl Manifests {
+    /// The manifest of a type.
+    pub fn of(self, kind: IntegrationType) -> &'static Manifest {
+        (self.0)(kind)
     }
 }
 
@@ -165,25 +154,28 @@ pub struct Integration {
     pub url_var: String,
     /// What the environment or the instance file says Singularr may do with it. `None`: neither
     /// says, and the access is the one saved in the interface, else `read`.
-    pub access: Option<Access>,
+    pub access: Option<Grant>,
     /// What says so, for messages: the variable of the environment form (`HUSH_ACCESS`), or
     /// the integration's `access` in the instance file.
     pub access_var: String,
     /// `environment` or `instance file`.
     pub source: &'static str,
+    /// Its type runs without a secret (its manifest's `secret.optional`): an address alone is a
+    /// usable integration.
+    pub secret_optional: bool,
 }
 
 impl Integration {
     /// Address and (where the type needs one) secret are set, so the integration is asked.
     pub fn configured(&self) -> bool {
-        self.url.is_some() && (self.secret.is_some() || self.kind.secret_optional())
+        self.url.is_some() && (self.secret.is_some() || self.secret_optional)
     }
 
     /// Why an integration is not configured, in words. `None` when it is.
     pub fn missing(&self) -> Option<String> {
         if self.url.is_none() {
             Some(format!("{} is not set", self.url_var))
-        } else if self.secret.is_none() && !self.kind.secret_optional() {
+        } else if self.secret.is_none() && !self.secret_optional {
             Some(format!("{} is not set", self.secret_var))
         } else {
             None
@@ -312,7 +304,8 @@ impl ClientKind {
     }
 }
 
-/// One download client integration, as its adapter takes it.
+/// One download client integration, as its adapter takes it. Whether it is asked is the
+/// engines' (`engines::clients`), as its type's manifest says.
 #[derive(Clone, PartialEq, Eq)]
 pub struct DownloadClientConfig {
     /// The integration id.
@@ -323,13 +316,6 @@ pub struct DownloadClientConfig {
     pub user: Option<String>,
     /// Its password, or SABnzbd's API key.
     pub secret: Option<String>,
-}
-
-impl DownloadClientConfig {
-    /// It is asked: an address, and the secret where its type needs one.
-    pub fn configured(&self) -> bool {
-        self.url.is_some() && (self.secret.is_some() || self.kind.integration().secret_optional())
-    }
 }
 
 /// The Seerr integration the requests are read from.
@@ -522,16 +508,15 @@ pub struct PortalRoleConfig {
 
 #[derive(Clone)]
 pub struct Config {
-    pub database_url: String,
-    pub db_max_connections: u32,
+    /// The platform's part: the database, the instance file, the owners and the edge, the time
+    /// limit of a call.
+    pub bootstrap: Bootstrap,
     pub policy_path: String,
     /// `SINGULARR_POLICY` is set: the installation pins its policy in a file, so the policy's
     /// source is the file until it is imported (`system.policySource`).
     pub policy_pinned: bool,
     /// `rules/editions.toml` in the image: the closed list of editions.
     pub editions_path: String,
-    /// The instance file, when `SINGULARR_INSTANCE` names one.
-    pub instance_path: Option<String>,
     pub workspace: Workspace,
     /// Every integration, configured or not, in the order of the instance file and then the
     /// environment.
@@ -566,56 +551,9 @@ pub struct Config {
     pub search: SearchConfig,
     pub geoip: GeoIpConfig,
     pub portal_role: PortalRoleConfig,
-    pub owner_emails: String,
-    pub edge_token_set: bool,
-    /// `SINGULARR_EDGE_TOKEN` still holds the placeholder. The identity middleware would take
-    /// the placeholder for the token, so the server refuses to start like this.
-    pub edge_token_placeholder: bool,
-    /// `SINGULARR_TRUSTED_PROXY_IPS` as written. Unset, no proxy is trusted (`core::identity`).
-    pub trusted_proxies: Option<String>,
     pub sync: SyncConfig,
-    pub http_timeout: Duration,
     /// Names of variables whose value was unusable, with the reason. Printed at startup.
     pub warnings: Vec<String>,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ConfigError {
-    #[error("{0} is not set. Set it in .env (see the README, Environment).")]
-    Missing(&'static str),
-    #[error("{0} is not usable: {1}")]
-    Invalid(&'static str, String),
-    #[error("the instance file {path} is not usable: {message}")]
-    Instance { path: String, message: String },
-    #[error(
-        "Singularr Requests must not hold the full process's secrets, and these are set in its environment: {0}. Give the singularr-requests service only its own variables."
-    )]
-    NotForTheFace(String),
-}
-
-/// Which program this process is: `SINGULARR_FACE`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Face {
-    /// Singularr, the workspace: everything. The default.
-    Owner,
-    /// Singularr Requests, the portal: the request pages alone.
-    Requests,
-}
-
-impl Face {
-    pub fn from_env(env: &dyn Env) -> Result<Face, ConfigError> {
-        match set(env, "SINGULARR_FACE")
-            .map(|v| v.to_ascii_lowercase())
-            .as_deref()
-        {
-            None | Some("owner") | Some("singularr") => Ok(Face::Owner),
-            Some("requests") => Ok(Face::Requests),
-            Some(other) => Err(ConfigError::Invalid(
-                "SINGULARR_FACE",
-                format!("`{other}` is neither `owner` nor `requests`"),
-            )),
-        }
-    }
 }
 
 /// The variables of the full process that Singularr Requests refuses to start with: its
@@ -766,72 +704,6 @@ impl fmt::Display for RequestsFaceConfig {
     }
 }
 
-/// A source of variables, so tests do not touch the process environment.
-pub trait Env {
-    fn get(&self, name: &str) -> Option<String>;
-    /// The name of every variable, for a check that goes by how names end.
-    fn names(&self) -> Vec<String>;
-}
-
-pub struct ProcessEnv;
-
-impl Env for ProcessEnv {
-    fn get(&self, name: &str) -> Option<String> {
-        std::env::var(name).ok()
-    }
-
-    fn names(&self) -> Vec<String> {
-        std::env::vars_os()
-            .filter_map(|(name, _)| name.into_string().ok())
-            .collect()
-    }
-}
-
-impl Env for BTreeMap<&str, &str> {
-    fn get(&self, name: &str) -> Option<String> {
-        BTreeMap::get(self, name).map(|v| v.to_string())
-    }
-
-    fn names(&self) -> Vec<String> {
-        self.keys().map(|name| name.to_string()).collect()
-    }
-}
-
-/// A set value: trimmed, not empty and not the placeholder.
-fn set(env: &dyn Env, name: &str) -> Option<String> {
-    env.get(name)
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty() && v != PLACEHOLDER)
-}
-
-fn seconds(
-    env: &dyn Env,
-    name: &str,
-    default: u64,
-    min: u64,
-    warnings: &mut Vec<String>,
-) -> Duration {
-    let value = match set(env, name) {
-        None => default,
-        Some(raw) => match raw.parse::<u64>() {
-            Ok(n) if n >= min => n,
-            Ok(n) => {
-                warnings.push(format!(
-                    "{name}={n} is below the minimum of {min}; using {min}"
-                ));
-                min
-            }
-            Err(_) => {
-                warnings.push(format!(
-                    "{name}={raw:?} is not a number of seconds; using {default}"
-                ));
-                default
-            }
-        },
-    };
-    Duration::from_secs(value)
-}
-
 /// An address without its trailing `/`.
 fn base_url(url: &str) -> String {
     url.trim().trim_end_matches('/').to_string()
@@ -893,13 +765,25 @@ fn valid_var(name: &str) -> bool {
             .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
+/// The action ids a grant names that the type does not declare.
+fn unknown_actions(m: &Manifest, grant: &Grant) -> Vec<String> {
+    match grant {
+        Grant::Actions(ids) => ids
+            .iter()
+            .filter(|id| !m.actions.iter().any(|a| a.id == id.as_str()))
+            .cloned()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// The variable a file integration's secret is read from by default: `RADARR_4K_API_KEY` for
 /// the id `radarr-4k`.
-fn default_secret_var(id: &str, kind: IntegrationType) -> String {
+fn default_secret_var(id: &str, m: &Manifest) -> String {
     format!(
         "{}_{}",
         id.to_ascii_uppercase().replace('-', "_"),
-        kind.secret_suffix()
+        m.secret.env_suffix
     )
 }
 
@@ -908,6 +792,7 @@ fn parse_instance(
     env: &dyn Env,
     path: &str,
     text: &str,
+    manifests: Manifests,
 ) -> Result<(FileWorkspace, Vec<Integration>), ConfigError> {
     let bad = |message: String| ConfigError::Instance {
         path: path.to_string(),
@@ -936,6 +821,7 @@ fn parse_instance(
                     .join(", ")
             ))
         })?;
+        let m = manifests.of(kind);
         let url = entry.url.as_deref().map(base_url).filter(|u| !u.is_empty());
         if let Some(u) = &url
             && !(u.starts_with("http://") || u.starts_with("https://"))
@@ -950,7 +836,7 @@ fn parse_instance(
             .map(base_url)
             .filter(|u| !u.is_empty());
         if let Some(u) = &web_url {
-            if !kind.has_web_app() {
+            if !m.web_url {
                 return Err(bad(format!(
                     "integration `{id}`: `web_url` is read for jellyfin and emby alone"
                 )));
@@ -968,29 +854,44 @@ fn parse_instance(
                     "integration `{id}`: `secret` names the environment variable that holds the secret (upper case, digits and _), never the secret itself"
                 )));
             }
-            None => default_secret_var(&id, kind),
+            None => default_secret_var(&id, m),
         };
-        // A word that is neither is an error, as a typo anywhere in the file is: a permission
-        // is never guessed.
+        // A word that is none of them is an error, as a typo anywhere in the file is: a
+        // permission is never guessed. So is an action the type does not declare.
         let access = match entry.access.as_deref().map(str::trim) {
             None => None,
-            Some(word) => Some(Access::parse(word).ok_or_else(|| {
-                bad(format!(
-                    "integration `{id}`: `access` is `read` or `act`, not `{word}`"
-                ))
-            })?),
+            Some(word) => {
+                let ids: Vec<&str> = m.actions.iter().map(|a| a.id).collect();
+                let takes = if ids.is_empty() {
+                    format!("`read` or `act` ({} has no action)", m.name)
+                } else {
+                    format!(
+                        "`read`, `act` or a list of {}'s actions ({})",
+                        m.name,
+                        ids.join(", ")
+                    )
+                };
+                let grant = Grant::parse(word)
+                    .filter(|grant| unknown_actions(m, grant).is_empty())
+                    .ok_or_else(|| {
+                        bad(format!(
+                            "integration `{id}`: `access` takes {takes}. `{word}` is none of them."
+                        ))
+                    })?;
+                Some(grant)
+            }
         };
         out.push(Integration {
             name: entry
                 .name
                 .map(|n| n.trim().to_string())
                 .filter(|n| !n.is_empty())
-                .unwrap_or_else(|| kind.label().to_string()),
+                .unwrap_or_else(|| m.name.to_string()),
             role: entry
                 .role
                 .map(|r| r.trim().to_string())
                 .filter(|r| !r.is_empty())
-                .unwrap_or_else(|| kind.default_role().to_string()),
+                .unwrap_or_else(|| m.role.to_string()),
             url,
             web_url,
             user: entry.user.filter(|u| !u.trim().is_empty()),
@@ -1002,6 +903,7 @@ fn parse_instance(
             id,
             kind,
             source: "instance file",
+            secret_optional: m.secret.optional,
         });
     }
     Ok((file.workspace, out))
@@ -1018,14 +920,16 @@ fn env_integrations(
     env: &dyn Env,
     taken: &[Integration],
     warnings: &mut Vec<String>,
+    manifests: Manifests,
 ) -> Vec<Integration> {
     let mut out = Vec::new();
     for kind in IntegrationType::ALL {
-        let suffix = kind.secret_suffix();
-        let Some(prefix) = kind.env_prefixes().iter().copied().find(|p| {
+        let m = manifests.of(kind);
+        let suffix = m.secret.env_suffix;
+        let Some(prefix) = m.env_prefixes.iter().copied().find(|p| {
             set(env, &format!("{p}_URL")).is_some()
                 || set(env, &format!("{p}_{suffix}")).is_some()
-                || (kind.takes_user() && set(env, &format!("{p}_USER")).is_some())
+                || (m.takes_user && set(env, &format!("{p}_USER")).is_some())
         }) else {
             continue;
         };
@@ -1037,22 +941,52 @@ fn env_integrations(
             continue;
         }
         let secret_var = format!("{prefix}_{suffix}");
-        // A word that is neither `read` nor `act` gives no more than reading, whatever was
-        // saved in the interface: a permission is never guessed.
+        // A word that is not `read`, `act` or a list of the type's actions gives no more than
+        // reading, whatever was saved in the interface: a permission is never guessed. An id the
+        // type does not declare is left out.
         let access_var = format!("{prefix}_ACCESS");
         let access = set(env, &access_var).map(|word| {
-            Access::parse(&word).unwrap_or_else(|| {
+            let neither = |warnings: &mut Vec<String>| {
                 warnings.push(format!(
-                    "{access_var}={word:?} is neither read nor act; read-only applies"
+                    "{access_var}={word:?} is neither read nor act nor a list of {}'s actions; read-only applies",
+                    m.name
                 ));
-                Access::Read
-            })
+                Grant::Read
+            };
+            match Grant::parse(&word) {
+                Some(Grant::Actions(ids)) => {
+                    let known: Vec<String> = ids
+                        .iter()
+                        .filter(|id| m.actions.iter().any(|a| a.id == id.as_str()))
+                        .cloned()
+                        .collect();
+                    if known.is_empty() {
+                        neither(warnings)
+                    } else {
+                        if known.len() < ids.len() {
+                            let unknown: Vec<&str> = ids
+                                .iter()
+                                .filter(|id| !known.contains(id))
+                                .map(String::as_str)
+                                .collect();
+                            warnings.push(format!(
+                                "{access_var}={word:?} names actions {} does not have ({}); they are left out",
+                                m.name,
+                                unknown.join(", ")
+                            ));
+                        }
+                        Grant::Actions(known)
+                    }
+                }
+                Some(grant) => grant,
+                None => neither(warnings),
+            }
         });
         // Where people open a Jellyfin or Emby server's web app, when that is not the address
         // Singularr reads it at.
         let web_var = format!("{prefix}_WEB_URL");
         let web_url = match set(env, &web_var).map(|u| base_url(&u)) {
-            Some(_) if !kind.has_web_app() => None,
+            Some(_) if !m.web_url => None,
             Some(u) if u.starts_with("http://") || u.starts_with("https://") => Some(u),
             Some(u) => {
                 warnings.push(format!(
@@ -1063,11 +997,11 @@ fn env_integrations(
             None => None,
         };
         out.push(Integration {
-            name: set(env, &format!("{prefix}_NAME")).unwrap_or_else(|| kind.label().to_string()),
-            role: kind.default_role().to_string(),
+            name: set(env, &format!("{prefix}_NAME")).unwrap_or_else(|| m.name.to_string()),
+            role: m.role.to_string(),
             url: set(env, &format!("{prefix}_URL")).map(|u| base_url(&u)),
             web_url,
-            user: if kind.takes_user() {
+            user: if m.takes_user {
                 set(env, &format!("{prefix}_USER"))
             } else {
                 None
@@ -1080,47 +1014,43 @@ fn env_integrations(
             id,
             kind,
             source: "environment",
+            secret_optional: m.secret.optional,
         });
     }
     out
 }
 
 impl Config {
-    pub fn from_env() -> Result<Config, ConfigError> {
-        Config::from(&ProcessEnv)
-    }
-
-    /// The configuration of this environment, with the instance file it names.
-    pub fn from(env: &dyn Env) -> Result<Config, ConfigError> {
+    /// The configuration of this environment, with the instance file it names, read with these
+    /// manifests. The program and its tests call `Config::from` (`engines::manifests`).
+    pub fn read(env: &dyn Env, manifests: Manifests) -> Result<Config, ConfigError> {
         match set(env, "SINGULARR_INSTANCE") {
-            None => Config::with_instance(env, None),
+            None => Config::parse(env, None, manifests),
             Some(path) => {
                 let text = std::fs::read_to_string(&path).map_err(|e| ConfigError::Instance {
                     path: path.clone(),
                     message: e.to_string(),
                 })?;
-                Config::with_instance(env, Some((&path, &text)))
+                Config::parse(env, Some((&path, &text)), manifests)
             }
         }
     }
 
-    /// The configuration of this environment and this instance file text (path, text).
-    pub fn with_instance(
+    /// The configuration of this environment and this instance file text (path, text), read
+    /// with these manifests. The bootstrap comes first: its warnings lead the list.
+    pub fn parse(
         env: &dyn Env,
         instance: Option<(&str, &str)>,
+        manifests: Manifests,
     ) -> Result<Config, ConfigError> {
         let mut warnings = Vec::new();
-        let database_url = env
-            .get("DATABASE_URL")
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .ok_or(ConfigError::Missing("DATABASE_URL"))?;
+        let bootstrap = Bootstrap::from(env, instance.map(|(path, _)| path), &mut warnings)?;
 
         let (file_workspace, mut integrations) = match instance {
-            Some((path, text)) => parse_instance(env, path, text)?,
+            Some((path, text)) => parse_instance(env, path, text, manifests)?,
             None => (FileWorkspace::default(), Vec::new()),
         };
-        let from_env = env_integrations(env, &integrations, &mut warnings);
+        let from_env = env_integrations(env, &integrations, &mut warnings, manifests);
         integrations.extend(from_env);
         for i in &integrations {
             if let Some(why) = i.missing() {
@@ -1159,7 +1089,7 @@ impl Config {
             if of(kind).count() > 1 {
                 warnings.push(format!(
                     "More than one {} integration; the first is used",
-                    kind.label()
+                    manifests.of(kind).name
                 ));
             }
         }
@@ -1211,7 +1141,7 @@ impl Config {
                 id: i.id.clone(),
                 kind,
                 url: i.url.clone(),
-                user: i.user.clone().filter(|_| i.kind.takes_user()),
+                user: i.user.clone().filter(|_| manifests.of(i.kind).takes_user),
                 secret: i.secret.clone(),
             });
         }
@@ -1367,28 +1297,6 @@ impl Config {
             sign_out_url: set(env, "SINGULARR_SIGN_OUT_URL"),
         };
 
-        let owner_emails = set(env, "SINGULARR_OWNER_EMAILS").unwrap_or_default();
-        if owner_emails.is_empty() {
-            warnings.push("SINGULARR_OWNER_EMAILS is empty: no owner sign-in".to_string());
-        }
-        // No proxy is trusted until one is listed (`core::identity`).
-        let trusted_proxies = set(env, "SINGULARR_TRUSTED_PROXY_IPS");
-        if trusted_proxies.is_none() {
-            warnings.push(
-                "SINGULARR_TRUSTED_PROXY_IPS is not set: no identity header is trusted".to_string(),
-            );
-        }
-        let edge_token_set = set(env, "SINGULARR_EDGE_TOKEN").is_some();
-        let edge_token_placeholder = env
-            .get("SINGULARR_EDGE_TOKEN")
-            .is_some_and(|v| v.trim() == PLACEHOLDER);
-        if trusted_proxies.is_some() && !edge_token_set && !edge_token_placeholder {
-            warnings.push(
-                "SINGULARR_EDGE_TOKEN is not set: identity headers trusted by proxy address"
-                    .to_string(),
-            );
-        }
-
         let search = SearchConfig {
             url: set(env, "SINGULARR_SEARCH_URL").and_then(|u| {
                 if u.starts_with("http://") || u.starts_with("https://") {
@@ -1496,17 +1404,12 @@ impl Config {
         };
 
         Ok(Config {
-            database_url,
-            db_max_connections: set(env, "SINGULARR_DB_MAX_CONNECTIONS")
-                .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(10)
-                .clamp(2, 50),
+            bootstrap,
             policy_path: set(env, "SINGULARR_POLICY")
                 .unwrap_or_else(|| "/app/rules/policy.toml".to_string()),
             policy_pinned: set(env, "SINGULARR_POLICY").is_some(),
             editions_path: set(env, "SINGULARR_EDITIONS")
                 .unwrap_or_else(|| "/app/rules/editions.toml".to_string()),
-            instance_path: instance.map(|(path, _)| path.to_string()),
             workspace,
             integrations,
             arrs,
@@ -1532,12 +1435,7 @@ impl Config {
             search,
             geoip,
             portal_role,
-            owner_emails,
-            edge_token_set,
-            edge_token_placeholder,
-            trusted_proxies,
             sync,
-            http_timeout: seconds(env, "SINGULARR_HTTP_TIMEOUT_SECS", 30, 5, &mut warnings),
             warnings,
         })
     }
@@ -1576,20 +1474,6 @@ pub fn plain_role_name(name: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
-/// `postgres://user:secret@host/db` with the password replaced.
-pub fn redact_url(url: &str) -> String {
-    let Some((scheme, rest)) = url.split_once("://") else {
-        return "(set)".to_string();
-    };
-    match rest.rsplit_once('@') {
-        Some((userinfo, host)) => {
-            let user = userinfo.split(':').next().unwrap_or("");
-            format!("{scheme}://{user}:***@{host}")
-        }
-        None => format!("{scheme}://{rest}"),
-    }
-}
-
 fn secret(v: &Option<String>) -> String {
     match v {
         Some(s) => format!("set ({} characters)", s.chars().count()),
@@ -1605,12 +1489,12 @@ impl fmt::Display for Config {
         writeln!(
             f,
             "  DATABASE_URL                   {}",
-            redact_url(&self.database_url)
+            redact_url(&self.bootstrap.database_url)
         )?;
         writeln!(
             f,
             "  SINGULARR_DB_MAX_CONNECTIONS   {}",
-            self.db_max_connections
+            self.bootstrap.db_max_connections
         )?;
         writeln!(
             f,
@@ -1630,7 +1514,7 @@ impl fmt::Display for Config {
         writeln!(
             f,
             "  SINGULARR_INSTANCE             {}",
-            self.instance_path.as_deref().unwrap_or("unset")
+            self.bootstrap.instance_path.as_deref().unwrap_or("unset")
         )?;
         let w = &self.workspace;
         writeln!(
@@ -1656,8 +1540,8 @@ impl fmt::Display for Config {
         for i in &self.integrations {
             let key = format!("{} {}", i.secret_var, secret(&i.secret));
             // What the configuration says Singularr may do with it, when it says.
-            let access = match i.access {
-                Some(access) => format!(", access {}", access.as_str()),
+            let access = match &i.access {
+                Some(grant) => format!(", access {}", grant.as_text()),
                 None => String::new(),
             };
             let web = match &i.web_url {
@@ -1768,7 +1652,8 @@ impl fmt::Display for Config {
         writeln!(
             f,
             "  SINGULARR_OWNER_EMAILS         {} address(es)",
-            self.owner_emails
+            self.bootstrap
+                .owner_emails
                 .split(',')
                 .filter(|s| !s.trim().is_empty())
                 .count()
@@ -1776,7 +1661,10 @@ impl fmt::Display for Config {
         writeln!(
             f,
             "  SINGULARR_EDGE_TOKEN           {}",
-            match (self.edge_token_set, self.edge_token_placeholder) {
+            match (
+                self.bootstrap.edge_token_set,
+                self.bootstrap.edge_token_placeholder
+            ) {
                 (true, _) => "set",
                 (false, true) => "still the placeholder",
                 (false, false) => "unset",
@@ -1785,7 +1673,7 @@ impl fmt::Display for Config {
         writeln!(
             f,
             "  SINGULARR_TRUSTED_PROXY_IPS    {}",
-            self.trusted_proxies.as_deref().unwrap_or("unset")
+            self.bootstrap.trusted_proxies.as_deref().unwrap_or("unset")
         )?;
         let s = &self.sync;
         writeln!(f, "  SINGULARR_SYNC_ENABLED         {}", s.enabled)?;
@@ -1831,7 +1719,7 @@ impl fmt::Display for Config {
         write!(
             f,
             "  SINGULARR_HTTP_TIMEOUT_SECS    {}",
-            self.http_timeout.as_secs()
+            self.bootstrap.http_timeout.as_secs()
         )?;
         for w in &self.warnings {
             write!(f, "\n  warning: {w}")?;
@@ -1843,6 +1731,40 @@ impl fmt::Display for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::collections::BTreeMap;
+
+    /// `core` knows no engine: the parsing reads every fact of a type from the table it is
+    /// handed. The code above the tests, its comments left out, names no engine and calls no
+    /// manifest, as a method or by its path.
+    #[test]
+    fn the_parsing_reads_the_manifests_from_the_table_it_is_handed() {
+        let code: Vec<&str> = include_str!("config.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .collect();
+        let code = code.join("\n");
+        let mut refused = vec!["engines::".to_string(), "manifest(".to_string()];
+        for method in [
+            "label",
+            "default_role",
+            "env_prefixes",
+            "secret_suffix",
+            "secret_optional",
+            "takes_user",
+            "processes",
+            "has_web_app",
+        ] {
+            refused.push(format!(".{method}("));
+            refused.push(format!("::{method}("));
+        }
+        for word in &refused {
+            assert!(!code.contains(word.as_str()), "core::config calls `{word}`");
+        }
+    }
 
     fn env() -> BTreeMap<&'static str, &'static str> {
         BTreeMap::from([
@@ -2103,8 +2025,8 @@ mod tests {
         let emby = c.integration("emby").unwrap();
         assert_eq!(emby.missing().as_deref(), Some("EMBY_API_KEY is not set"));
         assert_eq!(
-            (emby.access, emby.access_var.as_str()),
-            (Some(Access::Read), "EMBY_ACCESS")
+            (emby.access.clone(), emby.access_var.as_str()),
+            (Some(Grant::Read), "EMBY_ACCESS")
         );
         let servers: Vec<(&str, MediaServerKind, bool)> = c
             .media_servers
@@ -2387,7 +2309,7 @@ mod tests {
         let c = Config::from(&e).unwrap();
         let hush = c.integration("hush").unwrap();
         assert_eq!(
-            (hush.access, hush.access_var.as_str()),
+            (hush.access.clone(), hush.access_var.as_str()),
             (None, "HUSH_ACCESS")
         );
         assert_eq!(c.integration("radarr").unwrap().access, None);
@@ -2395,15 +2317,31 @@ mod tests {
         e.insert("HUSH_ACCESS", " Act ");
         e.insert("RADARR_ACCESS", "read");
         let c = Config::from(&e).unwrap();
-        assert_eq!(c.integration("hush").unwrap().access, Some(Access::Act));
-        assert_eq!(c.integration("radarr").unwrap().access, Some(Access::Read));
+        assert_eq!(c.integration("hush").unwrap().access, Some(Grant::Act));
+        assert_eq!(c.integration("radarr").unwrap().access, Some(Grant::Read));
         assert_eq!(c.integration("sonarr").unwrap().access, None);
+        // A list of the type's actions grants those alone. An id it does not declare is left
+        // out and named.
+        let mut listed = e.clone();
+        listed.insert("RADARR_ACCESS", "grab, search, scan");
+        let c2 = Config::from(&listed).unwrap();
+        assert_eq!(
+            c2.integration("radarr").unwrap().access,
+            Some(Grant::Actions(vec!["grab".into(), "search".into()]))
+        );
+        assert!(
+            c2.warnings.iter().any(|w| w
+                .starts_with("RADARR_ACCESS=\"grab, search, scan\" names actions")
+                && w.contains("(scan)")),
+            "{:?}",
+            c2.warnings
+        );
         let text = c.to_string();
         assert!(text.contains("HUSH_API_KEY unset, access act;"), "{text}");
         // A word that is neither gives no more than reading, and says so.
         e.insert("HUSH_ACCESS", "yes");
         let c = Config::from(&e).unwrap();
-        assert_eq!(c.integration("hush").unwrap().access, Some(Access::Read));
+        assert_eq!(c.integration("hush").unwrap().access, Some(Grant::Read));
         assert!(
             c.warnings
                 .iter()
@@ -2435,7 +2373,7 @@ mod tests {
         e.insert("BRIDGE_API_KEY", "bridge-key-value");
         let c = Config::with_instance(&e, Some(("/x/instance.toml", file))).unwrap();
         let bridge = c.integration("bridge").unwrap();
-        assert_eq!(bridge.access, Some(Access::Act));
+        assert_eq!(bridge.access, Some(Grant::Act));
         assert_eq!(bridge.access_var, "the `access` of integration bridge");
         assert_eq!(bridge.secret_var, "BRIDGE_API_KEY");
         assert_eq!(c.integration("worker").unwrap().access, None);
@@ -2443,7 +2381,12 @@ mod tests {
         let bad = "[[integration]]\nid = \"b\"\ntype = \"hush\"\naccess = \"write\"\n";
         match Config::with_instance(&env(), Some(("/x/i.toml", bad))) {
             Err(ConfigError::Instance { message, .. }) => {
-                assert!(message.contains("`access` is `read` or `act`"), "{message}")
+                assert!(
+                    message.contains(
+                        "`access` takes `read`, `act` or a list of HUSH's actions (send). `write` is"
+                    ),
+                    "{message}"
+                )
             }
             other => panic!("{:?}", other.map(|_| ())),
         }
@@ -2500,7 +2443,7 @@ mod tests {
         assert_eq!(c.workspace.name, "Singularr");
         assert_eq!(c.workspace.portal, "Singularr Requests");
         assert_eq!(c.workspace.url, None);
-        assert_eq!(c.trusted_proxies, None);
+        assert_eq!(c.bootstrap.trusted_proxies, None);
         // A fresh install trusts no proxy, and says so.
         assert!(
             c.warnings
@@ -2544,14 +2487,14 @@ mod tests {
     fn a_placeholder_edge_token_is_told_apart_from_none() {
         let mut e = env();
         let c = Config::from(&e).unwrap();
-        assert!(!c.edge_token_set && !c.edge_token_placeholder);
+        assert!(!c.bootstrap.edge_token_set && !c.bootstrap.edge_token_placeholder);
         e.insert("SINGULARR_EDGE_TOKEN", "CHANGEME");
         let c = Config::from(&e).unwrap();
-        assert!(!c.edge_token_set && c.edge_token_placeholder);
+        assert!(!c.bootstrap.edge_token_set && c.bootstrap.edge_token_placeholder);
         assert!(c.to_string().contains("still the placeholder"));
         e.insert("SINGULARR_EDGE_TOKEN", "a-real-token");
         let c = Config::from(&e).unwrap();
-        assert!(c.edge_token_set && !c.edge_token_placeholder);
+        assert!(c.bootstrap.edge_token_set && !c.bootstrap.edge_token_placeholder);
         assert!(!c.to_string().contains("a-real-token"));
     }
 
@@ -2658,7 +2601,10 @@ mod tests {
             for prefix in kind.env_prefixes() {
                 names.push(format!("{prefix}_{}", kind.secret_suffix()));
             }
-            names.push(default_secret_var(&format!("{}-2", kind.as_str()), kind));
+            names.push(default_secret_var(
+                &format!("{}-2", kind.as_str()),
+                kind.manifest(),
+            ));
         }
         names.extend(
             [

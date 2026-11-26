@@ -4,13 +4,14 @@
 //!   (`notification_channel_added`, `notification_channel_changed`,
 //!   `notification_channel_removed`) that names what changed and never holds a secret. Its HTTP
 //!   address is listed in the way out as a target of its own, under `channel:<id>`.
-//! - **Dispatch.** After each commit (the journal's live channel), and every minute, the
-//!   dispatcher reads the journal past the channels' cursors, has the events that are
-//!   notification events described ([`Describe`]), writes one delivery for each channel that
-//!   wants each, and moves the cursors, in one transaction. The cursors are stored, so nothing
-//!   is sent twice across a restart; a channel's cursor starts at the event of its own
-//!   creation, so nothing from before it is sent; a disabled channel's cursor moves without a
-//!   delivery, and one enabled again starts at that change.
+//! - **Dispatch.** The dispatcher is the job `singularr:notify-dispatch` of the runtime. It runs
+//!   after each commit (its trigger reads the journal's live channel), when a delivery is due and
+//!   at least once a minute. It reads the journal past the channels' cursors. It has the events
+//!   that are notification events described ([`Describe`]). It writes one delivery for each
+//!   channel that wants each event and moves the cursors, in one transaction. The cursors are
+//!   stored: nothing is sent twice across a restart. A channel's cursor starts at the event of its
+//!   own creation: nothing from before it is sent. A disabled channel's cursor moves without a
+//!   delivery. A channel enabled again starts at that change.
 //! - **Sending.** A delivery is claimed (its attempt counted) before anything is sent. Three
 //!   attempts, 30 s and then 2 min apart; after the third it is failed, and the channel shows
 //!   it. An attempt a stop cut short counts, and the delivery waits again.
@@ -23,8 +24,10 @@ use super::store::{self, ChannelRow, ChannelWrite, DeliveryRow, Ended, NewDelive
 use crate::core::journal::{Journal, event};
 use crate::core::model::Event;
 use crate::core::outbound::{Body, OutRequest, Outbound, Target};
+use crate::core::runtime::{self, Cx, Done, Failed, Handler};
 use crate::core::smtp::{MailError, Mailer, Security, Server};
 use crate::core::store as core_store;
+use crate::core::units;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -44,8 +47,10 @@ pub const RETRY_AFTER: [i64; 2] = [30, 120];
 const PAGE: i64 = 200;
 /// Deliveries one round sends at most.
 const ROUND: i64 = 50;
+/// The key of the dispatcher in the job runtime.
+pub const JOB: &str = "singularr:notify-dispatch";
 /// The longest the dispatcher waits without a commit.
-const IDLE: Duration = Duration::from_secs(60);
+pub const IDLE: Duration = Duration::from_secs(60);
 /// How long a burst of commits is let settle before a round.
 const SETTLE: Duration = Duration::from_secs(2);
 
@@ -787,40 +792,88 @@ impl Notifier {
         Ok(made)
     }
 
-    /// The dispatcher and the sender, after each commit and every minute, until the journal
-    /// closes.
-    pub fn spawn(self, describe: Arc<dyn Describe>) -> JoinHandle<()> {
-        tokio::spawn(async move { self.run(describe).await })
-    }
-
-    async fn run(self, describe: Arc<dyn Describe>) {
-        let mut events = self.journal.subscribe();
-        loop {
-            match self.dispatch(describe.as_ref()).await {
-                Ok(0) => {}
-                Ok(n) => tracing::info!(deliveries = n, "notifications dispatched"),
-                Err(e) => tracing::warn!(error = %e, "notifications could not be dispatched"),
-            }
-            match self.send_due(Utc::now()).await {
-                Ok(_) => {}
-                Err(e) => tracing::warn!(error = %e, "notifications could not be sent"),
-            }
-            // The next commit, the next delivery that is due, or a minute.
-            let wait = match store::next_due(&self.pool).await {
-                Ok(Some(at)) => (at - Utc::now()).to_std().unwrap_or(Duration::ZERO),
-                _ => IDLE,
-            }
-            .clamp(Duration::from_secs(1), IDLE);
-            tokio::select! {
-                got = events.recv() => match got {
-                    Ok(_) | Err(RecvError::Lagged(_)) => {
-                        tokio::time::sleep(SETTLE).await;
-                        while matches!(events.try_recv(), Ok(_) | Err(TryRecvError::Lagged(_))) {}
-                    }
-                    Err(RecvError::Closed) => return,
-                },
-                _ = tokio::time::sleep(wait) => {}
+    /// One round of the dispatcher, as its loop ran each turn: the journal into deliveries, then
+    /// the deliveries that are due. The next round comes when the next delivery is due, a minute
+    /// at most, after a failed round too. A commit asks for one sooner ([`spawn_trigger`]). An
+    /// attempt still sending after `stranded` was cut short with a dropped round: the round gives
+    /// it back first.
+    pub async fn round(&self, describe: &dyn Describe, stranded: Duration) -> Result<Done, Failed> {
+        match store::reset_stranded(&self.pool, ATTEMPTS, stranded).await {
+            Ok(0) => {}
+            Ok(n) => tracing::warn!(
+                deliveries = n,
+                "attempts a dropped round left sending were given back"
+            ),
+            Err(e) => {
+                tracing::warn!(error = %e, "the attempts a dropped round left sending could not be given back")
             }
         }
+        let dispatched = self.dispatch(describe).await;
+        match &dispatched {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(deliveries = n, "notifications dispatched"),
+            Err(e) => tracing::warn!(error = %e, "notifications could not be dispatched"),
+        }
+        let sent = self.send_due(Utc::now()).await;
+        if let Err(e) = &sent {
+            tracing::warn!(error = %e, "notifications could not be sent");
+        }
+        let wait = match store::next_due(&self.pool).await {
+            Ok(Some(at)) => (at - Utc::now()).to_std().unwrap_or(Duration::ZERO),
+            _ => IDLE,
+        }
+        .clamp(Duration::from_secs(1), IDLE);
+        match (dispatched, sent) {
+            (Ok(written), Ok(attempts)) => Ok(Done {
+                detail: format!(
+                    "{} written, {} sent",
+                    units::count(i64::try_from(written).unwrap_or(i64::MAX)),
+                    units::count(i64::try_from(attempts).unwrap_or(i64::MAX))
+                ),
+                value: None,
+                again: Some(wait),
+            }),
+            (Err(e), _) | (_, Err(e)) => Err(Failed {
+                error: e,
+                class: None,
+                again: Some(wait),
+            }),
+        }
     }
+}
+
+/// The dispatcher's job: one round. Its deliveries are keyed by channel and event. Each attempt
+/// claims its delivery first: a round after one that lost its lease sends nothing twice.
+pub struct DispatchJob {
+    pub notifier: Notifier,
+    pub describe: Arc<dyn Describe>,
+}
+
+#[async_trait]
+impl Handler for DispatchJob {
+    async fn run(&self, cx: Cx) -> Result<Done, Failed> {
+        self.notifier
+            .round(self.describe.as_ref(), cx.lease.length())
+            .await
+    }
+}
+
+/// The dispatcher's trigger: a round after each commit, once the burst settled. A round going
+/// then is let end. The dispatcher runs again after it.
+pub fn spawn_trigger(pool: PgPool, journal: &Journal) -> JoinHandle<()> {
+    let mut events = journal.subscribe();
+    tokio::spawn(async move {
+        loop {
+            match events.recv().await {
+                Ok(_) | Err(RecvError::Lagged(_)) => {
+                    tokio::time::sleep(SETTLE).await;
+                    while matches!(events.try_recv(), Ok(_) | Err(TryRecvError::Lagged(_))) {}
+                }
+                Err(RecvError::Closed) => return,
+            }
+            if let Err(e) = runtime::run_after(&pool, JOB, json!({})).await {
+                tracing::warn!(error = %e, "notifications could not be asked for a round");
+            }
+        }
+    })
 }

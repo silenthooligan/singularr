@@ -56,6 +56,13 @@ pub fn actions(kind: ClientKind) -> &'static [Action] {
     }
 }
 
+impl DownloadClientConfig {
+    /// It is asked once it has an address and the secret its type's manifest needs.
+    pub fn configured(&self) -> bool {
+        self.url.is_some() && (self.secret.is_some() || self.kind.integration().secret_optional())
+    }
+}
+
 /// The adapter of one download client integration. `None` while it is not configured: no
 /// address, or no secret where its type needs one.
 pub fn adapter(config: &DownloadClientConfig, out: &Outbound) -> Option<Arc<dyn DownloadClient>> {

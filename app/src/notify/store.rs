@@ -291,10 +291,12 @@ pub async fn next_due(pool: &PgPool) -> Result<Option<DateTime<Utc>>, sqlx::Erro
 }
 
 /// Take a waiting delivery for an attempt, before anything is sent. Returns the number of the
-/// attempt; `None` when it is not waiting (another round took it).
+/// attempt; `None` when it is not waiting (another round took it). While it is sending,
+/// `next_at` holds when the attempt began.
 pub async fn claim(pool: &PgPool, id: i64) -> Result<Option<i32>, sqlx::Error> {
     sqlx::query_scalar::<_, i32>(
-        "UPDATE notification_deliveries SET state = 'sending', attempts = attempts + 1
+        "UPDATE notification_deliveries
+         SET state = 'sending', attempts = attempts + 1, next_at = now()
          WHERE id = $1 AND state = 'pending'
          RETURNING attempts",
     )
@@ -351,6 +353,28 @@ pub async fn reset_interrupted(
     )
     .bind(attempts)
     .bind(now)
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected())
+}
+
+/// Attempts a dropped round left sending: they began more than `older` ago. One with attempts left
+/// waits again. One at its last attempt has failed. A test is failed. Returns how many.
+pub async fn reset_stranded(
+    pool: &PgPool,
+    attempts: i32,
+    older: std::time::Duration,
+) -> Result<u64, sqlx::Error> {
+    sqlx::query(
+        "UPDATE notification_deliveries
+         SET state = CASE WHEN attempts >= $1 OR test THEN 'failed' ELSE 'pending' END,
+             finished_at = CASE WHEN attempts >= $1 OR test THEN now() END,
+             next_at = now(),
+             detail = COALESCE(detail, 'Interrupted')
+         WHERE state = 'sending' AND next_at < now() - make_interval(secs => $2::float8)",
+    )
+    .bind(attempts)
+    .bind(older.as_secs_f64())
     .execute(pool)
     .await
     .map(|r| r.rows_affected())

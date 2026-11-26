@@ -2185,21 +2185,18 @@ dependencies = [
  "hex",
  "hmac",
  "maxminddb",
- "metrics",
  "reqwest",
- "rustls",
- "rustls-native-certs",
  "serde",
  "serde_json",
  "sha2",
  "singularr-core",
+ "singularr-platform",
  "singularr-sdk",
  "sqlx",
  "stringprep",
  "subtle",
  "thiserror",
  "tokio",
- "tokio-rustls",
  "toml",
  "tower",
  "tower-http 0.7.1",
@@ -2207,7 +2204,6 @@ dependencies = [
  "tracing-subscriber",
  "utoipa",
  "uuid",
- "webpki-roots",
 ]
 
 [[package]]
@@ -2220,6 +2216,36 @@ dependencies = [
  "serde_json",
  "thiserror",
  "toml",
+]
+
+[[package]]
+name = "singularr-platform"
+version = "0.1.2"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "futures",
+ "hex",
+ "metrics",
+ "reqwest",
+ "rustls",
+ "rustls-native-certs",
+ "serde",
+ "serde_json",
+ "sha2",
+ "singularr-sdk",
+ "sqlx",
+ "subtle",
+ "thiserror",
+ "tokio",
+ "tokio-rustls",
+ "toml",
+ "tower",
+ "tracing",
+ "utoipa",
+ "uuid",
+ "webpki-roots",
 ]
 
 [[package]]

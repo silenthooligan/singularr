@@ -1,5 +1,6 @@
 //! The registry: every setting the server describes, as data. A setting is one [`Field`] entry
-//! in [`SECTIONS`]; adding a setting is adding an entry. Each entry says its type, its default,
+//! in [`SECTIONS`]; adding a setting is adding an entry. The types are the platform's
+//! (`singularr_platform::settings::registry`). Each entry says its type, its default,
 //! the variables and the instance file key that fix it, how its value in force is read from the
 //! configuration, and whether it can be saved here.
 //!
@@ -9,213 +10,28 @@
 
 use crate::core::config::{Config, redact_url};
 use serde_json::{Value, json};
+use singularr_platform::settings::registry as kit;
+pub use singularr_platform::settings::registry::{Check, Choice, Kind, choice};
 
-/// One choice of a `select` field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Choice {
-    pub value: &'static str,
-    pub label: &'static str,
-}
-
-const fn choice(value: &'static str, label: &'static str) -> Choice {
-    Choice { value, label }
-}
-
-/// A field's type, as the settings contract names it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-    Text,
-    /// Never sent: the answer says whether it is set.
-    Secret,
-    Number {
-        min: i64,
-        max: i64,
-        unit: Option<&'static str>,
-    },
-    Bool,
-    Select(&'static [Choice]),
-    /// Seconds.
-    Duration {
-        min: u64,
-    },
-    /// An absolute `http://` or `https://` address; with `relative`, a path on this site too.
-    Url {
-        relative: bool,
-    },
-    Path,
-    /// A list of strings.
-    List,
-    Timezone,
-    Language,
-}
-
-impl Kind {
-    pub fn name(self) -> &'static str {
-        match self {
-            Kind::Text => "text",
-            Kind::Secret => "secret",
-            Kind::Number { .. } => "number",
-            Kind::Bool => "bool",
-            Kind::Select(_) => "select",
-            Kind::Duration { .. } => "duration",
-            Kind::Url { .. } => "url",
-            Kind::Path => "path",
-            Kind::List => "list",
-            Kind::Timezone => "timezone",
-            Kind::Language => "language",
-        }
-    }
-}
-
-/// A field's default when nothing fixes or saves its value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Fallback {
-    None,
-    Text(&'static str),
-    Int(i64),
-    Bool(bool),
-    List(&'static [&'static str]),
-    /// The process's time zone (`TZ`), else UTC.
-    TimeZone,
-    /// `file` when `SINGULARR_POLICY` names a policy file, `saved` otherwise.
-    PolicySource,
-}
-
-/// How the value in force is read from the configuration, after its defaults and floors.
-pub type Read = fn(&Config) -> Value;
-
-/// A check of a text value beyond its type: it returns the value as stored, or why not.
-pub type Check = fn(&str) -> Result<String, String>;
-
-#[derive(Clone, Copy)]
-pub struct Field {
-    /// `<section>.<name>`, camel case after the dot.
-    pub key: &'static str,
-    pub label: &'static str,
-    pub help: &'static str,
-    pub kind: Kind,
-    pub default: Fallback,
-    /// The variables that fix the value; the first one set wins.
-    pub env: &'static [&'static str],
-    /// The instance file's key that fixes the value: `workspace.name`.
-    pub file: Option<&'static str>,
-    /// The value in force as the configuration has it. `None`: the value is the variable's own
-    /// text, or what is saved, or the default.
-    pub read: Option<Read>,
-    pub check: Option<Check>,
-    /// A person's own value, with the installation's value as the default for everyone.
-    pub user: bool,
-    /// The value can be saved here when nothing fixes it.
-    pub saves: bool,
-    /// A change takes effect at the next start.
-    pub restart: bool,
-    /// Shown only to callers that hold the `settings` scope.
-    pub private: bool,
-}
-
-impl Field {
-    pub const fn new(
-        key: &'static str,
-        label: &'static str,
-        kind: Kind,
-        help: &'static str,
-    ) -> Field {
-        Field {
-            key,
-            label,
-            help,
-            kind,
-            default: Fallback::None,
-            env: &[],
-            file: None,
-            read: None,
-            check: None,
-            user: false,
-            saves: false,
-            restart: false,
-            private: false,
-        }
-    }
-
-    pub const fn by_default(mut self, default: Fallback) -> Field {
-        self.default = default;
-        self
-    }
-
-    pub const fn env(mut self, vars: &'static [&'static str]) -> Field {
-        self.env = vars;
-        self
-    }
-
-    pub const fn file(mut self, key: &'static str) -> Field {
-        self.file = Some(key);
-        self
-    }
-
-    pub const fn read(mut self, read: Read) -> Field {
-        self.read = Some(read);
-        self
-    }
-
-    pub const fn check(mut self, check: Check) -> Field {
-        self.check = Some(check);
-        self
-    }
-
-    pub const fn saves(mut self) -> Field {
-        self.saves = true;
-        self
-    }
-
-    pub const fn per_user(mut self) -> Field {
-        self.user = true;
-        self
-    }
-
-    pub const fn restart(mut self) -> Field {
-        self.restart = true;
-        self
-    }
-
-    pub const fn private(mut self) -> Field {
-        self.private = true;
-        self
-    }
-
-    pub fn is_secret(&self) -> bool {
-        self.kind == Kind::Secret
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct Group {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub help: &'static str,
-    pub fields: &'static [Field],
-}
-
-#[derive(Clone, Copy)]
-pub struct Section {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub summary: &'static str,
-    pub groups: &'static [Group],
-    /// Collections with routes of their own, drawn by the page: `server`, `integrations`,
-    /// `libraries`, `people`, `roles`, `channels`, `keys`, `jobs`, `cache`, `services`, `about`.
-    pub panels: &'static [&'static str],
-}
+/// The registry's types over the app's configuration.
+pub type Field = kit::Field<Config>;
+pub type Group = kit::Group<Config>;
+pub type Section = kit::Section<Config>;
+pub type Fallback = kit::Fallback<Config>;
+pub type Read = kit::Read<Config>;
 
 /// Every field, in the order of the sections and groups.
 pub fn fields() -> impl Iterator<Item = &'static Field> {
-    SECTIONS
-        .iter()
-        .flat_map(|s| s.groups.iter())
-        .flat_map(|g| g.fields.iter())
+    kit::fields::<Config>()
 }
 
 pub fn field(key: &str) -> Option<&'static Field> {
-    fields().find(|f| f.key == key)
+    kit::field::<Config>(key)
+}
+
+/// `file` when `SINGULARR_POLICY` names a policy file, `saved` otherwise.
+fn policy_source(c: &Config) -> Value {
+    json!(if c.policy_pinned { "file" } else { "saved" })
 }
 
 // Reading the configuration --------------------------------------------------------------------
@@ -441,7 +257,7 @@ pub static SECTIONS: &[Section] = &[
                         "Lists integrations; secrets stay in the environment",
                     )
                     .env(&["SINGULARR_INSTANCE"])
-                    .read(|c| opt(&c.instance_path))
+                    .read(|c| opt(&c.bootstrap.instance_path))
                     .restart(),
                     Field::new(
                         "integrations.timeout",
@@ -451,7 +267,7 @@ pub static SECTIONS: &[Section] = &[
                     )
                     .by_default(Fallback::Int(30))
                     .env(&["SINGULARR_HTTP_TIMEOUT_SECS"])
-                    .read(|c| secs(c.http_timeout))
+                    .read(|c| secs(c.bootstrap.http_timeout))
                     .restart(),
                     Field::new(
                         "integrations.plexWebUrl",
@@ -548,7 +364,8 @@ pub static SECTIONS: &[Section] = &[
                     .env(&["SINGULARR_OWNER_EMAILS"])
                     .read(|c| {
                         json!(
-                            c.owner_emails
+                            c.bootstrap
+                                .owner_emails
                                 .split(',')
                                 .map(str::trim)
                                 .filter(|s| !s.is_empty())
@@ -567,7 +384,8 @@ pub static SECTIONS: &[Section] = &[
                     .env(&["SINGULARR_TRUSTED_PROXY_IPS"])
                     .read(|c| {
                         json!(
-                            c.trusted_proxies
+                            c.bootstrap
+                                .trusted_proxies
                                 .as_deref()
                                 .unwrap_or("")
                                 .split(',')
@@ -1032,7 +850,7 @@ pub static SECTIONS: &[Section] = &[
                         "Shown without the password",
                     )
                     .env(&["DATABASE_URL"])
-                    .read(|c| json!(redact_url(&c.database_url)))
+                    .read(|c| json!(redact_url(&c.bootstrap.database_url)))
                     .private()
                     .restart(),
                     Field::new(
@@ -1047,7 +865,7 @@ pub static SECTIONS: &[Section] = &[
                     )
                     .by_default(Fallback::Int(10))
                     .env(&["SINGULARR_DB_MAX_CONNECTIONS"])
-                    .read(|c| json!(c.db_max_connections))
+                    .read(|c| json!(c.bootstrap.db_max_connections))
                     .restart(),
                     Field::new(
                         "system.dataDir",
@@ -1121,7 +939,7 @@ pub static SECTIONS: &[Section] = &[
                         Kind::Select(POLICY_SOURCES),
                         "Saved profiles and lists, or the policy file read-only",
                     )
-                    .by_default(Fallback::PolicySource)
+                    .by_default(Fallback::Of(policy_source))
                     .env(&["SINGULARR_POLICY_SOURCE"])
                     .saves(),
                     Field::new("system.webDir", "Web client folder", Kind::Path, "")

@@ -14,7 +14,8 @@ use crate::catalog::store::{self as catalog_store, CopyRow};
 use crate::core::config::Config;
 use crate::core::journal::{Journal, event};
 use crate::core::model::Paging;
-use crate::core::outbound::{Access, OutboundError};
+use crate::core::outbound::OutboundError;
+use crate::engines::access::read_only_words;
 use crate::engines::arr::{self, SEARCH_MAX};
 use crate::engines::service::EngineSet;
 use crate::engines::{
@@ -164,6 +165,7 @@ pub fn files_to_import(
 /// What an act came to, as the asks answer it: the command the manager queued, or why not.
 fn acted(
     name: &str,
+    read_only: String,
     result: Result<ManagerActed, EngineError>,
 ) -> Result<Option<i64>, AcquireError> {
     match result {
@@ -177,7 +179,7 @@ fn acted(
         }
         // The access was taken back while the ask was on its way.
         Err(EngineError::Outbound(OutboundError::NotAllowed { .. })) => {
-            Err(AcquireError::NotAllowed(format!("{name} is read-only.")))
+            Err(AcquireError::NotAllowed(read_only))
         }
         Err(e) => Err(Upstream(format!("Could not reach {name}: {e}"))),
     }
@@ -208,16 +210,18 @@ impl Asker<'_> {
             .ok_or_else(|| NotFound(format!("{} is not configured.", self.name(id))))
     }
 
-    /// Nothing is asked of a manager Singularr may only read.
-    fn may_act(&self, id: &str) -> Result<(), AcquireError> {
-        if self.engines.access.of(id).access == Access::Act {
+    /// Nothing is asked of a manager while the act's action is read.
+    fn may_act(&self, id: &str, action: &str) -> Result<(), AcquireError> {
+        if self.engines.access.allows(id, action) {
             Ok(())
         } else {
-            Err(AcquireError::NotAllowed(format!(
-                "{} is read-only.",
-                self.name(id)
-            )))
+            Err(AcquireError::NotAllowed(self.read_only(id, action)))
         }
+    }
+
+    /// A refused act on a manager, in words: `Remove a download is read-only on Radarr.`
+    fn read_only(&self, id: &str, action: &str) -> String {
+        read_only_words(self.engines.access.of(id).label(action), &self.name(id))
     }
 
     fn upstream(&self, id: &str) -> impl Fn(EngineError) -> AcquireError {
@@ -452,7 +456,7 @@ impl Asker<'_> {
         guid: &str,
         indexer_id: i64,
     ) -> Result<ActAnswer, AcquireError> {
-        self.may_act(&t.manager)?;
+        self.may_act(&t.manager, "grab")?;
         let engine = self.manager(&t.manager)?;
         let release = self
             .engines
@@ -462,6 +466,7 @@ impl Asker<'_> {
         let name = self.name(&t.manager);
         acted(
             &name,
+            self.read_only(&t.manager, "grab"),
             engine
                 .act(&ManagerAct::Grab {
                     guid: release.guid.clone(),
@@ -505,7 +510,7 @@ impl Asker<'_> {
         season: Option<i32>,
         episodes: &[i32],
     ) -> Result<ActAnswer, AcquireError> {
-        self.may_act(&t.manager)?;
+        self.may_act(&t.manager, "search")?;
         let engine = self.manager(&t.manager)?;
         if episodes.len() > SEARCH_MAX {
             return Err(BadRequest(format!(
@@ -543,7 +548,11 @@ impl Asker<'_> {
         };
         let name = self.name(&t.manager);
         let command = arr::command_name(&act).unwrap_or("search");
-        let id = acted(&name, engine.act(&act).await)?;
+        let id = acted(
+            &name,
+            self.read_only(&t.manager, "search"),
+            engine.act(&act).await,
+        )?;
         self.journal(
             "search_sent",
             "title",
@@ -571,9 +580,9 @@ impl Asker<'_> {
         })
     }
 
-    /// The download behind a queue row, and the manager that owns it, once Singularr may act on
-    /// that manager.
-    async fn owned(&self, hash: &str) -> Result<(Download, String), AcquireError> {
+    /// The download behind a queue row, and the manager that owns it, once the act's action has
+    /// write access on that manager.
+    async fn owned(&self, hash: &str, action: &str) -> Result<(Download, String), AcquireError> {
         let d = downloads_store::one(self.pool, hash)
             .await?
             .ok_or_else(|| NotFound("There is no such download in the queue.".to_string()))?;
@@ -582,7 +591,7 @@ impl Asker<'_> {
             .clone()
             .filter(|o| self.engines.arr(o).is_some())
             .ok_or_else(|| NotFound("No manager owns this download.".to_string()))?;
-        self.may_act(&owner)?;
+        self.may_act(&owner, action)?;
         Ok((d, owner))
     }
 
@@ -604,7 +613,7 @@ impl Asker<'_> {
     /// in the import mode its download client allows. The manager is asked by the download id
     /// its queue entry carries, in the manager's own case: its lookups match the id exactly.
     pub async fn import(&self, hash: &str) -> Result<ActAnswer, AcquireError> {
-        let (d, owner) = self.owned(hash).await?;
+        let (d, owner) = self.owned(hash, "import").await?;
         let engine = self.manager(&owner)?;
         let name = self.name(&owner);
         let entries = engine
@@ -627,7 +636,11 @@ impl Asker<'_> {
         }
         let mode = arr::import_mode(entry);
         let names: Vec<String> = files.iter().map(|f| file_name(&f.path)).collect();
-        let command = acted(&name, engine.act(&ManagerAct::Import { files, mode }).await)?;
+        let command = acted(
+            &name,
+            self.read_only(&owner, "import"),
+            engine.act(&ManagerAct::Import { files, mode }).await,
+        )?;
         let card = self.card_of(d.title_id).await?;
         self.journal(
             "download_import_forced",
@@ -658,7 +671,7 @@ impl Asker<'_> {
     /// Take a download out of its manager's queue and the download client; with `blocklist`
     /// its release is not grabbed again.
     pub async fn remove(&self, hash: &str, blocklist: bool) -> Result<ActAnswer, AcquireError> {
-        let (d, owner) = self.owned(hash).await?;
+        let (d, owner) = self.owned(hash, "remove").await?;
         let engine = self.manager(&owner)?;
         let name = self.name(&owner);
         let entries = engine
@@ -670,6 +683,7 @@ impl Asker<'_> {
             .ok_or_else(|| NotFound(format!("Not in the queue of {name}.")))?;
         acted(
             &name,
+            self.read_only(&owner, "remove"),
             engine
                 .act(&ManagerAct::Remove {
                     queue_id: entry.queue_id,
@@ -730,7 +744,7 @@ impl Asker<'_> {
             wanted.push((t, episode));
         }
         for (t, _) in &wanted {
-            self.may_act(&t.manager)?;
+            self.may_act(&t.manager, "search")?;
         }
         let mut keys: Vec<String> = wanted.iter().map(|(t, _)| key(t.title_id)).collect();
         keys.sort();
@@ -788,7 +802,11 @@ impl Asker<'_> {
                 ManagerAct::SearchEpisodes { episodes }
             };
             let command = arr::command_name(&act).unwrap_or("search");
-            let id = acted(&name, engine.act(&act).await)?;
+            let id = acted(
+                &name,
+                self.read_only(&manager, "search"),
+                engine.act(&act).await,
+            )?;
             self.journal(
                 "search_sent",
                 "engine",

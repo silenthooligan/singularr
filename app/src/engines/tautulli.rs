@@ -406,7 +406,7 @@ mod tests {
         .unwrap()
     }
 
-    /// Every log line written while the closure's future runs, as text.
+    /// The log lines a subscriber writes, kept to be read.
     #[derive(Clone, Default)]
     struct Lines(Arc<Mutex<Vec<u8>>>);
 
@@ -425,6 +425,33 @@ mod tests {
         fn make_writer(&'a self) -> Lines {
             self.clone()
         }
+    }
+
+    /// The log lines this test's thread writes while the guard lives, as text.
+    ///
+    /// tracing decides the interest of each callsite once and keeps it. With one dispatcher in
+    /// the process it asks the default of the thread that hits the callsite first. A test on
+    /// another thread with no subscriber of its own then fixes the callsite at `never`. Its
+    /// events never reach this test's subscriber after that. A global subscriber that takes
+    /// every event and keeps none is set first, once: every thread's default is then
+    /// interested. Once this test's subscriber is in place, the interest of every callsite is
+    /// decided again. Every event of these tests is written on the test's own thread: the
+    /// runtime of `#[tokio::test]` has one thread.
+    fn capture() -> (Lines, tracing::subscriber::DefaultGuard) {
+        static INTERESTED: std::sync::Once = std::sync::Once::new();
+        INTERESTED.call_once(|| {
+            tracing::subscriber::set_global_default(tracing_subscriber::registry())
+                .expect("no other test of this binary sets a global subscriber");
+        });
+        let lines = Lines::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(lines.clone())
+            .with_max_level(tracing::Level::TRACE)
+            .with_ansi(false)
+            .finish();
+        let guard = tracing::subscriber::set_default(subscriber);
+        tracing::callsite::rebuild_interest_cache();
+        (lines, guard)
     }
 
     #[tokio::test]
@@ -526,13 +553,7 @@ mod tests {
 
     #[tokio::test]
     async fn only_the_read_commands_reach_tautulli() {
-        let lines = Lines::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(lines.clone())
-            .with_max_level(tracing::Level::TRACE)
-            .with_ansi(false)
-            .finish();
-        let _guard = tracing::subscriber::set_default(subscriber);
+        let (lines, _guard) = capture();
         let recorded = Recorded::new();
         recorded.answer(
             Method::Get,
@@ -585,13 +606,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_key_is_never_in_a_log_line_or_an_error() {
-        let lines = Lines::default();
-        let subscriber = tracing_subscriber::fmt()
-            .with_writer(lines.clone())
-            .with_max_level(tracing::Level::TRACE)
-            .with_ansi(false)
-            .finish();
-        let _guard = tracing::subscriber::set_default(subscriber);
+        let (lines, _guard) = capture();
         let recorded = Recorded::new();
         // A refused key, a failed answer, an unreadable answer, no answer at all.
         recorded.answer(

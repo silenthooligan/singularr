@@ -1,4 +1,4 @@
-//! SQL over the tables `core` owns: `events` and `api_keys`, plus the two health questions.
+//! SQL over the platform's tables: `events` and `api_keys`, plus the two health questions.
 
 use super::model::{ApiKeyInfo, Event, EventQuery, Paging, Scope};
 use chrono::{DateTime, Utc};

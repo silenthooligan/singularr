@@ -1,0 +1,45 @@
+[package]
+name = "singularr-platform"
+description = "Singularr's platform: the bootstrap, the database pool and migration runner, the journal, callers and API keys, problem documents, the HTTP sender, mail, ffmpeg runs, the jobs, the job runtime and its markers, the settings mechanism, the access book, the integrations' rows and the metrics' names. No domain module and no connector."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The way out's types and rules. `outbound` hands the recorded transport on (`testkit`).
+singularr-sdk = { workspace = true, features = ["testkit"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+# The instance file's keys the settings read.
+toml.workspace = true
+chrono = { version = "0.4", features = ["serde"] }
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time", "net", "process", "io-util"] }
+sqlx = { version = "0.9", features = ["postgres", "runtime-tokio", "tls-rustls-ring", "chrono", "migrate", "json"] }
+reqwest = { version = "0.13", features = ["json"] }
+async-trait = "0.1"
+# The runtime catches a panic of a handler or a task in place.
+futures = "0.3"
+tracing = "0.1"
+sha2 = "0.11"
+hex = "0.4"
+subtle = "2.6"
+uuid = { version = "1", features = ["v4"] }
+utoipa = { version = "6", features = ["chrono"] }
+metrics = "0.24"
+# Mail (smtp): TLS over tokio with the crates sqlx and reqwest already build on. No default
+# features: each feature named here is one the lock file already resolves.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+webpki-roots = "1"
+rustls-native-certs = "0.8"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+
+[features]
+# What only tests use: `Settings::remember` and `Running::abort`. The app's dev-dependencies and the
+# gate's step of the platform's own tests enable it.
+testkit = []

@@ -796,7 +796,7 @@ fn app_state(pool: &PgPool, journal: Journal, out: &Outbound, mails: Arc<Mails>)
         metadata: Arc::new(singularr::metadata::service::ProviderSet::from_config(
             &config, out,
         )),
-        owners: singularr::core::identity::Allowlist::parse(&config.owner_emails),
+        owners: singularr::core::identity::Allowlist::parse(&config.bootstrap.owner_emails),
         requests: Arc::new(singularr::requests::service::Requests::new(
             &config.request_rules,
         )),
@@ -889,6 +889,10 @@ fn log_lines() -> Lines {
         if let Err(e) = tracing::subscriber::set_global_default(subscriber) {
             eprintln!("the log capture could not be installed: {e}");
         }
+        // tracing decides the interest of each callsite once and keeps it. A callsite another
+        // test's thread was registering while this subscriber was set may keep the `never` of
+        // the default before it. The interest of every callsite is decided again.
+        tracing::callsite::rebuild_interest_cache();
         lines
     })
     .clone()
@@ -1199,5 +1203,60 @@ async fn the_routes_are_the_owner_s_and_never_show_a_secret() {
     );
     assert!(outbound.iter().any(|l| l.contains("(channel address)")));
     holds_no_secret("the log", &logged);
+    t.drop_db().await;
+}
+
+/// An attempt still `sending` after the dispatcher's lease was cut short with a dropped round.
+/// The next round gives it back to `pending`. After its last attempt the round fails it. A test
+/// message is failed. An attempt that began a moment ago is left to the round that sends it.
+#[tokio::test]
+async fn a_round_gives_back_the_attempts_a_dropped_round_left_sending() {
+    let Some(t) = TestDb::new("notify_stranded").await else {
+        return;
+    };
+    let journal = Journal::new();
+    let n = Notifier::new(
+        t.pool.clone(),
+        journal.clone(),
+        way_out(Recorded::new()),
+        Mails::new(),
+    );
+    let slack = n
+        .create(
+            &input(
+                json!({"type": "slack", "name": "Ops", "settings": {"url": SLACK},
+                          "events": ["file.upgraded"]}),
+            ),
+            OWNER,
+        )
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO notification_deliveries (channel_id, event, notice, state, attempts, next_at, test)
+         VALUES ($1, 'file.upgraded', '{}', 'sending', 1, now() - interval '10 minutes', false),
+                ($1, 'file.upgraded', '{}', 'sending', 3, now() - interval '10 minutes', false),
+                ($1, 'test', '{}', 'sending', 1, now() - interval '10 minutes', true),
+                ($1, 'file.upgraded', '{}', 'sending', 1, now(), false)",
+    )
+    .bind(slack.id)
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        store::reset_stranded(&t.pool, 3, Duration::from_secs(120))
+            .await
+            .unwrap(),
+        3
+    );
+    let states: Vec<(i32, String)> =
+        sqlx::query_as("SELECT attempts, state FROM notification_deliveries ORDER BY id")
+            .fetch_all(&t.pool)
+            .await
+            .unwrap();
+    let states: Vec<(i32, &str)> = states.iter().map(|(a, s)| (*a, s.as_str())).collect();
+    assert_eq!(
+        states,
+        vec![(1, "pending"), (3, "failed"), (1, "failed"), (1, "sending")]
+    );
     t.drop_db().await;
 }

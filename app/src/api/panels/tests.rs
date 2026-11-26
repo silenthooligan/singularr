@@ -145,6 +145,7 @@ fn an_integration_says_where_it_comes_from_and_what_is_read() {
         env: None,
         file: None,
         actions: actions_of(hush.kind),
+        acting: vec!["send"],
     };
     let p = integration_panel(
         hush,
@@ -161,7 +162,7 @@ fn an_integration_says_where_it_comes_from_and_what_is_read() {
     );
     assert_eq!(
         json["actions"],
-        serde_json::json!([{"id": "send", "label": "Send a file to a flow"}])
+        serde_json::json!([{"id": "send", "label": "Send a file to a flow", "access": "act"}])
     );
     assert_eq!(json["writes"], serde_json::json!(["Send a file to a flow"]));
     assert_eq!(p.group, "processing");
@@ -527,5 +528,70 @@ fn a_new_manifest_is_listed_with_no_other_edit() {
     assert_eq!(
         serde_json::to_value(kinds_in(&ALL)).unwrap(),
         serde_json::to_value(kinds()).unwrap()
+    );
+}
+
+#[test]
+fn a_schedule_reads_as_its_loop_did() {
+    let now = chrono::Utc::now();
+    let mut s = ScheduleState {
+        key: "folder:music".into(),
+        kind: "scan.music".into(),
+        integration: None,
+        every: Duration::from_secs(21_600),
+        next_run_at: now,
+        last_run_at: None,
+        last_error: None,
+        last_detail: None,
+        last_took_ms: None,
+        open: None,
+        runs: 0,
+    };
+    let v = schedule_view(&s, "music");
+    assert_eq!(
+        (
+            v.id.as_str(),
+            v.label.as_str(),
+            v.every,
+            v.last_result.clone(),
+            v.next_run,
+            v.can_run,
+            v.running
+        ),
+        (
+            "folder:music",
+            "Music folder scan",
+            21_600,
+            None,
+            Some(now),
+            true,
+            false
+        )
+    );
+    s.last_run_at = Some(now);
+    s.last_error = Some("The folder could not be read".into());
+    s.last_took_ms = Some(12);
+    s.open = Some("running".into());
+    s.runs = 2;
+    let v = schedule_view(&s, "music");
+    assert_eq!(
+        (
+            v.last_result.as_deref(),
+            v.last_detail.as_deref(),
+            v.took,
+            v.next_run,
+            v.running,
+            v.can_run,
+            v.runs
+        ),
+        (
+            Some("failed"),
+            Some("The folder could not be read"),
+            Some(12),
+            None,
+            true,
+            false,
+            2
+        )
     );
 }

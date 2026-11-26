@@ -4,9 +4,14 @@
 //! Writers go through [`Journal::begin`]. It hands out one [`JournalTx`] at a time, so events
 //! are committed and published in id order and a stream that resumes "after id N" misses
 //! nothing.
+//!
+//! A job's run writes through a fenced journal ([`Journal::fenced`]): each of its transactions
+//! proves the run's lease before it commits. A run whose lease is lost commits nothing.
 
 use super::model::Event;
+use super::runtime::{Done, Failed, Lease, LeaseError};
 pub use super::store::NewEvent;
+use async_trait::async_trait;
 use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 use std::sync::Arc;
 use tokio::sync::{Mutex, OwnedMutexGuard, broadcast};
@@ -15,10 +20,20 @@ use tokio::sync::{Mutex, OwnedMutexGuard, broadcast};
 /// and reads the gap from the table.
 const CHANNEL_CAPACITY: usize = 2048;
 
+/// What a journal transaction proves before it commits: the lease of the job whose run writes
+/// it (`runtime::Lease`).
+#[async_trait]
+pub trait Fence: Send + Sync {
+    /// `Err` holds the transaction back. It rolls back and publishes nothing.
+    async fn check(&self, conn: &mut PgConnection) -> Result<(), sqlx::Error>;
+}
+
 #[derive(Clone)]
 pub struct Journal {
     tx: broadcast::Sender<Arc<Event>>,
     gate: Arc<Mutex<()>>,
+    /// Checked by each transaction before its commit.
+    fence: Option<Arc<dyn Fence>>,
 }
 
 impl Default for Journal {
@@ -33,6 +48,16 @@ impl Journal {
         Journal {
             tx,
             gate: Arc::new(Mutex::new(())),
+            fence: None,
+        }
+    }
+
+    /// This journal with a fence: each of its transactions commits only once `fence` holds.
+    /// The events, the gate and the subscribers stay this journal's.
+    pub fn fenced(&self, fence: Arc<dyn Fence>) -> Journal {
+        Journal {
+            fence: Some(fence),
+            ..self.clone()
         }
     }
 
@@ -49,6 +74,7 @@ impl Journal {
             tx,
             pending: Vec::new(),
             journal: self.clone(),
+            proven: false,
             _gate: gate,
         })
     }
@@ -69,6 +95,8 @@ pub struct JournalTx {
     tx: Transaction<'static, Postgres>,
     pending: Vec<Event>,
     journal: Journal,
+    /// The transaction ends a run: that end proved the run's lease.
+    proven: bool,
     _gate: OwnedMutexGuard<()>,
 }
 
@@ -91,19 +119,38 @@ impl JournalTx {
         stored.pop().ok_or(sqlx::Error::RowNotFound)
     }
 
+    /// End a job's run in this transaction, as its last write before the commit
+    /// ([`Lease::finish`]). The end proves the lease: the commit checks no fence after it. The
+    /// commit makes the run's data, its events and its end one change. `Err` when the lease is
+    /// lost: the caller drops the transaction.
+    pub async fn finish(
+        &mut self,
+        lease: &Lease,
+        outcome: &Result<Done, Failed>,
+    ) -> Result<(), LeaseError> {
+        lease.finish(&mut self.tx, outcome).await?;
+        self.proven = true;
+        Ok(())
+    }
+
     /// Events appended so far in this transaction.
     pub fn pending(&self) -> usize {
         self.pending.len()
     }
 
-    /// Commit, then publish what was appended.
+    /// Commit, then publish what was appended. A fenced journal's transaction proves its fence
+    /// first, unless it ends a run ([`JournalTx::finish`]).
     pub async fn commit(self) -> Result<Vec<Event>, sqlx::Error> {
         let JournalTx {
-            tx,
+            mut tx,
             pending,
             journal,
+            proven,
             _gate,
         } = self;
+        if let (Some(fence), false) = (&journal.fence, proven) {
+            fence.check(&mut tx).await?;
+        }
         tx.commit().await?;
         journal.publish(&pending);
         Ok(pending)

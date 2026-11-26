@@ -224,7 +224,7 @@ pub async fn down_since(state: &AppState) -> AppResult<Vec<(String, Option<DateT
         .collect())
 }
 
-/// The integrations Singularr may act on: those whose access is `act`.
+/// The integrations Singularr may act on: those with at least one action at `act`.
 fn acting(state: &AppState) -> Vec<Acting> {
     state
         .engines

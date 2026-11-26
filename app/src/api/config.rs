@@ -13,7 +13,7 @@ use super::panels::{
     self, CacheView, CheckEntry, IntegrationDetail, IntegrationPanel, IntegrationPanels,
     IntegrationPatch, IntegrationTest, JobsPanel, LibraryFacts, LibraryPanels, PeoplePanel,
     PersonView, ServiceView, Started, SystemLinks, SystemPaths, SystemView, check,
-    integration_panel, job_view, libraries_panel, provider_panel,
+    integration_panel, job_view, libraries_panel, provider_panel, schedule_view,
 };
 use super::routes::{ApiJson, ApiPath};
 use super::state::AppState;
@@ -25,6 +25,7 @@ use crate::core::error::{AppError, AppResult};
 use crate::core::jobs::{self, Check, RunNow};
 use crate::core::model::{EventQuery, Paging, Scope};
 use crate::core::outbound::Access;
+use crate::core::runtime;
 use crate::core::schema::ProblemDoc;
 use crate::core::store as core_store;
 use crate::core::units;
@@ -167,7 +168,7 @@ async fn integration_panels(state: &AppState) -> AppResult<Vec<IntegrationPanel>
                 row,
                 &jobs::registry().checks(&i.id),
                 ids.get(&i.id).cloned().unwrap_or_default(),
-                state.config.instance_path.as_deref(),
+                state.config.bootstrap.instance_path.as_deref(),
             )
         })
         .collect();
@@ -201,7 +202,7 @@ async fn integration_panels(state: &AppState) -> AppResult<Vec<IntegrationPanel>
 async fn integrations(State(state): State<AppState>) -> ApiResult<IntegrationPanels> {
     Ok(Json(IntegrationPanels {
         editable: false,
-        file: state.config.instance_path.clone(),
+        file: state.config.bootstrap.instance_path.clone(),
         groups: panels::groups(),
         types: panels::kinds(),
         integrations: integration_panels(&state).await?,
@@ -246,7 +247,12 @@ pub fn test_route(m: &Manifest) -> Option<Kind> {
 /// they are set, and how often it is read.
 fn integration_fields(state: &AppState, caller: &Caller, i: &Integration) -> Vec<FieldView> {
     let from_file = i.source != "environment";
-    let file = state.config.instance_path.clone().filter(|_| from_file);
+    let file = state
+        .config
+        .bootstrap
+        .instance_path
+        .clone()
+        .filter(|_| from_file);
     let fixed = |mut f: FieldView, set_here: bool, env: Option<String>| {
         if set_here {
             f.source = if from_file { "file" } else { "environment" }.to_string();
@@ -450,9 +456,10 @@ async fn integration_detail(
     })
 }
 
-/// Say what Singularr may do with an integration: `{"access": "read"}` or `{"access": "act"}`.
-/// The owner alone may. It is in force at once, without a restart, and each change is an
-/// `integration_access_changed` event. 400 for a type Singularr has no action for; 409 when the
+/// Say what Singularr may do with an integration: every action at once (`{"access": "act"}`)
+/// or action by action (`{"actions": {"grab": "act"}}`). The owner alone may. It is in force at
+/// once, without a restart. Each action that changes is an `integration_access_changed` event.
+/// 400 for a type Singularr has no action for, or an action the type does not have. 409 when the
 /// environment or the instance file fixes the access, naming the variable or the file.
 #[utoipa::path(patch, path = "/api/v1/integrations/{id}", tag = "system", request_body = IntegrationPatch,
     params(("id" = String, Path, description = "The integration's id")),
@@ -469,12 +476,27 @@ async fn integration_patch(
             "Only the owner can change integration access.".to_string(),
         ));
     }
-    let access = Access::parse(&patch.access).ok_or_else(|| {
-        AppError::bad_request(format!(
-            "`access` is `read` or `act`, not `{}`.",
-            patch.access.trim()
-        ))
-    })?;
+    let word = |text: &str| {
+        Access::parse(text).ok_or_else(|| {
+            AppError::bad_request(format!(
+                "An access is `read` or `act`. `{}` is neither.",
+                text.trim()
+            ))
+        })
+    };
+    let asked = match (&patch.access, &patch.actions) {
+        (Some(all), None) => Asked::All(word(all)?),
+        (None, Some(each)) if !each.is_empty() => Asked::Each(
+            each.iter()
+                .map(|(action, text)| Ok((action.trim().to_string(), word(text)?)))
+                .collect::<Result<Vec<_>, AppError>>()?,
+        ),
+        _ => {
+            return Err(AppError::bad_request(
+                "Send `access` for every action, or `actions` for some.",
+            ));
+        }
+    };
     let missing = || AppError::not_found(format!("There is no integration `{id}`."));
     if state.config.integration(&id).is_none() {
         // A metadata provider is listed with the integrations: it is asked for records and
@@ -489,21 +511,36 @@ async fn integration_patch(
             None => missing(),
         });
     }
-    let set = state
-        .engines
-        .access
-        .set(&state.pool, &state.journal, &caller.actor(), &id, access)
-        .await;
+    let book = &state.engines.access;
+    let actor = caller.actor();
+    let set = match asked {
+        Asked::All(access) => book
+            .set(&state.pool, &state.journal, &actor, &id, access)
+            .await
+            .map(|_| ()),
+        Asked::Each(each) => book
+            .set_actions(&state.pool, &state.journal, &actor, &id, &each)
+            .await
+            .map(|_| ()),
+    };
     match set {
-        Ok(_) => {}
+        Ok(()) => {}
         Err(AccessError::Unknown(_)) => return Err(missing()),
-        Err(e @ AccessError::NoActions { .. }) => return Err(AppError::bad_request(e.to_string())),
+        Err(e @ (AccessError::NoActions { .. } | AccessError::UnknownAction { .. })) => {
+            return Err(AppError::bad_request(e.to_string()));
+        }
         Err(e @ AccessError::Fixed { .. }) => {
             return Ok(conflict_of("Set in configuration", &e.to_string()));
         }
         Err(AccessError::Db(e)) => return Err(AppError::Db(e)),
     }
     Ok(Json(integration_detail(&state, &caller, &id).await?).into_response())
+}
+
+/// What a change of access asks for: every action at once, or these.
+enum Asked {
+    All(Access),
+    Each(Vec<(String, Access)>),
 }
 
 /// One read-only call to an integration now, with the time it took: its status, its identity,
@@ -775,6 +812,7 @@ async fn people(
     };
     let mut people: Vec<PersonView> = state
         .config
+        .bootstrap
         .owner_emails
         .split(',')
         .map(str::trim)
@@ -879,12 +917,21 @@ async fn jobs_list(State(state): State<AppState>) -> ApiResult<JobsPanel> {
         size: 0,
         detail: "Not cached".to_string(),
     });
+    let mut views: Vec<_> = jobs::registry()
+        .list()
+        .iter()
+        .map(|j| job_view(j, &state.config))
+        .collect();
+    // The folder scans run in the job runtime: their views come from their schedules.
+    let listed = crate::lifecycle::jobs::listed_keys();
+    for s in runtime::states(&state.pool, state.settings.started(), &listed).await? {
+        if let Some(pass) = crate::lifecycle::jobs::listed(&s.key) {
+            views.push(schedule_view(&s, pass));
+        }
+    }
+    views.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(Json(JobsPanel {
-        jobs: jobs::registry()
-            .list()
-            .iter()
-            .map(|j| job_view(j, &state.config))
-            .collect(),
+        jobs: views,
         cache,
         sync_enabled: state.config.sync.enabled,
         since: state.settings.started(),
@@ -895,23 +942,35 @@ async fn jobs_list(State(state): State<AppState>) -> ApiResult<JobsPanel> {
 #[utoipa::path(post, path = "/api/v1/jobs/{id}/run", tag = "system", params(("id" = String, Path, description = "The job's id: radarr:titles, folder:music")),
     responses((status = 202, body = Started), (status = 404, body = ProblemDoc), (status = 409, description = "It is running now", body = ProblemDoc), (status = 403, body = ProblemDoc), (status = 401, body = ProblemDoc)))]
 async fn job_run(
+    State(state): State<AppState>,
     Extension(caller): Extension<Caller>,
     ApiPath(id): ApiPath<String>,
 ) -> Result<Response, AppError> {
     caller.require(Scope::Library)?;
-    let job = jobs::registry()
-        .get(&id)
-        .ok_or_else(|| AppError::not_found(format!("There is no job `{id}`.")))?;
-    Ok(match job.run_now() {
-        RunNow::Started => (
+    let none = || AppError::not_found(format!("There is no job `{id}`."));
+    let started = match jobs::registry().get(&id) {
+        Some(job) => job.run_now() == RunNow::Started,
+        // A folder scan: a job of the runtime.
+        None if crate::lifecycle::jobs::listed(&id).is_some() => {
+            match runtime::run_now(&state.pool, &id).await? {
+                runtime::RunNow::Started => true,
+                runtime::RunNow::Running => false,
+                runtime::RunNow::Unknown => return Err(none()),
+            }
+        }
+        None => return Err(none()),
+    };
+    Ok(if started {
+        (
             StatusCode::ACCEPTED,
             Json(Started {
                 started: true,
                 jobs: vec![id],
             }),
         )
-            .into_response(),
-        RunNow::Running => conflict("The job is already running."),
+            .into_response()
+    } else {
+        conflict("The job is already running.")
     })
 }
 
@@ -941,7 +1000,7 @@ async fn system(State(state): State<AppState>) -> ApiResult<SystemView> {
             Ok((version, bytes)) => format!(
                 "PostgreSQL {version}, {}, {in_use} of {} connections",
                 units::size(*bytes),
-                config.db_max_connections
+                config.bootstrap.db_max_connections
             ),
             Err(e) => format!("No answer: {e}"),
         },
@@ -1157,7 +1216,7 @@ async fn system(State(state): State<AppState>) -> ApiResult<SystemView> {
             web,
             policy: config.policy_path.clone(),
             editions: config.editions_path.clone(),
-            instance: config.instance_path.clone(),
+            instance: config.bootstrap.instance_path.clone(),
         },
         links: SystemLinks {
             reference: "/api/docs".to_string(),

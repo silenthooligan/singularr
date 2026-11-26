@@ -335,7 +335,7 @@ impl EngineSet {
         set.play_history = play_history;
         // The book shares the switches of the allowlist the adapters call through, so what it
         // says is what `core::outbound` enforces.
-        set.access = AccessBook::new(config, out.allowlist());
+        set.access = super::access::access_book(config, out.allowlist());
         set
     }
 
@@ -1294,7 +1294,7 @@ mod tests {
         );
         assert_eq!(
             serde_json::to_value(&view.actions).unwrap(),
-            serde_json::json!([{"id": "send", "label": "Send a file to a flow"}])
+            serde_json::json!([{"id": "send", "label": "Send a file to a flow", "access": "read"}])
         );
         assert!(set.access.of("hush").editable() && set.access.of("tdarr").editable());
         assert_eq!(
@@ -1544,6 +1544,25 @@ mod tests {
         for (address, rule) in allow.hosts() {
             rule.check()
                 .unwrap_or_else(|e| panic!("{address} ({}): {e}", rule.label));
+            // Each act names an action its type's manifest lists. Each action listed has an act.
+            if let Some(kind) = crate::core::config::IntegrationType::parse(&rule.label) {
+                let declared: Vec<&str> = kind.manifest().actions.iter().map(|a| a.id).collect();
+                for act in &rule.acts {
+                    assert!(
+                        declared.contains(&act.action),
+                        "{address}: the act `{}` is no action of {}",
+                        act.action,
+                        rule.label
+                    );
+                }
+                for id in &declared {
+                    assert!(
+                        rule.acts.iter().any(|a| a.action == *id),
+                        "{address}: no act of {} is the action `{id}`",
+                        rule.label
+                    );
+                }
+            }
             checked += 1;
         }
         // The three metadata providers and fourteen integrations at least.

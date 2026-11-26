@@ -10,7 +10,7 @@ them unset.
 | Setting | Default | Meaning |
 |---|---|---|
 | `DATABASE_URL` | required | the PostgreSQL database (PostgreSQL 18 is the tested version). Migrations are built in and run at start |
-| `SINGULARR_DB_MAX_CONNECTIONS` | 10 | pool size |
+| `SINGULARR_DB_MAX_CONNECTIONS` | 10 | pool size. The job runtime keeps a pool of its own beside it: 15 connections at most (its listener, its tick, its reaper and two for each of its six workers) |
 | `SINGULARR_REQUESTS_DB_PASSWORD` | unset | the password of the portal's database role, letters and digits only: the compose file puts it into the portal's database address as it is (`openssl rand -hex 32`). Set, each start creates the role when it is missing and gives it the grants of `deploy/requests-role.sql` again. The password reaches PostgreSQL as a SCRAM-SHA-256 verifier. No statement holds the password itself. Creating the role needs CREATEROLE (the compose file's database user has it). Without it the start logs one warning naming the script and goes on. Unset, the role is left as it is |
 | `SINGULARR_REQUESTS_DB_ROLE` | `singularr_requests` | the portal role's name: lowercase letters, digits and `_`. The compose file uses it in the portal's database address too. An existing role is taken only when it looks like a portal role: it logs in, holds no power and no membership, has no member but Singularr's login, and owns neither the database nor anything in the schema `public`. Otherwise the start logs one warning and leaves it alone |
 | `SINGULARR_LISTEN` | `0.0.0.0:3000` | the address the server listens on |
@@ -46,8 +46,8 @@ keys from Settings, API, sent as `Authorization: Bearer <key>`. The scopes are `
 
 ## Integrations
 
-Each integration is read only until the owner grants write access in Settings, Integrations. Each one
-sends only the calls its adapter declares. No adapter declares a call that deletes or edits a title or
+Each action of an integration is read only until the owner grants it write access in Settings,
+Integrations. Each integration sends only the calls its adapter declares. No adapter declares a call that deletes or edits a title or
 its files, shuts down or restarts a service, or changes a service's settings.
 
 | Setting | Meaning |
@@ -67,7 +67,17 @@ its files, shuts down or restarts a service, or changes a service's settings.
 | `TAUTULLI_URL`, `TAUTULLI_API_KEY` | Tautulli (id `tautulli`): its play history imports into Statistics |
 | `TDARR_URL`, `TDARR_API_KEY` | Tdarr (id `tdarr`): nodes, workers, libraries, flows and reports. With write access: worker limits, pause, cancel, requeue, scan, and a library's flow |
 | `PROWLARR_URL`, `PROWLARR_API_KEY` | listed as an integration. Not read yet |
-| `<TYPE>_ACCESS` | `read` or `act` for that integration, set by the environment. Without it, the switch in Settings, Integrations decides |
+| `<TYPE>_ACCESS` | `read`, `act` (every action of that integration) or a comma list of its action ids (`grab,search`), set by the environment. Without it, the switches in Settings, Integrations decide, one per action |
+
+The actions of each type, by the ids `<TYPE>_ACCESS` and the instance file's `access` take:
+
+| Type | Actions |
+|---|---|
+| Radarr, Sonarr | `search` Search for releases, `grab` Grab a release, `import` Import a refused download, `remove` Remove a download |
+| Tdarr | `limits` Change worker limits, `pause` Pause and resume nodes, `cancel` Cancel a worker's file, `requeue` Requeue a file, `scan` Scan a library, `watch` Switch folder watching, `flow` Assign a flow to a library |
+| The processing bridge (type `hush`) | `send` Send a file to a flow |
+
+Every other type has no action. Its access is `read` whatever is set.
 
 A download client the configuration stops listing (its variables lost, its id renamed) keeps its
 downloads for 30 days, out of every list. Its return finds them as they were. Two download
