@@ -19,8 +19,8 @@ use super::formats;
 use crate::catalog::ingest::Assess;
 use crate::catalog::store as catalog_store;
 use crate::catalog::sync::{ApplyReport, apply_files, apply_titles, reassess};
+use crate::core::checks::{self, Check};
 use crate::core::config::SyncConfig;
-use crate::core::jobs::{self, Check};
 use crate::core::journal::Journal;
 use crate::core::observe;
 use crate::core::runtime::{Cx, Done, Failed, Handler, Lease, LeaseError};
@@ -140,15 +140,6 @@ impl SyncHandle {
     pub fn jobs(&self) -> Arc<SyncJobs> {
         self.jobs.clone()
     }
-}
-
-/// A random delay up to `max`, so the loops of a fresh start do not all fire together.
-pub fn jitter(max: Duration) -> Duration {
-    let millis = max.as_millis() as u64;
-    if millis == 0 {
-        return Duration::ZERO;
-    }
-    Duration::from_millis((uuid::Uuid::new_v4().as_u128() % (millis as u128 + 1)) as u64)
 }
 
 /// Start the re-assessment of the stored copies. The integrations' passes are jobs: they run with
@@ -612,7 +603,7 @@ pub(crate) async fn end_run(
         Ok(done) => done.detail.clone(),
         Err(failed) => failed.error.clone(),
     };
-    jobs::registry().record_check(
+    checks::recent().record(
         engine,
         Check {
             at: Utc::now(),
@@ -1041,14 +1032,6 @@ async fn gauges_loop(pool: PgPool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn jitter_stays_within_its_bound() {
-        assert_eq!(jitter(Duration::ZERO), Duration::ZERO);
-        for _ in 0..200 {
-            assert!(jitter(Duration::from_secs(20)) <= Duration::from_secs(20));
-        }
-    }
 
     /// A torrent client's pass counts torrents, as qBittorrent's always did; a usenet client's
     /// counts downloads.

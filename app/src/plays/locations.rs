@@ -7,7 +7,7 @@
 //! sync is off (`SINGULARR_SYNC_ENABLED=false` reads no service), or while no media server and no
 //! play history is configured: then there is nothing to locate.
 //!
-//! The loop checks once a day that the month's file is there. The site publishes it a few days
+//! The job checks once a day that the month's file is there. The site publishes it a few days
 //! into the month. Until then the month before serves. The new month not being out is then no
 //! failure. A new file is put in use only once it reads whole. The older months are removed
 //! after that. A file already in the data directory stays in use with the download off. Without
@@ -15,23 +15,29 @@
 
 use crate::core::config::Config;
 use crate::core::geoip::{self, GeoIp, Missed, Source};
-use crate::core::jobs::{self, JobSpec};
 use crate::core::outbound::Outbound;
+use crate::core::runtime::{self, Cx, Done, Failed, Handler};
 use crate::settings::Settings;
+use async_trait::async_trait;
 use chrono::Utc;
+use sqlx::PgPool;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::task::JoinHandle;
 
 /// The job's pass name.
 pub const LOCATIONS: &str = "locations";
+/// The kind of the job and the key of its schedule.
+pub const KIND: &str = "plays.locations";
+pub const JOB: &str = "plays:locations";
 /// The setting that downloads the database.
 pub const DOWNLOAD: &str = "jobs.plays.locations";
-const EVERY: Duration = Duration::from_secs(24 * 3600);
-const FIRST_WAIT: Duration = Duration::from_secs(20);
+/// How often the job runs.
+pub const EVERY: Duration = Duration::from_secs(24 * 3600);
+/// How long after a start the job's first run comes.
+pub const FIRST_WAIT: Duration = Duration::from_secs(20);
 
-/// What the loop needs: the database in use, the way out, and the settings (with the
+/// What the job needs: the database in use, the way out and the settings (with the
 /// configuration).
 #[derive(Clone)]
 pub struct LocationDeps {
@@ -172,39 +178,29 @@ async fn fetch(deps: &LocationDeps, dir: &Path, month: &str) -> Result<(), Misse
     Ok(())
 }
 
-/// The loop's job id.
-fn job_id() -> String {
-    format!("plays:{LOCATIONS}")
-}
-
-/// Ask the loop for a pass now: the owner turned the download on or off.
-pub fn wake() {
-    if let Some(job) = jobs::registry().get(&job_id()) {
-        let _ = job.run_now();
+/// Ask the job for a pass now: the owner turned the download on or off.
+pub async fn wake(pool: &PgPool) {
+    if let Err(e) = runtime::run_now(pool, JOB).await {
+        tracing::warn!(error = %e, "the location database's job was not asked for");
     }
 }
 
-/// The loop: a pass soon after the start, then once a day, and when the download setting
-/// changes. It runs whether or not the sync does.
-pub fn spawn(deps: LocationDeps) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let job = jobs::registry().register(JobSpec {
-            id: job_id(),
-            pass: LOCATIONS.to_string(),
-            integration: None,
-            every: EVERY,
-        });
-        job.wait(FIRST_WAIT).await;
-        loop {
-            let started = job.begin();
-            let outcome = pass(&deps).await;
-            if let Err(e) = &outcome {
+/// `plays.locations`: one pass ([`pass`]). It runs [`FIRST_WAIT`] after each start, then once a
+/// day. A change of the download setting asks for a run at once ([`wake`]). It runs whether or not
+/// the sync does.
+pub struct LocationsJob(pub LocationDeps);
+
+#[async_trait]
+impl Handler for LocationsJob {
+    async fn run(&self, _cx: Cx) -> Result<Done, Failed> {
+        match pass(&self.0).await {
+            Ok(line) => Ok(Done::from(line)),
+            Err(e) => {
                 tracing::warn!(error = %e, "the location database could not be brought up to date");
+                Err(Failed::from(e))
             }
-            job.end(started, outcome);
-            job.wait(EVERY).await;
         }
-    })
+    }
 }
 
 #[cfg(test)]

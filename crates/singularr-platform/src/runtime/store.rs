@@ -6,7 +6,7 @@
 //! now, by the proof of a lease, by the end of a run and by reconcile. Two of them never wait on
 //! each other in a circle.
 
-use super::{CHANNEL, Done, Ended, Failed, Job, Lease, Schedule, ScheduleState, backoff};
+use super::{CHANNEL, Done, Ended, Failed, Job, Lease, Schedule, ScheduleState, Source, backoff};
 use crate::outbound::jitter;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -32,6 +32,28 @@ async fn notify(conn: &mut PgConnection, queues: &[String]) -> Result<(), sqlx::
             .await?;
     }
     Ok(())
+}
+
+/// Give a schedule another interval while the process runs: a setting saved now. Its next run
+/// comes closer when the interval shrinks. False when no schedule has this key.
+pub async fn set_every(
+    pool: &PgPool,
+    key: &str,
+    every: Duration,
+    source: Source,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query(
+        "UPDATE job_schedules
+         SET every_secs = $2, source = $3, updated_at = now(),
+             next_run_at = LEAST(next_run_at, now() + make_interval(secs => $2::float8))
+         WHERE key = $1",
+    )
+    .bind(key)
+    .bind(secs(every))
+    .bind(source.as_str())
+    .execute(pool)
+    .await
+    .map(|r| r.rows_affected() > 0)
 }
 
 /// Write these schedules and remove the others. A new schedule first runs after its first wait

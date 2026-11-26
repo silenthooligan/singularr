@@ -549,6 +549,11 @@ impl Runtime {
         self
     }
 
+    /// The runtime has a handler for jobs of this kind.
+    pub fn handles(&self, kind: &str) -> bool {
+        self.handlers.contains_key(kind)
+    }
+
     /// How many workers a queue runs. The app gives the sync queue one per schedule and the scan
     /// queue one per folder scan. The design's defaults for the others are index 1, notify 2,
     /// default 2.
@@ -560,6 +565,16 @@ impl Runtime {
     /// Write the schedules of this process ([`store::reconcile`]).
     pub async fn reconcile(pool: &PgPool, schedules: &[Schedule]) -> Result<(), sqlx::Error> {
         store::reconcile(pool, schedules).await
+    }
+
+    /// Give a schedule another interval while the process runs ([`store::set_every`]).
+    pub async fn set_every(
+        pool: &PgPool,
+        key: &str,
+        every: Duration,
+        source: Source,
+    ) -> Result<bool, sqlx::Error> {
+        store::set_every(pool, key, every, source).await
     }
 
     /// Start the tick, the reaper, the listener and the workers, each supervised.

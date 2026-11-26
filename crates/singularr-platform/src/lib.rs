@@ -7,7 +7,8 @@
 //! - `auth` and `identity`: who is calling (through the edge or with a key) and what they may do.
 //! - `error` and `http`: problem documents, request ids, the health routes, the stop signal.
 //! - `outbound` sends every HTTP call over the SDK's rules. `smtp` sends every mail.
-//! - `jobs`: the loops of this process and their runs. `observe`: the names of the metrics.
+//! - `checks`: the recent checks of each integration, this process's own. `observe`: the names
+//!   of the metrics.
 //! - `runtime`: the durable jobs. Schedules, a tick, workers with leases and a heartbeat, the
 //!   reaper, wake-ups, a supervisor. A run proves its lease where it writes. `markers`: what a
 //!   pass knows across starts.
@@ -26,13 +27,13 @@
 
 pub mod access;
 pub mod auth;
+pub mod checks;
 pub mod config;
 pub mod db;
 pub mod error;
 pub mod http;
 pub mod identity;
 pub mod integrations;
-pub mod jobs;
 pub mod journal;
 pub mod markers;
 /// ffmpeg and ffprobe: a run without a shell, capped and timed, and a file's probe.

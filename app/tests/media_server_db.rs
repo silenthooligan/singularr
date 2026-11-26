@@ -38,7 +38,6 @@ use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
-use std::time::Duration;
 use tower::ServiceExt;
 
 const JELLYFIN: &str = "http://10.0.0.40:8096";
@@ -294,7 +293,6 @@ async fn a_jellyfin_server_stands_in_for_plex_from_its_libraries_to_its_statisti
         journal.clone(),
         engines.clone(),
         Arc::new(Settings::new(&config, &env(), None)),
-        Duration::ZERO,
     );
     let mut follower = Follower::default();
     let mut files = HashMap::new();
@@ -548,8 +546,8 @@ async fn a_jellyfin_server_stands_in_for_plex_from_its_libraries_to_its_statisti
     t.drop_db().await;
 }
 
-/// One reading of the sessions at `now`, written as the live pass writes it: the plays that go
-/// on and the plays that ended.
+/// One reading of the sessions at `now`, written as the live pass writes it: the plays that
+/// ended, then the plays that go on.
 async fn read_sessions(
     deps: &PlaysDeps,
     follower: &mut Follower,
@@ -563,8 +561,8 @@ async fn read_sessions(
             .filter_map(|s| Some((from_session("jellyfin", s, now)?, s.state.clone())))
             .collect(),
     );
-    let mut all = reading.open;
-    all.extend(reading.ended);
+    let mut all = reading.ended;
+    all.extend(reading.open);
     plays::absorb_all(deps, all).await.unwrap();
 }
 
@@ -587,7 +585,6 @@ async fn a_session_read_again_after_its_play_ended_is_a_second_play() {
         Journal::new(),
         engines.clone(),
         Arc::new(Settings::new(&config, &env(), None)),
-        Duration::ZERO,
     );
     let playing = server.sessions().await.unwrap();
     assert_eq!(playing.len(), 1);

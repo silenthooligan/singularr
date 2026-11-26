@@ -582,11 +582,12 @@ pub struct Reading {
     pub ended: Vec<PlayRecord>,
 }
 
-/// The sessions followed from one reading to the next. A play starts when its session first
-/// shows; the time from one reading to the next is counted as watched or paused by the state
-/// the session had at the earlier one; a session that no longer shows ended at the last reading
-/// that saw it.
-#[derive(Debug, Default)]
+/// The sessions followed from one reading to the next. A play is one item in one session. It
+/// starts at the reading that first shows the item in its session. The time from one reading to
+/// the next is counted as watched or paused by the state the session had at the earlier one. A
+/// play ends at the last reading that saw it: its session is gone or shows another item (the
+/// next episode, the next track). A reading that names no item goes on with the play.
+#[derive(Debug, Clone, Default)]
 pub struct Follower {
     open: BTreeMap<String, Followed>,
 }
@@ -630,6 +631,22 @@ impl Follower {
                 continue;
             }
             match self.open.get_mut(&id) {
+                // The session went on to another item: its play ended at the last reading that
+                // saw it. The new item's play starts now.
+                Some(f) if moved_on(&f.record, &record) => {
+                    let mut ended = f.record.clone();
+                    ended.stopped_at = Some(f.seen);
+                    out.ended.push(ended);
+                    record.started_at = now;
+                    record.watched_secs = Some(0);
+                    record.paused_secs = Some(0);
+                    *f = Followed {
+                        record: record.clone(),
+                        state,
+                        seen: now,
+                    };
+                    out.open.push(record);
+                }
                 Some(f) => {
                     let gap =
                         i32::try_from((now - f.seen).num_seconds().clamp(0, GAP_MAX)).unwrap_or(0);
@@ -644,6 +661,10 @@ impl Follower {
                     record.watched_secs = Some(watched);
                     record.paused_secs = Some(paused);
                     record.title_id = record.title_id.or(f.record.title_id);
+                    // A reading that names no item keeps the play's.
+                    if record.rating_key.is_none() {
+                        record.rating_key = f.record.rating_key.clone();
+                    }
                     if record.source_resolution.is_none() && record.source_bitrate.is_none() {
                         record.source_resolution = f.record.source_resolution.clone();
                         record.source_bitrate = f.record.source_bitrate;
@@ -701,6 +722,12 @@ impl Follower {
         }
         out
     }
+}
+
+/// A followed play's session shows another item. The play and the reading each name an item. The
+/// two differ.
+fn moved_on(play: &PlayRecord, reading: &PlayRecord) -> bool {
+    matches!((&play.rating_key, &reading.rating_key), (Some(a), Some(b)) if a != b)
 }
 
 /// What a page of statistics is about. Empty: every play.
@@ -954,6 +981,179 @@ mod tests {
         g.resume(vec![(gone, at(300))]);
         let r = reading(&mut g, 900, &[]);
         assert_eq!(r.ended[0].stopped_at, Some(at(300)));
+    }
+
+    /// The session `id` playing episode `n` of a show: the episode is its item.
+    fn episode(id: &str, n: i32, state: &str) -> ServerSession {
+        ServerSession {
+            kind: "episode".into(),
+            title: format!("Episode {n}"),
+            show: Some("The Show".into()),
+            season: Some(1),
+            episode: Some(n),
+            rating_key: Some(format!("2000{n}")),
+            show_key: Some("2000".into()),
+            year: None,
+            ..session(id, state, 0.0)
+        }
+    }
+
+    /// The session `id` playing track `n` of an album.
+    fn track(id: &str, n: i32) -> ServerSession {
+        ServerSession {
+            kind: "track".into(),
+            title: format!("Track {n}"),
+            rating_key: Some(format!("3000{n}")),
+            year: None,
+            duration_ms: Some(240_000),
+            ..session(id, "playing", 0.0)
+        }
+    }
+
+    /// A play's item, its start and end, its watched and paused seconds.
+    type Told<'a> = (
+        Option<&'a str>,
+        DateTime<Utc>,
+        Option<DateTime<Utc>>,
+        Option<i32>,
+        Option<i32>,
+    );
+
+    fn told(p: &PlayRecord) -> Told<'_> {
+        (
+            p.rating_key.as_deref(),
+            p.started_at,
+            p.stopped_at,
+            p.watched_secs,
+            p.paused_secs,
+        )
+    }
+
+    #[test]
+    fn a_session_that_goes_on_to_the_next_episode_is_two_plays() {
+        let mut f = Follower::default();
+        reading(&mut f, 0, &[episode("s1", 1, "playing")]);
+        reading(&mut f, 10, &[episode("s1", 1, "playing")]);
+        // Autoplay: the same session shows the next episode at the third reading. The first play
+        // ended at the last reading that saw it. The second starts at this one.
+        let r = reading(&mut f, 20, &[episode("s1", 2, "playing")]);
+        assert_eq!(
+            (
+                r.ended.iter().map(told).collect::<Vec<_>>(),
+                r.open.iter().map(told).collect::<Vec<_>>()
+            ),
+            (
+                vec![(Some("20001"), at(0), Some(at(10)), Some(10), Some(0))],
+                vec![(Some("20002"), at(20), None, Some(0), Some(0))]
+            )
+        );
+        assert!(f.busy());
+        reading(&mut f, 30, &[episode("s1", 2, "paused")]);
+        reading(&mut f, 40, &[episode("s1", 2, "playing")]);
+        // The session is gone: the second play ended at the last reading that saw it. Its time is
+        // its own.
+        let r = reading(&mut f, 50, &[]);
+        assert_eq!(
+            r.ended.iter().map(told).collect::<Vec<_>>(),
+            vec![(Some("20002"), at(20), Some(at(40)), Some(10), Some(10))]
+        );
+        assert!(r.open.is_empty() && !f.busy());
+    }
+
+    #[test]
+    fn three_tracks_of_an_album_are_three_plays() {
+        let mut f = Follower::default();
+        let mut ended = Vec::new();
+        for (secs, n) in [(0, 1), (10, 1), (20, 2), (30, 2), (40, 3)] {
+            ended.extend(reading(&mut f, secs, &[track("s1", n)]).ended);
+        }
+        ended.extend(reading(&mut f, 50, &[]).ended);
+        assert_eq!(
+            ended.iter().map(told).collect::<Vec<_>>(),
+            vec![
+                (Some("30001"), at(0), Some(at(10)), Some(10), Some(0)),
+                (Some("30002"), at(20), Some(at(30)), Some(10), Some(0)),
+                (Some("30003"), at(40), Some(at(40)), Some(0), Some(0)),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_restart_between_two_items_ends_the_first_and_starts_the_second() {
+        // Episode 1 was open when the process stopped. It was last written at 600.
+        let mut f = Follower::default();
+        let mut stored = from_session("plex", &episode("s1", 1, "playing"), at(0)).unwrap();
+        stored.watched_secs = Some(600);
+        f.resume(vec![(stored, at(600))]);
+        // The first reading after the start shows episode 2.
+        let r = reading(&mut f, 700, &[episode("s1", 2, "playing")]);
+        assert_eq!(
+            (
+                r.ended.iter().map(told).collect::<Vec<_>>(),
+                r.open.iter().map(told).collect::<Vec<_>>()
+            ),
+            (
+                vec![(Some("20001"), at(0), Some(at(600)), Some(600), Some(0))],
+                vec![(Some("20002"), at(700), None, Some(0), Some(0))]
+            )
+        );
+    }
+
+    #[test]
+    fn a_play_is_one_item_in_one_session() {
+        // The same item started over between two readings is the same play.
+        let mut f = Follower::default();
+        let at_ninety = ServerSession {
+            progress: Some(90.0),
+            ..episode("s1", 1, "playing")
+        };
+        reading(&mut f, 0, &[at_ninety]);
+        let r = reading(&mut f, 10, &[episode("s1", 1, "playing")]);
+        assert_eq!(
+            (r.ended.len(), r.open[0].started_at, r.open[0].watched_secs),
+            (0, at(0), Some(10))
+        );
+
+        // A reading that names no item goes on with the play. The play keeps its item: the next
+        // item ends it.
+        let unnamed = |n: i32| ServerSession {
+            rating_key: None,
+            ..episode("s2", n, "playing")
+        };
+        let mut g = Follower::default();
+        reading(&mut g, 0, &[episode("s2", 1, "playing")]);
+        let r = reading(&mut g, 10, &[unnamed(1)]);
+        assert_eq!(
+            (r.ended.len(), r.open[0].rating_key.as_deref()),
+            (0, Some("20001"))
+        );
+        let r = reading(&mut g, 20, &[episode("s2", 2, "playing")]);
+        assert_eq!(
+            (r.ended[0].stopped_at, r.open[0].started_at),
+            (Some(at(10)), at(20))
+        );
+
+        // A play that names no item goes on with the first reading that names one.
+        let mut h = Follower::default();
+        reading(&mut h, 0, &[unnamed(1)]);
+        let r = reading(&mut h, 10, &[episode("s2", 2, "playing")]);
+        assert_eq!(
+            (
+                r.ended.len(),
+                r.open[0].rating_key.as_deref(),
+                r.open[0].started_at
+            ),
+            (0, Some("20002"), at(0))
+        );
+
+        // Neither names one: one play, as before.
+        let mut k = Follower::default();
+        reading(&mut k, 0, &[unnamed(1)]);
+        let r = reading(&mut k, 10, &[unnamed(2)]);
+        assert_eq!(
+            (r.ended.len(), r.open[0].started_at, r.open[0].watched_secs),
+            (0, at(0), Some(10))
+        );
     }
 
     fn tautulli_row(id: i64, start: i64, stop: i64) -> PlayRecord {

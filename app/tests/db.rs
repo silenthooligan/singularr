@@ -2887,7 +2887,7 @@ async fn the_manager_and_download_passes_run_as_jobs() {
     .unwrap();
     assert_eq!(settled.as_deref(), Some("true"));
     // Each run is a check of its integration.
-    let checks = singularr::core::jobs::registry().checks("radarr");
+    let checks = singularr::core::checks::recent().of("radarr");
     for via in ["titles", "queue", "history"] {
         assert!(checks.iter().any(|c| c.via == via && c.ok), "{via}");
     }
@@ -3361,6 +3361,7 @@ async fn the_server_and_seerr_passes_run_as_jobs() {
         keys,
         vec![
             ("plex:server", "server.pass", 3600, true),
+            ("plex:plays", "player.history", 900, true),
             ("seerr:requests", "requests.pass", 300, true),
             ("seerr:accounts", "requests.accounts", 300, false),
             ("seerr:discover", "requests.discover", 1800, false),
@@ -4368,6 +4369,9 @@ async fn start_jobs_with(st: &AppState, sync: Option<Arc<lifecycle_sync::SyncJob
                 &st.config,
                 st.settings.clone(),
             )),
+            // The plays jobs have their own tests (`plays_db.rs`): their schedules are left out.
+            plays: None,
+            locations: None,
             processing: sync
                 .as_ref()
                 .map(|_| singularr::processing::service::ProcessingDeps {

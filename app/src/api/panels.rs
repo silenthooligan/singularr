@@ -5,8 +5,8 @@
 
 use crate::catalog::model::Library;
 use crate::catalog::store::LibraryHoldings;
+use crate::core::checks::Check;
 use crate::core::config::{Config, Integration, IntegrationType};
-use crate::core::jobs::{Check, Job};
 use crate::core::model::Scope;
 use crate::core::runtime::ScheduleState;
 use crate::engines::model::{ActionView, IntegrationView};
@@ -898,6 +898,12 @@ fn job_words(pass: &str, of: &str) -> (String, String) {
             format!("{of} processing runs"),
             "Status, runs, files and events",
         ),
+        "processing-rules" => ("Processing rules".to_string(), "New imports and rule sends"),
+        "sessions" => (
+            format!("{of} sessions"),
+            "Now playing, players and delivery",
+        ),
+        "plays" => (format!("{of} play history"), "Plays, people and devices"),
         "music" => (
             "Music folder scan".to_string(),
             "Artists, albums, covers and formats",
@@ -928,37 +934,8 @@ pub fn integration_name(config: &Config, id: &str) -> String {
         .unwrap_or_else(|| id.to_string())
 }
 
-/// One job's view. Pure.
-pub fn job_view(job: &Job, config: &Config) -> JobView {
-    let s = job.state();
-    let of = job
-        .spec
-        .integration
-        .as_deref()
-        .map(|id| integration_name(config, id))
-        .unwrap_or_default();
-    let (label, description) = job_words(&job.spec.pass, &of);
-    JobView {
-        id: job.spec.id.clone(),
-        label,
-        description,
-        integration: job.spec.integration.clone(),
-        every: job.spec.every.as_secs(),
-        last_run: s.last_run,
-        last_result: s
-            .last_ok
-            .map(|ok| if ok { "ok" } else { "failed" }.to_string()),
-        last_detail: s.last_detail,
-        took: s.took_ms,
-        next_run: s.next_run,
-        running: s.running,
-        can_run: !s.running,
-        runs: s.runs,
-    }
-}
-
-/// One schedule of the job runtime in the shape of a loop's job, named by the pass its loop
-/// had and the name of the integration it reads (`of`, empty for a folder scan). Pure.
+/// One schedule of the job runtime as the Jobs page shows it, named by the pass its loop had and
+/// the name of the integration it reads (`of`, empty for a job of no integration). Pure.
 pub fn schedule_view(s: &ScheduleState, pass: &str, of: &str) -> JobView {
     let (label, description) = job_words(pass, of);
     let failed = s.last_error.is_some();
@@ -1112,17 +1089,6 @@ pub fn config_checks(config: &Config) -> Vec<CheckView> {
             ),
         },
     );
-    out
-}
-
-/// The ids of each integration's jobs.
-pub fn job_ids(jobs: &[std::sync::Arc<Job>]) -> BTreeMap<String, Vec<String>> {
-    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for j in jobs {
-        if let Some(i) = &j.spec.integration {
-            out.entry(i.clone()).or_default().push(j.spec.id.clone());
-        }
-    }
     out
 }
 

@@ -1,16 +1,18 @@
 //! The jobs of the job runtime (`core::runtime`). In every process: the three folder scans, the
-//! search index and the notification dispatcher (B9a), the request intents (B9c). With the sync:
-//! the passes of the managers and the download clients (B9b), the passes of the media servers,
-//! the Seerr sites and the processing services (B9c), the processing rules (B9c). Their keys,
-//! queues and intervals are those of platform design section 4.8. The plays keep their loops
-//! until they move (B9d).
+//! search index and the notification dispatcher (B9a), the request intents (B9c), the location
+//! database once plays are read (B9d). With the sync: the passes of the managers and the download
+//! clients (B9b), the passes of the media servers, the Seerr sites and the processing services
+//! (B9c), the processing rules (B9c), the plays (B9d). Their keys, queues and intervals are those
+//! of platform design section 4.8. No loop of the sync or of the plays runs outside the runtime. A
+//! schedule is written only when this start has its handler.
 //!
 //! The runtime runs on a pool of its own ([`connections`]). The handlers write on the app's pool.
 //! The folder scans, the sync's passes, the processing rules and the intents write through a
 //! journal fenced by their run's lease: a run whose lease is lost commits nothing. A sync pass
 //! ends its job in the transaction that writes its pass row (`integration_health`). The index and
 //! the dispatcher write what their next run writes again: the whole index, deliveries keyed by
-//! channel and event. They read no integration and write no pass row.
+//! channel and event. They read no integration and write no pass row. Neither do a media server's
+//! sessions.
 
 use crate::core::config::Config;
 use crate::core::journal::Journal;
@@ -22,6 +24,8 @@ use crate::lifecycle::sync::{self, SyncJobs};
 use crate::metadata::service::ProviderSet;
 use crate::music::service::{self as music, MusicLibrary};
 use crate::notify::service::{self as notify, Describe, Notifier};
+use crate::plays::locations::{self, LocationDeps};
+use crate::plays::service::{self as plays, PlaysDeps};
 use crate::processing::service as processing;
 use crate::requests::intents;
 use crate::search::Search;
@@ -36,14 +40,25 @@ use tokio::task::JoinHandle;
 pub const LEASE: Duration = Duration::from_secs(120);
 
 /// The workers of each queue but the sync's. The scan queue has one for each folder scan: a scan
-/// asked for from the API never waits behind another folder's scan. The others are the design's
+/// asked for from the API never waits behind another folder's scan. The default queue has three:
+/// the intents, the processing rules and the location database. The others are the design's
 /// defaults (section 4.2).
-pub const WORKERS: [(&str, usize); 4] = [("scan", 3), ("index", 1), ("notify", 2), ("default", 2)];
+pub const WORKERS: [(&str, usize); 4] = [("scan", 3), ("index", 1), ("notify", 2), ("default", 3)];
+
+/// Where a schedule's interval comes from: its setting's source.
+fn source_of(settings: &Settings, setting: &str) -> Source {
+    match settings.source_of(setting) {
+        Some("environment") => Source::Environment,
+        Some("file") => Source::File,
+        Some("saved") => Source::Saved,
+        _ => Source::Default,
+    }
+}
 
 /// The passes of the sync, by the names their loops had: what each reads, its job's kind, the
 /// setting of its interval and whether the Jobs page lists it. The accounts and the discover
 /// lists of a Seerr site were read by its requests loop: their schedules are not listed.
-const SYNC_PASSES: [(&str, &str, &str, bool); 9] = [
+const SYNC_PASSES: [(&str, &str, &str, bool); 10] = [
     ("titles", sync::TITLES, "jobs.titles", true),
     ("queue", sync::QUEUE, "jobs.queue", true),
     ("history", sync::HISTORY, "jobs.history", true),
@@ -58,13 +73,20 @@ const SYNC_PASSES: [(&str, &str, &str, bool); 9] = [
         "jobs.processing.syncEvery",
         true,
     ),
+    (
+        plays::HISTORY,
+        plays::HISTORY_KIND,
+        crate::plays::model::HISTORY_EVERY,
+        true,
+    ),
 ];
 
 /// The workers of every queue. The sync queue has one for each of its schedules, as each pass had a
-/// loop of its own: a download client's pass never waits behind a manager's titles.
+/// loop of its own: a download client's pass never waits behind a manager's titles. Each media
+/// server's sessions are one of them.
 pub fn workers(sync: Option<&EngineSet>) -> Vec<(&'static str, usize)> {
     let mut out = WORKERS.to_vec();
-    let passes = sync.map(|e| sync_keys(e).len());
+    let passes = sync.map(|e| sync_keys(e).len() + e.media_servers.len());
     if let Some(n) = passes.filter(|n| *n > 0) {
         out.push(("sync", n));
     }
@@ -85,10 +107,14 @@ const LISTED: [(&str, &str); 4] = [
     (processing::RULES_JOB, "processing-rules"),
 ];
 
-/// The keys of the schedules the Jobs page reads: the folder scans, the processing rules and,
-/// with the sync on, the passes of each integration ([`listed`] names the ones it shows). The
-/// search index, the dispatcher and the intents are not listed: `GET /api/v1/jobs` keeps the ids
-/// of the loops.
+/// The plays passes the Jobs page lists that read no integration, by the names their loops had:
+/// each media server's sessions, the housekeeping and the location database.
+const PLAYS_LISTED: [&str; 3] = [plays::SESSIONS, plays::TIDY, locations::LOCATIONS];
+
+/// The keys of the schedules the Jobs page reads: the folder scans, the processing rules, the
+/// plays and, with the sync on, the passes of each integration ([`listed`] names the ones it
+/// shows). The search index, the dispatcher and the intents are not listed: `GET /api/v1/jobs`
+/// keeps the ids of the loops.
 pub fn listed_keys(config: &Config, engines: &EngineSet) -> Vec<String> {
     let mut keys: Vec<String> = LISTED.iter().map(|(key, _)| key.to_string()).collect();
     keys.extend(
@@ -96,7 +122,52 @@ pub fn listed_keys(config: &Config, engines: &EngineSet) -> Vec<String> {
             .into_iter()
             .map(|(_, key)| key),
     );
+    keys.extend(plays_keys(config, engines));
     keys
+}
+
+/// The keys of the plays schedules of no integration: with the sync on, each media server's
+/// sessions and the housekeeping where no history pass runs it. Once plays are read, the
+/// location database.
+fn plays_keys(config: &Config, engines: &EngineSet) -> Vec<String> {
+    let mut out = Vec::new();
+    if config.sync.enabled {
+        out.extend(
+            engines
+                .media_servers
+                .iter()
+                .map(|s| plays::sessions_key(s.id())),
+        );
+        if plays::tidies_alone(engines) {
+            out.push(plays::TIDY_KEY.to_string());
+        }
+    }
+    if locations::plays_are_read(config) {
+        out.push(locations::JOB.to_string());
+    }
+    out
+}
+
+/// The plays histories' interval saved now: their schedules and the housekeeping's take it.
+pub async fn retime_plays(
+    pool: &PgPool,
+    settings: &Settings,
+    engines: &EngineSet,
+) -> Result<(), sqlx::Error> {
+    let every = plays::history_every(settings);
+    let source = source_of(settings, crate::plays::model::HISTORY_EVERY);
+    let mut keys: Vec<String> = sync_keys(engines)
+        .into_iter()
+        .filter(|(_, _, pass)| *pass == plays::HISTORY)
+        .map(|(key, ..)| key)
+        .collect();
+    if plays::tidies_alone(engines) {
+        keys.push(plays::TIDY_KEY.to_string());
+    }
+    for key in keys {
+        Runtime::set_every(pool, &key, every, source).await?;
+    }
+    Ok(())
 }
 
 /// The keys of the schedules that read an integration, each with that integration: the sync's
@@ -125,6 +196,7 @@ pub fn listed(key: &str) -> Option<&'static str> {
         .iter()
         .find(|(name, _, _, listed)| *name == pass && *listed)
         .map(|(name, ..)| *name)
+        .or_else(|| PLAYS_LISTED.iter().find(|p| **p == pass).copied())
 }
 
 /// The sync's schedule keys of these engines, each with its integration and its pass.
@@ -143,6 +215,21 @@ fn sync_keys(engines: &EngineSet) -> Vec<(String, String, &'static str)> {
     for server in &engines.media_servers {
         let id = server.id();
         out.push((format!("{id}:server"), id.to_string(), "server"));
+        if server.keeps_history() {
+            out.push((
+                format!("{id}:{}", plays::HISTORY),
+                id.to_string(),
+                plays::HISTORY,
+            ));
+        }
+    }
+    if let Some(history) = &engines.play_history {
+        let id = history.id();
+        out.push((
+            format!("{id}:{}", plays::HISTORY),
+            id.to_string(),
+            plays::HISTORY,
+        ));
     }
     for processor in &engines.processors {
         let id = processor.id();
@@ -162,16 +249,9 @@ fn sync_keys(engines: &EngineSet) -> Vec<(String, String, &'static str)> {
 }
 
 /// The schedules of this configuration. The movie folders have none without roots. The sync's
-/// passes have one each when `sync` gives the engines. An interval's source is its setting's: the
-/// variable when one is set.
+/// passes have one each when `sync` gives the engines. An interval's source is its setting's.
 pub fn schedules(config: &Config, settings: &Settings, sync: Option<&EngineSet>) -> Vec<Schedule> {
-    let source = |setting: &str| {
-        if settings.env_of(setting).is_some() {
-            Source::Environment
-        } else {
-            Source::Default
-        }
-    };
+    let source = |setting: &str| source_of(settings, setting);
     let scan = |key: &str, kind: &str, every: Duration, setting: &str, first: Duration| Schedule {
         key: key.to_string(),
         kind: kind.to_string(),
@@ -283,6 +363,7 @@ pub fn schedules(config: &Config, settings: &Settings, sync: Option<&EngineSet>)
             "requests" | "accounts" => (s.requests, 60),
             "discover" => (crate::requests::discover::TTL, 1800),
             "processing" => (s.processing, 15),
+            plays::HISTORY => (plays::history_every(settings), 300),
             _ => (s.downloads, 10),
         };
         let (_, kind, setting, _) = SYNC_PASSES
@@ -290,6 +371,20 @@ pub fn schedules(config: &Config, settings: &Settings, sync: Option<&EngineSet>)
             .find(|(name, ..)| *name == pass)
             .copied()
             .unwrap_or(SYNC_PASSES[3]);
+        // Tautulli's plays are a history of a kind of their own.
+        let tautulli = sync
+            .and_then(|e| e.play_history.as_ref())
+            .is_some_and(|h| h.id() == integration);
+        let kind = if pass == plays::HISTORY && tautulli {
+            plays::TAUTULLI_KIND
+        } else {
+            kind
+        };
+        let source = if setting.is_empty() {
+            Source::Default
+        } else {
+            source(setting)
+        };
         out.push(Schedule {
             key,
             kind: kind.to_string(),
@@ -301,11 +396,59 @@ pub fn schedules(config: &Config, settings: &Settings, sync: Option<&EngineSet>)
             jitter: s.jitter,
             on_start: true,
             lease: LEASE,
-            source: if setting.is_empty() {
-                Source::Default
-            } else {
-                source(setting)
-            },
+            source,
+        });
+    }
+    // The plays with the sync: each media server's sessions on the sync queue, every minute while
+    // nothing plays. A run while something plays asks for the next after 10 s. The housekeeping
+    // has a schedule where no history pass runs it.
+    if let Some(engines) = sync {
+        for server in &engines.media_servers {
+            out.push(Schedule {
+                key: plays::sessions_key(server.id()),
+                kind: plays::SESSIONS_KIND.to_string(),
+                integration: None,
+                queue: "sync".to_string(),
+                every: plays::IDLE,
+                floor: plays::BUSY,
+                first: Duration::ZERO,
+                jitter: config.sync.jitter,
+                on_start: true,
+                lease: LEASE,
+                source: Source::Default,
+            });
+        }
+        if plays::tidies_alone(engines) {
+            out.push(Schedule {
+                key: plays::TIDY_KEY.to_string(),
+                kind: plays::TIDY_KIND.to_string(),
+                integration: None,
+                queue: "default".to_string(),
+                every: plays::history_every(settings),
+                floor: Duration::from_secs(300),
+                first: Duration::ZERO,
+                jitter: config.sync.jitter,
+                on_start: true,
+                lease: LEASE,
+                source: source(crate::plays::model::HISTORY_EVERY),
+            });
+        }
+    }
+    // The location database once plays are read, whether or not the sync runs: 20 s after each
+    // start, then once a day.
+    if locations::plays_are_read(config) {
+        out.push(Schedule {
+            key: locations::JOB.to_string(),
+            kind: locations::KIND.to_string(),
+            integration: None,
+            queue: "default".to_string(),
+            every: locations::EVERY,
+            floor: locations::EVERY,
+            first: locations::FIRST_WAIT,
+            jitter: Duration::ZERO,
+            on_start: true,
+            lease: LEASE,
+            source: Source::Default,
         });
     }
     out
@@ -330,6 +473,10 @@ pub struct JobsDeps {
     pub sync: Option<Arc<SyncJobs>>,
     /// The processing services' passes and the processing rules, when the sync runs.
     pub processing: Option<processing::ProcessingDeps>,
+    /// The plays passes, when the sync runs.
+    pub plays: Option<PlaysDeps>,
+    /// The location database's job, once plays are read. It runs whether or not the sync does.
+    pub locations: Option<LocationDeps>,
     /// The request rules the intents are handled under. The intents run whether or not the sync
     /// does.
     pub intents: crate::requests::rules::Rules,
@@ -381,11 +528,6 @@ pub async fn start_with(
             ),
         }
     }
-    Runtime::reconcile(
-        &deps.pool,
-        &schedules(config, &deps.settings, engines.as_deref()),
-    )
-    .await?;
     let mut runtime = Runtime::new(deps.runtime.clone(), timing)
         .handle(
             "scan.movies",
@@ -446,6 +588,28 @@ pub async fn start_with(
             )
             .handle(processing::RULES, Arc::new(processing::RulesJob(p.clone())));
     }
+    if let Some(p) = &deps.plays {
+        runtime = runtime
+            .handle(
+                plays::SESSIONS_KIND,
+                Arc::new(plays::SessionsJob::new(p.clone())),
+            )
+            .handle(
+                plays::HISTORY_KIND,
+                Arc::new(plays::ServerHistoryJob(p.clone())),
+            )
+            .handle(
+                plays::TAUTULLI_KIND,
+                Arc::new(plays::TautulliJob(p.clone())),
+            )
+            .handle(plays::TIDY_KIND, Arc::new(plays::TidyJob(p.clone())));
+    }
+    if let Some(l) = &deps.locations {
+        runtime = runtime.handle(
+            locations::KIND,
+            Arc::new(locations::LocationsJob(l.clone())),
+        );
+    }
     runtime = runtime.handle(
         intents::KIND,
         Arc::new(intents::IntentsJob {
@@ -454,6 +618,20 @@ pub async fn start_with(
             rules: deps.intents.clone(),
         }),
     );
+    // A schedule whose handler this start lacks is not written: a part a start leaves out leaves
+    // no job behind that no worker could run. The log names each.
+    let (written, unrun): (Vec<Schedule>, Vec<Schedule>) =
+        schedules(config, &deps.settings, engines.as_deref())
+            .into_iter()
+            .partition(|s| runtime.handles(&s.kind));
+    if !unrun.is_empty() {
+        let keys: Vec<&str> = unrun.iter().map(|s| s.key.as_str()).collect();
+        tracing::warn!(
+            schedules = %keys.join(", "),
+            "this start has no handler for schedules the configuration asks for: they are not written"
+        );
+    }
+    Runtime::reconcile(&deps.pool, &written).await?;
     for (queue, n) in workers(engines.as_deref()) {
         runtime = runtime.workers(queue, n);
     }
@@ -535,7 +713,7 @@ mod tests {
             (listed("seerr:accounts"), listed("seerr:discover")),
             (None, None)
         );
-        assert_eq!(connections(None), 19);
+        assert_eq!(connections(None), 21);
 
         let without_roots = Config::from(&BTreeMap::from([(
             "DATABASE_URL",
@@ -548,5 +726,31 @@ mod tests {
                 .iter()
                 .all(|s| s.key != "folder:movie-folders")
         );
+    }
+
+    #[test]
+    fn an_interval_comes_from_where_its_setting_does() {
+        let env = BTreeMap::from([
+            ("DATABASE_URL", "postgres://x@127.0.0.1:1/x"),
+            ("SINGULARR_MUSIC_SCAN_SECS", "7200"),
+        ]);
+        let config = Config::from(&env).unwrap();
+        let settings = Settings::new(&config, &env, None);
+        let history = crate::plays::model::HISTORY_EVERY;
+        assert_eq!(
+            (
+                source_of(&settings, "jobs.musicScan"),
+                source_of(&settings, "jobs.homeMoviesScan"),
+                source_of(&settings, history)
+            ),
+            (Source::Environment, Source::Default, Source::Default)
+        );
+        // A saved interval is saved, the default's own value among them.
+        settings.remember(
+            singularr_platform::settings::INSTANCE,
+            history,
+            serde_json::json!(900),
+        );
+        assert_eq!(source_of(&settings, history), Source::Saved);
     }
 }

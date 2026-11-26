@@ -1,5 +1,4 @@
 use super::*;
-use crate::core::jobs::{JobSpec, Jobs};
 use crate::core::outbound::Access;
 use crate::engines::access::{AccessState, actions_of};
 use crate::engines::service::integration_view;
@@ -428,23 +427,59 @@ fn roles_and_permissions_are_data() {
 
 #[test]
 fn a_job_is_named_for_what_it_reads() {
-    let jobs = Jobs::default();
-    let job = jobs.register(JobSpec::of("radarr", "titles", Duration::from_secs(900)));
-    let v = job_view(&job, &config());
+    let state = |key: &str, integration: Option<&str>, every: u64| ScheduleState {
+        key: key.to_string(),
+        kind: String::new(),
+        integration: integration.map(str::to_string),
+        every: Duration::from_secs(every),
+        next_run_at: chrono::Utc::now(),
+        last_run_at: None,
+        last_error: None,
+        last_detail: None,
+        last_took_ms: None,
+        open: None,
+        runs: 0,
+    };
+    let mut titles = state("radarr:titles", Some("radarr"), 900);
+    let of = integration_name(&config(), "radarr");
+    let v = schedule_view(&titles, "titles", &of);
     assert_eq!(v.label, "Radarr HD titles and files");
     assert_eq!(
         (v.every, v.can_run, v.last_result.as_deref()),
         (900, true, None)
     );
-    job.end(job.begin(), Err("connection refused".into()));
-    let v = job_view(&job, &config());
-    assert_eq!(v.last_result.as_deref(), Some("failed"));
-    let folder = jobs.register(JobSpec::folder("music", Duration::from_secs(21_600)));
-    let v = job_view(&folder, &config());
+    titles.last_run_at = Some(chrono::Utc::now());
+    titles.last_error = Some("connection refused".to_string());
+    let v = schedule_view(&titles, "titles", &of);
+    assert_eq!(
+        (v.last_result.as_deref(), v.last_detail.as_deref()),
+        (Some("failed"), Some("connection refused"))
+    );
+    titles.open = Some("running".to_string());
+    let v = schedule_view(&titles, "titles", &of);
+    assert!(v.running && !v.can_run && v.next_run.is_none());
+    let v = schedule_view(&state("folder:music", None, 21_600), "music", "");
     assert_eq!(
         (v.label.as_str(), v.integration),
         ("Music folder scan", None)
     );
+    // The plays jobs: a media server's sessions and the histories by the name of what they read.
+    let v = schedule_view(&state("plex:sessions", None, 60), "sessions", "Plex");
+    assert_eq!((v.label.as_str(), v.every), ("Plex sessions", 60));
+    let v = schedule_view(
+        &state("tautulli:plays", Some("tautulli"), 900),
+        "plays",
+        "Tautulli",
+    );
+    assert_eq!(v.label, "Tautulli play history");
+    let v = schedule_view(&state("plays:locations", None, 86_400), "locations", "");
+    assert_eq!(v.label, "Location database");
+    let v = schedule_view(
+        &state("singularr:processing-rules", None, 60),
+        "processing-rules",
+        "",
+    );
+    assert_eq!(v.label, "Processing rules");
 }
 
 #[test]

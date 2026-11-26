@@ -15,7 +15,7 @@ use singularr::homemovies::service::HomeMovies;
 use singularr::lifecycle::sync::{self, SyncDeps};
 use singularr::metadata::service::ProviderSet;
 use singularr::music::service::MusicLibrary;
-use singularr::plays::service::{self as plays, PlaysDeps};
+use singularr::plays::service::PlaysDeps;
 use singularr::policy;
 use singularr::processing::service::ProcessingDeps;
 use singularr::releases::assess::Assessor;
@@ -293,26 +293,24 @@ async fn serve_owner() -> Result<(), String> {
         policy: active.clone(),
     });
     // The location database the statistics place addresses with, whether or not the sync runs,
-    // once a media server or a play history gives plays to locate.
-    let locations = singularr::plays::locations::plays_are_read(&config).then(|| {
-        singularr::plays::locations::spawn(singularr::plays::locations::LocationDeps {
+    // once a media server or a play history gives plays to locate. A job of the runtime (below).
+    let location_deps = singularr::plays::locations::plays_are_read(&config).then(|| {
+        singularr::plays::locations::LocationDeps {
             geoip: engines.geoip.clone(),
             out: outbound.clone(),
             settings: settings.clone(),
-        })
+        }
     });
-    // Plays: the media server's sessions and history, and Tautulli, with the sync.
-    let play_loops = if config.sync.enabled {
-        plays::spawn(PlaysDeps::new(
+    // Plays with the sync: the media servers' sessions and histories, Tautulli's plays. Jobs of the
+    // runtime (below).
+    let plays_deps = config.sync.enabled.then(|| {
+        PlaysDeps::new(
             pool.clone(),
             journal.clone(),
             engines.clone(),
             settings.clone(),
-            config.sync.jitter,
-        ))
-    } else {
-        Vec::new()
-    };
+        )
+    });
     // Singularr Requests: what it states about the rules. The job that records its intents (in R1
     // as shadow: nothing reaches Seerr) runs whether or not the sync does.
     let rules = Requests::new(&config.request_rules).rules;
@@ -347,11 +345,11 @@ async fn serve_owner() -> Result<(), String> {
         tracing::info!(target: "singularr::outbound", key = %key, host = %host, label = %label, "notification target");
     }
 
-    // The job runtime: the three folder scans, the search index and the notification dispatcher,
-    // whether or not the sync runs. The scans read mounts. The index and the dispatcher read
-    // Singularr's own tables. With the sync it runs the passes of the managers, the download
-    // clients, the media servers and the Seerr sites too. The runtime's own statements have a pool
-    // of their own: a heartbeat never waits behind a query of the app.
+    // The job runtime: the three folder scans, the search index, the notification dispatcher, the
+    // intents and the location database, whether or not the sync runs. The scans read mounts. The
+    // index and the dispatcher read Singularr's own tables. With the sync it runs the passes of the
+    // integrations, the processing rules and the plays too. The runtime's own statements have a
+    // pool of their own: a heartbeat never waits behind a query of the app.
     let sync_engines = sync.as_ref().map(|_| engines.as_ref());
     let runtime_pool = db::connect_url(
         &config.bootstrap.database_url,
@@ -379,6 +377,8 @@ async fn serve_owner() -> Result<(), String> {
             )),
             sync: sync.as_ref().map(|s| s.jobs()),
             processing: processing_deps,
+            plays: plays_deps,
+            locations: location_deps,
             intents: rules,
         },
     )
@@ -451,15 +451,9 @@ async fn serve_owner() -> Result<(), String> {
     )
     .with_graceful_shutdown(async move {
         http::shutdown_signal().await;
-        tracing::info!("shutdown requested: stopping the sync loops");
+        tracing::info!("shutdown requested: stopping the sync and the job runtime");
         if let Some(sync) = &sync {
             sync.stop();
-        }
-        for task in &play_loops {
-            task.abort();
-        }
-        if let Some(locations) = &locations {
-            locations.abort();
         }
         gauges.abort();
         // Running jobs have the runtime's grace period to finish. A job still running then goes

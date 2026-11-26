@@ -19,9 +19,11 @@ use singularr::core::journal::Journal;
 use singularr::core::model::{NewApiKey, Scope};
 use singularr::core::outbound::recorded::Recorded;
 use singularr::core::outbound::{Method, Outbound};
+use singularr::core::runtime::{self, RunNow, Running, Runtime, Schedule, Timing};
 use singularr::core::{db, store as core_store};
 use singularr::engines::service::{EngineSet, allowlist, statuses};
 use singularr::homemovies::service::HomeMovies;
+use singularr::lifecycle::jobs as runtime_jobs;
 use singularr::metadata::service::ProviderSet;
 use singularr::music::service::MusicLibrary;
 use singularr::plays::model::{PlayRecord, from_history_play, from_server_play};
@@ -125,7 +127,6 @@ fn make_deps(pool: &PgPool, recorded: &Arc<Recorded>) -> PlaysDeps {
         Journal::new(),
         Arc::new(EngineSet::from_config(&config, &out)),
         Arc::new(Settings::new(&config, &env, None)),
-        Duration::ZERO,
     )
 }
 
@@ -1923,6 +1924,793 @@ async fn the_history_sorts_and_filters_and_each_address_is_placed() {
         recorded.urls_seen().is_empty(),
         "{:?}",
         recorded.urls_seen()
+    );
+    t.drop_db().await;
+}
+
+// The plays as jobs -------------------------------------------------------------------------------
+
+/// The runtime's waits, short enough for a test.
+fn quick() -> Timing {
+    Timing {
+        tick: Duration::from_millis(100),
+        poll: Duration::from_millis(200),
+        reap: Duration::from_millis(200),
+        lease: Duration::from_secs(5),
+        grace: Duration::from_secs(1),
+    }
+}
+
+/// The plays schedules of the test configuration (a Plex server and Tautulli) as a start writes
+/// them, the location database's aside: `kinds` picks them. No first run waits.
+fn plays_schedules(deps: &PlaysDeps, kinds: &[&str]) -> Vec<Schedule> {
+    runtime_jobs::schedules(deps.settings.config(), &deps.settings, Some(&deps.engines))
+        .into_iter()
+        .filter(|s| kinds.contains(&s.kind.as_str()))
+        .map(|mut s| {
+            s.jitter = Duration::ZERO;
+            s
+        })
+        .collect()
+}
+
+/// The plays jobs of one process over `deps`, on a pool of their own. A sessions handler of its
+/// own: a new runtime is a new start.
+fn plays_runtime(pool: &PgPool, deps: &PlaysDeps) -> Running {
+    let own = PgPoolOptions::new()
+        .max_connections(12)
+        .connect_lazy_with(pool.connect_options().as_ref().clone());
+    Runtime::new(own, quick())
+        .handle(
+            plays::SESSIONS_KIND,
+            Arc::new(plays::SessionsJob::new(deps.clone())),
+        )
+        .handle(
+            plays::HISTORY_KIND,
+            Arc::new(plays::ServerHistoryJob(deps.clone())),
+        )
+        .handle(
+            plays::TAUTULLI_KIND,
+            Arc::new(plays::TautulliJob(deps.clone())),
+        )
+        .workers("sync", 3)
+        .start()
+}
+
+/// Run a schedule after this moment and wait for its end: it ended well.
+async fn ran(pool: &PgPool, key: &str) -> runtime::Ended {
+    let ended = runtime::run_and_wait(pool, key, json!({}))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(ended.ok(), "{key}: {ended:?}");
+    ended
+}
+
+/// Run a schedule after this moment and wait for its end: it failed.
+async fn failed(pool: &PgPool, key: &str) -> runtime::Ended {
+    let ended = runtime::run_and_wait(pool, key, json!({}))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!ended.ok(), "{key}: {ended:?}");
+    ended
+}
+
+/// A schedule's failed runs in a row.
+async fn failures(pool: &PgPool, key: &str) -> i32 {
+    sqlx::query_scalar("SELECT failures FROM job_schedules WHERE key = $1")
+        .bind(key)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// The seconds from a schedule's last run to its next.
+async fn next_in(pool: &PgPool, key: &str) -> f64 {
+    sqlx::query_scalar(
+        "SELECT EXTRACT(EPOCH FROM next_run_at - last_run_at)::float8 FROM job_schedules
+         WHERE key = $1",
+    )
+    .bind(key)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// A play of the sessions: its session, whether it is open, its watched seconds, when it was last
+/// written.
+type SessionPlay = (Option<String>, bool, Option<i32>, DateTime<Utc>);
+
+/// The plays the sessions told of, oldest first. The histories' plays are left out.
+async fn session_plays(pool: &PgPool) -> Vec<SessionPlay> {
+    sqlx::query_as(
+        "SELECT session_id, stopped_at IS NULL, watched_secs, updated_at FROM plays
+         WHERE session_id IS NOT NULL ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+/// The plays jobs keep the ids, the labels and the intervals of their loops: each media server's
+/// sessions every 60 s, its history and Tautulli's every 900 s (a setting no shorter than 300 s),
+/// the location database once a day. The histories are the integrations' jobs: the integrations
+/// panel lists them and an integration's sync runs them. The sessions are not. Each media
+/// server's sessions have a worker of the sync queue.
+#[tokio::test]
+async fn the_plays_jobs_keep_the_ids_and_intervals_of_their_loops() {
+    let Some(t) = TestDb::new("plays_jobs").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    record_server(&recorded);
+    record_tautulli(&recorded);
+    let deps = make_deps(&t.pool, &recorded);
+    let all = runtime_jobs::schedules(deps.settings.config(), &deps.settings, Some(&deps.engines));
+    type Planned<'a> = (&'a str, &'a str, &'a str, Option<&'a str>, u64, u64);
+    let plays: Vec<Planned> = all
+        .iter()
+        .filter(|s| {
+            s.kind.starts_with("player.")
+                || s.kind.starts_with("plays.")
+                || s.kind == plays::TAUTULLI_KIND
+        })
+        .map(|s| {
+            (
+                s.key.as_str(),
+                s.kind.as_str(),
+                s.queue.as_str(),
+                s.integration.as_deref(),
+                s.every.as_secs(),
+                s.floor.as_secs(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        plays,
+        vec![
+            (
+                "plex:plays",
+                "player.history",
+                "sync",
+                Some("plex"),
+                900,
+                300
+            ),
+            (
+                "tautulli:plays",
+                "history.plays",
+                "sync",
+                Some("tautulli"),
+                900,
+                300
+            ),
+            ("plex:sessions", "player.sessions", "sync", None, 60, 10),
+            (
+                "plays:locations",
+                "plays.locations",
+                "default",
+                None,
+                86_400,
+                86_400
+            ),
+        ]
+    );
+    assert!(
+        runtime_jobs::workers(Some(&deps.engines)).contains(&("sync", 4)),
+        "the server, its history, its sessions and Tautulli"
+    );
+
+    // The Jobs page and the integrations panel, from the schedules alone.
+    let kinds = [
+        plays::SESSIONS_KIND,
+        plays::HISTORY_KIND,
+        plays::TAUTULLI_KIND,
+        "plays.locations",
+    ];
+    Runtime::reconcile(&t.pool, &plays_schedules(&deps, &kinds))
+        .await
+        .unwrap();
+    let routes = app(&t.pool, &deps.journal, &recorded);
+    let panel = owner_get(&routes, "/api/v1/jobs").await;
+    let listed: Vec<(String, String, Value, u64)> = panel["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|j| {
+            (
+                j["id"].as_str().unwrap().to_string(),
+                j["label"].as_str().unwrap().to_string(),
+                j["integration"].clone(),
+                j["every"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed,
+        vec![
+            (
+                "plays:locations".to_string(),
+                "Location database".to_string(),
+                Value::Null,
+                86_400
+            ),
+            (
+                "plex:plays".to_string(),
+                "Plex play history".to_string(),
+                json!("plex"),
+                900
+            ),
+            (
+                "plex:sessions".to_string(),
+                "Plex sessions".to_string(),
+                Value::Null,
+                60
+            ),
+            (
+                "tautulli:plays".to_string(),
+                "Tautulli play history".to_string(),
+                json!("tautulli"),
+                900
+            ),
+        ]
+    );
+    let integrations = owner_get(&routes, "/api/v1/integrations").await;
+    let jobs_of = |id: &str| {
+        integrations["integrations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["id"] == id)
+            .map(|i| i["jobs"].clone())
+    };
+    assert_eq!(jobs_of("plex"), Some(json!(["plex:plays", "plex:server"])));
+    assert_eq!(jobs_of("tautulli"), Some(json!(["tautulli:plays"])));
+    let (status, started) = owner_send(
+        &routes,
+        "POST",
+        "/api/v1/integrations/tautulli/sync",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+    assert_eq!(started["jobs"], json!(["tautulli:plays"]));
+    // A run asked for by its id, as the Jobs page asks it.
+    let (status, started) = owner_send(
+        &routes,
+        "POST",
+        "/api/v1/jobs/plex:sessions/run",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+    assert_eq!(started["jobs"], json!(["plex:sessions"]));
+    t.drop_db().await;
+}
+
+/// The sessions job follows a play from one run to the next: one play while it plays, closed once
+/// its session is gone. While something plays the next run comes after 10 s, after it the
+/// schedule's 60 s. The Tautulli job reads everything once, then only the newest days while its
+/// marker stands. Each history run writes its pass row.
+#[tokio::test]
+async fn the_sessions_job_asks_for_the_next_run_sooner_while_something_plays() {
+    let Some(t) = TestDb::new("plays_again").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    record_server(&recorded);
+    record_tautulli(&recorded);
+    let sessions = format!("{PLEX}/status/sessions");
+    recorded.answer(Method::Get, &sessions, 200, &session("playing", 60));
+    let deps = make_deps(&t.pool, &recorded);
+    Runtime::reconcile(
+        &t.pool,
+        &plays_schedules(
+            &deps,
+            &[
+                plays::SESSIONS_KIND,
+                plays::HISTORY_KIND,
+                plays::TAUTULLI_KIND,
+            ],
+        ),
+    )
+    .await
+    .unwrap();
+    let running = plays_runtime(&t.pool, &deps);
+    let ended = ran(&t.pool, "plex:sessions").await;
+    assert_eq!(ended.detail.as_deref(), Some("1 playing"));
+    assert_eq!(next_in(&t.pool, "plex:sessions").await, 10.0);
+    let first = session_plays(&t.pool).await;
+    assert_eq!(
+        (first.len(), first[0].0.as_deref(), first[0].1),
+        (1, Some("abc-123"), true)
+    );
+    // Further in: the same play.
+    recorded.answer(Method::Get, &sessions, 200, &session("playing", 70));
+    ran(&t.pool, "plex:sessions").await;
+    assert_eq!(session_plays(&t.pool).await.len(), 1);
+    // Gone: the play ended. The sessions are read every minute again.
+    recorded.answer(
+        Method::Get,
+        &sessions,
+        200,
+        &fixture("plex_sessions_idle.json"),
+    );
+    let ended = ran(&t.pool, "plex:sessions").await;
+    assert_eq!(ended.detail.as_deref(), Some("Nothing playing"));
+    assert_eq!(next_in(&t.pool, "plex:sessions").await, 60.0);
+    let after = session_plays(&t.pool).await;
+    assert_eq!((after.len(), after[0].1), (1, false));
+    // The sessions write no pass row. The histories do, under the passes of their loops.
+    ran(&t.pool, "plex:plays").await;
+    ran(&t.pool, "tautulli:plays").await;
+    let rows: Vec<(String, String, bool)> =
+        sqlx::query_as("SELECT integration, pass, ok FROM integration_health ORDER BY 1, 2")
+            .fetch_all(&t.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            ("plex".to_string(), "plays".to_string(), true),
+            ("tautulli".to_string(), "plays".to_string(), true),
+        ]
+    );
+    // Tautulli's whole read stands in its marker: the next run reads the newest days alone.
+    let marked = singularr::lifecycle::claims::marked_at(&t.pool, "tautulli", plays::WHOLE_AT)
+        .await
+        .unwrap()
+        .expect("a whole read marks its time");
+    let before = recorded.urls_seen().len();
+    ran(&t.pool, "tautulli:plays").await;
+    let asked: Vec<String> = recorded.urls_seen()[before..]
+        .iter()
+        .filter(|u| u.contains("cmd=get_history"))
+        .cloned()
+        .collect();
+    assert!(
+        !asked.is_empty() && asked.iter().all(|u| u.contains("after=")),
+        "{asked:?}"
+    );
+    assert_eq!(
+        singularr::lifecycle::claims::marked_at(&t.pool, "tautulli", plays::WHOLE_AT)
+            .await
+            .unwrap(),
+        Some(marked)
+    );
+    running.stop().await;
+    t.drop_db().await;
+}
+
+/// A play open when the process stops is taken up by the first sessions run after the start: a
+/// session that still plays stays one play, one that ended meanwhile ends at the last reading
+/// that saw it. No play is doubled, no stop is lost.
+#[tokio::test]
+async fn a_play_open_across_a_restart_stays_one_play() {
+    let Some(t) = TestDb::new("plays_restart").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    record_server(&recorded);
+    let sessions = format!("{PLEX}/status/sessions");
+    recorded.answer(Method::Get, &sessions, 200, &session("playing", 60));
+    let deps = make_deps(&t.pool, &recorded);
+    Runtime::reconcile(&t.pool, &plays_schedules(&deps, &[plays::SESSIONS_KIND]))
+        .await
+        .unwrap();
+    let first = plays_runtime(&t.pool, &deps);
+    ran(&t.pool, "plex:sessions").await;
+    first.stop().await;
+    assert_eq!(session_plays(&t.pool).await.len(), 1);
+
+    // The next process: the session still plays, further in. It is the same play.
+    recorded.answer(Method::Get, &sessions, 200, &session("playing", 90));
+    let second = plays_runtime(&t.pool, &deps);
+    ran(&t.pool, "plex:sessions").await;
+    second.stop().await;
+    let still = session_plays(&t.pool).await;
+    assert_eq!((still.len(), still[0].1), (1, true), "{still:?}");
+    let seen = still[0].3;
+
+    // The session ended while no process ran: the first run after the start ends the play at the
+    // last reading that saw it.
+    recorded.answer(
+        Method::Get,
+        &sessions,
+        200,
+        &fixture("plex_sessions_idle.json"),
+    );
+    let third = plays_runtime(&t.pool, &deps);
+    ran(&t.pool, "plex:sessions").await;
+    third.stop().await;
+    let ended = session_plays(&t.pool).await;
+    assert_eq!((ended.len(), ended[0].1), (1, false), "{ended:?}");
+    let stopped: DateTime<Utc> = sqlx::query_scalar("SELECT stopped_at FROM plays")
+        .fetch_one(&t.pool)
+        .await
+        .unwrap();
+    assert_eq!(stopped, seen);
+    t.drop_db().await;
+}
+
+/// Two runs of one schedule never overlap: while its job is open a run asked for starts nothing.
+/// The table holds no second open job. A worker killed mid-run leaves its job running until its
+/// lease ends. The reaper then gives it back. Another process runs it.
+#[tokio::test]
+async fn a_sessions_job_whose_worker_died_runs_again_after_its_lease() {
+    let Some(t) = TestDb::new("plays_lease").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    record_server(&recorded);
+    recorded.answer(
+        Method::Get,
+        &format!("{PLEX}/status/sessions"),
+        200,
+        &session("playing", 60),
+    );
+    let deps = make_deps(&t.pool, &recorded);
+    Runtime::reconcile(&t.pool, &plays_schedules(&deps, &[plays::SESSIONS_KIND]))
+        .await
+        .unwrap();
+    // The worker that held this run is gone. Its lease ends in a second.
+    let held: i64 = sqlx::query_scalar(
+        "INSERT INTO jobs (kind, queue, schedule_key, state, attempts, locked_by, locked_until,
+                           started_at)
+         VALUES ('player.sessions', 'sync', 'plex:sessions', 'running', 1, 'gone',
+                 now() + interval '1 second', now())
+         RETURNING id",
+    )
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        runtime::run_now(&t.pool, "plex:sessions").await.unwrap(),
+        RunNow::Running
+    );
+    let second = sqlx::query(
+        "INSERT INTO jobs (kind, queue, schedule_key) VALUES ('player.sessions', 'sync', 'plex:sessions')",
+    )
+    .execute(&t.pool)
+    .await;
+    assert!(second.is_err(), "one open job per schedule");
+    let running = plays_runtime(&t.pool, &deps);
+    let ended = tokio::time::timeout(Duration::from_secs(15), runtime::ended(&t.pool, held))
+        .await
+        .expect("the job runs again after its lease")
+        .unwrap()
+        .unwrap();
+    assert!(ended.ok(), "{ended:?}");
+    let attempts: i32 = sqlx::query_scalar("SELECT attempts FROM jobs WHERE id = $1")
+        .bind(held)
+        .fetch_one(&t.pool)
+        .await
+        .unwrap();
+    assert_eq!(attempts, 2);
+    assert_eq!(session_plays(&t.pool).await.len(), 1);
+    running.stop().await;
+    t.drop_db().await;
+}
+
+/// A failed sessions run while a play is open (here the server answers 500) is tried again after
+/// 10 s, six times in a row, then after the schedule's 60 s. Each failure counts. The sessions
+/// followed stay as they were: the next reading that answers goes on with the same play.
+#[tokio::test]
+async fn a_failed_sessions_run_is_tried_again_soon_while_something_plays() {
+    let Some(t) = TestDb::new("plays_retry").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    record_server(&recorded);
+    let sessions = format!("{PLEX}/status/sessions");
+    recorded.answer(Method::Get, &sessions, 200, &session("playing", 60));
+    let deps = make_deps(&t.pool, &recorded);
+    Runtime::reconcile(&t.pool, &plays_schedules(&deps, &[plays::SESSIONS_KIND]))
+        .await
+        .unwrap();
+    let running = plays_runtime(&t.pool, &deps);
+    ran(&t.pool, "plex:sessions").await;
+    let before = session_plays(&t.pool).await;
+    assert_eq!((before.len(), before[0].1), (1, true));
+    let started = || async {
+        sqlx::query_scalar::<_, DateTime<Utc>>(
+            "SELECT started_at FROM plays WHERE session_id IS NOT NULL",
+        )
+        .fetch_one(&t.pool)
+        .await
+        .unwrap()
+    };
+    let start = started().await;
+
+    recorded.answer(Method::Get, &sessions, 500, "{}");
+    for n in 1..=8 {
+        failed(&t.pool, "plex:sessions").await;
+        let wait = if n <= plays::BUSY_RETRIES as i32 {
+            10.0
+        } else {
+            60.0
+        };
+        assert_eq!(next_in(&t.pool, "plex:sessions").await, wait, "failure {n}");
+        assert_eq!(failures(&t.pool, "plex:sessions").await, n);
+        assert_eq!(session_plays(&t.pool).await, before, "failure {n}");
+    }
+    // The server answers again: the same play goes on, read again soon.
+    recorded.answer(Method::Get, &sessions, 200, &session("playing", 90));
+    ran(&t.pool, "plex:sessions").await;
+    assert_eq!(
+        (
+            next_in(&t.pool, "plex:sessions").await,
+            failures(&t.pool, "plex:sessions").await
+        ),
+        (10.0, 0)
+    );
+    let after = session_plays(&t.pool).await;
+    assert_eq!((after.len(), after[0].1), (1, true), "{after:?}");
+    assert_eq!(started().await, start);
+    running.stop().await;
+    t.drop_db().await;
+}
+
+/// A reading whose write fails leaves the sessions followed as they were. The session it saw end
+/// ends at the next reading that is written, as of the last reading that saw it.
+#[tokio::test]
+async fn a_failed_write_keeps_the_stop() {
+    let Some(t) = TestDb::new("plays_unwritten").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    record_server(&recorded);
+    let sessions = format!("{PLEX}/status/sessions");
+    recorded.answer(Method::Get, &sessions, 200, &session("playing", 60));
+    let deps = make_deps(&t.pool, &recorded);
+    Runtime::reconcile(&t.pool, &plays_schedules(&deps, &[plays::SESSIONS_KIND]))
+        .await
+        .unwrap();
+    let running = plays_runtime(&t.pool, &deps);
+    ran(&t.pool, "plex:sessions").await;
+    let seen = Utc::now();
+
+    // The session is gone. No play can be closed: the reading that saw it go is not written.
+    sqlx::query(
+        "ALTER TABLE plays ADD CONSTRAINT plays_no_stop CHECK (stopped_at IS NULL) NOT VALID",
+    )
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    recorded.answer(
+        Method::Get,
+        &sessions,
+        200,
+        &fixture("plex_sessions_idle.json"),
+    );
+    failed(&t.pool, "plex:sessions").await;
+    // The play is still followed: the next reading comes soon.
+    assert_eq!(next_in(&t.pool, "plex:sessions").await, 10.0);
+    assert!(session_plays(&t.pool).await[0].1);
+    sqlx::query("ALTER TABLE plays DROP CONSTRAINT plays_no_stop")
+        .execute(&t.pool)
+        .await
+        .unwrap();
+
+    let ended = ran(&t.pool, "plex:sessions").await;
+    assert_eq!(ended.detail.as_deref(), Some("Nothing playing"));
+    let (started, stopped): (DateTime<Utc>, Option<DateTime<Utc>>) =
+        sqlx::query_as("SELECT started_at, stopped_at FROM plays WHERE session_id IS NOT NULL")
+            .fetch_one(&t.pool)
+            .await
+            .unwrap();
+    // The one reading that saw it.
+    assert_eq!(stopped, Some(started));
+    assert!(started < seen);
+    running.stop().await;
+    t.drop_db().await;
+}
+
+/// A run dropped while its reading is written may have committed it. It leaves the sessions it
+/// followed in doubt: the next reading takes up the open plays from the table first. The play
+/// the dropped run opened keeps its start.
+#[tokio::test]
+async fn a_reading_in_doubt_takes_up_the_open_plays_first() {
+    let Some(t) = TestDb::new("plays_doubt").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    record_server(&recorded);
+    let sessions = format!("{PLEX}/status/sessions");
+    let deps = make_deps(&t.pool, &recorded);
+    let server = deps.engines.media_server().cloned().unwrap();
+    let mut stale = plays::Following::default();
+    assert_eq!(stale.read(&deps, &server).await.unwrap(), 0);
+
+    // A copy writes a play this one never learns of, as a run dropped after its write committed
+    // leaves it.
+    recorded.answer(Method::Get, &sessions, 200, &session("playing", 60));
+    let mut dropped = stale.clone();
+    assert_eq!(dropped.read(&deps, &server).await.unwrap(), 1);
+    let started = || async {
+        sqlx::query_scalar::<_, DateTime<Utc>>(
+            "SELECT started_at FROM plays WHERE session_id IS NOT NULL",
+        )
+        .fetch_one(&t.pool)
+        .await
+        .unwrap()
+    };
+    let start = started().await;
+
+    stale.doubt();
+    recorded.answer(Method::Get, &sessions, 200, &session("playing", 70));
+    assert_eq!(stale.read(&deps, &server).await.unwrap(), 1);
+    assert_eq!(started().await, start);
+    let plays = session_plays(&t.pool).await;
+    assert_eq!((plays.len(), plays[0].1), (1, true), "{plays:?}");
+    t.drop_db().await;
+}
+
+/// Two sessions of one account at once: one item on two players.
+fn two_sessions(state: &str, offset: i64) -> String {
+    let mut v: Value = serde_json::from_str(&session(state, offset)).unwrap();
+    let mut other = v["MediaContainer"]["Metadata"][0].clone();
+    other["sessionKey"] = json!("13");
+    other["Session"]["id"] = json!("def-456");
+    other["Player"]["title"] = json!("device-447");
+    other["Player"]["machineIdentifier"] = json!("device-447-id");
+    v["MediaContainer"]["Metadata"]
+        .as_array_mut()
+        .unwrap()
+        .push(other);
+    v["MediaContainer"]["size"] = json!(2);
+    v.to_string()
+}
+
+/// Two sessions of one account at once, of one item on two players, are two plays from their
+/// start to their end.
+#[tokio::test]
+async fn two_sessions_of_one_account_at_once_stay_two_plays() {
+    let Some(t) = TestDb::new("plays_two").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    record_server(&recorded);
+    let sessions = format!("{PLEX}/status/sessions");
+    recorded.answer(Method::Get, &sessions, 200, &two_sessions("playing", 60));
+    let deps = make_deps(&t.pool, &recorded);
+    let server = deps.engines.media_server().cloned().unwrap();
+    let mut following = plays::Following::default();
+    assert_eq!(following.read(&deps, &server).await.unwrap(), 2);
+    recorded.answer(Method::Get, &sessions, 200, &two_sessions("playing", 70));
+    assert_eq!(following.read(&deps, &server).await.unwrap(), 2);
+    let ids = |plays: Vec<SessionPlay>| -> Vec<(Option<String>, bool)> {
+        plays.into_iter().map(|p| (p.0, p.1)).collect()
+    };
+    assert_eq!(
+        ids(session_plays(&t.pool).await),
+        vec![
+            (Some("abc-123".to_string()), true),
+            (Some("def-456".to_string()), true)
+        ]
+    );
+    recorded.answer(
+        Method::Get,
+        &sessions,
+        200,
+        &fixture("plex_sessions_idle.json"),
+    );
+    assert_eq!(following.read(&deps, &server).await.unwrap(), 0);
+    assert_eq!(
+        ids(session_plays(&t.pool).await),
+        vec![
+            (Some("abc-123".to_string()), false),
+            (Some("def-456".to_string()), false)
+        ]
+    );
+    t.drop_db().await;
+}
+
+/// The session `abc-123` playing episode `number` of a show, `key` its item.
+fn episode(state: &str, offset: i64, key: &str, number: i64) -> String {
+    let mut v: Value = serde_json::from_str(&session(state, offset)).unwrap();
+    let item = &mut v["MediaContainer"]["Metadata"][0];
+    item["type"] = json!("episode");
+    item["ratingKey"] = json!(key);
+    item["title"] = json!(format!("Episode {number}"));
+    item["grandparentTitle"] = json!("The Show");
+    item["grandparentRatingKey"] = json!("5000");
+    item["parentIndex"] = json!(1);
+    item["index"] = json!(number);
+    v.to_string()
+}
+
+/// Plex keeps a player's session id across items. A session that goes on to the next episode is
+/// two plays: the first closed at the last reading that saw it, the second opened at the reading
+/// that first showed it. The second ends when the session is gone. Across a restart between two
+/// items the next start ends the first item's play as of its last write.
+#[tokio::test]
+async fn a_session_that_goes_on_to_the_next_episode_is_two_plays() {
+    let Some(t) = TestDb::new("plays_autoplay").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    record_server(&recorded);
+    let sessions = format!("{PLEX}/status/sessions");
+    let deps = make_deps(&t.pool, &recorded);
+    let server = deps.engines.media_server().cloned().unwrap();
+    type Item = (Option<String>, String, DateTime<Utc>, Option<DateTime<Utc>>);
+    let items = || async {
+        sqlx::query_as::<_, Item>(
+            "SELECT rating_key, title, started_at, stopped_at FROM plays
+             WHERE session_id IS NOT NULL ORDER BY started_at",
+        )
+        .fetch_all(&t.pool)
+        .await
+        .unwrap()
+    };
+    let mut following = plays::Following::default();
+    for (offset, key, number) in [(600, "5001", 1), (610, "5001", 1), (5, "5002", 2)] {
+        recorded.answer(
+            Method::Get,
+            &sessions,
+            200,
+            &episode("playing", offset, key, number),
+        );
+        assert_eq!(following.read(&deps, &server).await.unwrap(), 1);
+    }
+    let two = items().await;
+    assert_eq!(
+        two.iter()
+            .map(|p| (p.0.as_deref(), p.1.as_str()))
+            .collect::<Vec<_>>(),
+        vec![(Some("5001"), "Episode 1"), (Some("5002"), "Episode 2")]
+    );
+    let first_stop = two[0].3.expect("the first play ended");
+    assert!(two[0].2 < first_stop && first_stop < two[1].2, "{two:?}");
+    assert_eq!(two[1].3, None);
+    // The session is gone: the second play ends at the one reading that saw it.
+    recorded.answer(
+        Method::Get,
+        &sessions,
+        200,
+        &fixture("plex_sessions_idle.json"),
+    );
+    assert_eq!(following.read(&deps, &server).await.unwrap(), 0);
+    let ended = items().await;
+    assert_eq!(
+        (ended[0].clone(), ended[1].3),
+        (two[0].clone(), Some(two[1].2))
+    );
+
+    // A restart between two items: the next start takes up the first item's play from the table.
+    recorded.answer(
+        Method::Get,
+        &sessions,
+        200,
+        &episode("playing", 5, "5003", 3),
+    );
+    let mut before = plays::Following::default();
+    assert_eq!(before.read(&deps, &server).await.unwrap(), 1);
+    let written: DateTime<Utc> =
+        sqlx::query_scalar("SELECT updated_at FROM plays WHERE rating_key = '5003'")
+            .fetch_one(&t.pool)
+            .await
+            .unwrap();
+    recorded.answer(
+        Method::Get,
+        &sessions,
+        200,
+        &episode("playing", 5, "5004", 4),
+    );
+    let mut after = plays::Following::default();
+    assert_eq!(after.read(&deps, &server).await.unwrap(), 1);
+    let four = items().await;
+    assert_eq!(four.len(), 4, "{four:?}");
+    assert_eq!(
+        (
+            four[2].0.as_deref(),
+            four[2].3,
+            four[3].0.as_deref(),
+            four[3].3
+        ),
+        (Some("5003"), Some(written), Some("5004"), None)
     );
     t.drop_db().await;
 }

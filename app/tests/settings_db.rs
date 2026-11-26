@@ -800,11 +800,27 @@ async fn the_settings_panels_answer_in_the_brief_s_shapes() {
     .await;
     assert!(!hidden.to_string().contains("owner@example.com"));
 
-    // A job registered by a loop is listed and can be woken.
-    let job = singularr::core::jobs::registry().register(singularr::core::jobs::JobSpec::folder(
-        "panels-test",
-        std::time::Duration::from_secs(3600),
-    ));
+    // A schedule of the job runtime is listed and can be asked for a run. While its job is open
+    // a second ask starts nothing.
+    let hour = std::time::Duration::from_secs(3600);
+    singularr::core::runtime::Runtime::reconcile(
+        &t.pool,
+        &[singularr::core::runtime::Schedule {
+            key: "folder:music".to_string(),
+            kind: "scan.music".to_string(),
+            integration: None,
+            queue: "scan".to_string(),
+            every: hour,
+            floor: std::time::Duration::from_secs(600),
+            first: hour,
+            jitter: std::time::Duration::ZERO,
+            on_start: false,
+            lease: std::time::Duration::from_secs(120),
+            source: singularr::core::runtime::Source::Default,
+        }],
+    )
+    .await
+    .unwrap();
     let (status, jobs) = call(&app, "GET", "/api/v1/jobs", &[OWNER], None).await;
     assert_eq!(status, StatusCode::OK);
     assert!(
@@ -812,23 +828,22 @@ async fn the_settings_panels_answer_in_the_brief_s_shapes() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|j| j["id"] == "folder:panels-test" && j["every"] == 3600)
+            .any(|j| j["id"] == "folder:music" && j["every"] == 3600)
     );
     let (status, started) = call(
         &app,
         "POST",
-        "/api/v1/jobs/folder:panels-test/run",
+        "/api/v1/jobs/folder:music/run",
         &[OWNER],
         None,
     )
     .await;
     assert_eq!(status, StatusCode::ACCEPTED);
     assert_eq!(started["started"], true);
-    let _running = job.begin();
     let (status, _) = call(
         &app,
         "POST",
-        "/api/v1/jobs/folder:panels-test/run",
+        "/api/v1/jobs/folder:music/run",
         &[OWNER],
         None,
     )

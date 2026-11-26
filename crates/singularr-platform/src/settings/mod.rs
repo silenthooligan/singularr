@@ -286,6 +286,12 @@ impl<C: Described> Settings<C> {
         registry::field::<C>(key).and_then(|f| self.instance(f).env)
     }
 
+    /// Where the installation's value of a setting comes from: `environment`, `file`, `saved` or
+    /// `default`. `None` for a key the registry does not hold.
+    pub fn source_of(&self, key: &str) -> Option<&'static str> {
+        registry::field::<C>(key).map(|f| self.instance(f).source)
+    }
+
     fn saved_value(&self, scope: &str, key: &str) -> Option<Value> {
         self.saved
             .read()

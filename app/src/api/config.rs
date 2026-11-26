@@ -13,16 +13,16 @@ use super::panels::{
     self, CacheView, CheckEntry, IntegrationDetail, IntegrationPanel, IntegrationPanels,
     IntegrationPatch, IntegrationTest, JobsPanel, LibraryFacts, LibraryPanels, PeoplePanel,
     PersonView, ServiceView, Started, SystemLinks, SystemPaths, SystemView, check,
-    integration_name, integration_panel, job_view, libraries_panel, provider_panel, schedule_view,
+    integration_name, integration_panel, libraries_panel, provider_panel, schedule_view,
 };
 use super::routes::{ApiJson, ApiPath};
 use super::state::AppState;
 use crate::catalog::store as catalog_store;
 use crate::core::auth::{self, Caller};
+use crate::core::checks::{self, Check};
 use crate::core::config::Integration;
 use crate::core::db;
 use crate::core::error::{AppError, AppResult};
-use crate::core::jobs::{self, Check, RunNow};
 use crate::core::model::{EventQuery, Paging, Scope};
 use crate::core::outbound::Access;
 use crate::core::runtime;
@@ -116,13 +116,24 @@ async fn settings_patch(
     {
         super::profiles::apply_source(&state).await?;
     }
-    // The location database's download, turned on or off: its loop passes now.
+    // The location database's download, turned on or off: its job runs now.
     if saved
         .saved
         .iter()
         .any(|k| k == crate::plays::locations::DOWNLOAD)
     {
-        crate::plays::locations::wake();
+        crate::plays::locations::wake(&state.pool).await;
+    }
+    // The histories' interval: their schedules take it now. The setting is saved either way: a
+    // schedule that does not take it takes it at the next start.
+    if saved
+        .saved
+        .iter()
+        .any(|k| k == crate::plays::model::HISTORY_EVERY)
+        && let Err(e) =
+            crate::lifecycle::jobs::retime_plays(&state.pool, &state.settings, &state.engines).await
+    {
+        tracing::warn!(error = %e, "the plays' schedules did not take the saved interval: the next start applies it");
     }
     // Addresses turned off: the kept ones go now, not at the next housekeeping (which never
     // runs with the sync off).
@@ -155,8 +166,8 @@ fn conflict(why: &str) -> Response {
 /// metadata providers.
 async fn integration_panels(state: &AppState) -> AppResult<Vec<IntegrationPanel>> {
     let rows = engine_store::list(&state.pool).await?;
-    // An integration's jobs: its loops' and its schedules' in the job runtime, by id.
-    let mut ids = panels::job_ids(&jobs::registry().list());
+    // An integration's jobs: its schedules in the job runtime, by id.
+    let mut ids: std::collections::BTreeMap<String, Vec<String>> = Default::default();
     for (of, key) in crate::lifecycle::jobs::integration_keys(&state.config, &state.engines) {
         if crate::lifecycle::jobs::listed(&key).is_some() {
             ids.entry(of).or_default().push(key);
@@ -175,7 +186,7 @@ async fn integration_panels(state: &AppState) -> AppResult<Vec<IntegrationPanel>
                 i,
                 integration_view(i, row, &state.engines.access.of(&i.id)),
                 row,
-                &jobs::registry().checks(&i.id),
+                &checks::recent().of(&i.id),
                 ids.get(&i.id).cloned().unwrap_or_default(),
                 state.config.bootstrap.instance_path.as_deref(),
             )
@@ -185,7 +196,7 @@ async fn integration_panels(state: &AppState) -> AppResult<Vec<IntegrationPanel>
         if matches!(p.id.as_str(), "tmdb" | "tvdb") && state.config.integration(&p.id).is_none() {
             let mut panel =
                 provider_panel(&p.id, &p.name, p.configured, p.needs.as_deref(), &p.host);
-            let checks = jobs::registry().checks(&p.id);
+            let checks = checks::recent().of(&p.id);
             if let Some(last) = checks.first() {
                 panel.last_check = Some(last.at);
                 panel.latency_ms = i32::try_from(last.ms).ok();
@@ -418,8 +429,8 @@ async fn integration_detail(
     };
     // The checks this process made, then the journal's changes between up and down from
     // before them.
-    let mut log: Vec<CheckEntry> = jobs::registry()
-        .checks(id)
+    let mut log: Vec<CheckEntry> = checks::recent()
+        .of(id)
         .into_iter()
         .map(|c| CheckEntry {
             at: c.at,
@@ -695,7 +706,7 @@ async fn integration_test(
         Ok((version, detail)) => (true, version, detail),
         Err(why) => (false, None, why),
     };
-    jobs::registry().record_check(
+    checks::recent().record(
         &id,
         Check {
             at: Utc::now(),
@@ -728,7 +739,6 @@ async fn integration_sync(
             "There is no integration `{id}`."
         )));
     }
-    let jobs = jobs::registry().of_integration(&id);
     // The passes of an integration are schedules of the job runtime.
     let scheduled: Vec<String> =
         crate::lifecycle::jobs::integration_keys(&state.config, &state.engines)
@@ -736,18 +746,14 @@ async fn integration_sync(
             .filter(|(of, _)| *of == id)
             .map(|(_, key)| key)
             .collect();
-    if jobs.is_empty() && scheduled.is_empty() {
+    if scheduled.is_empty() {
         return Ok(conflict(if state.config.sync.enabled {
             "No job reads this integration."
         } else {
             "Integration sync is off (SINGULARR_SYNC_ENABLED)."
         }));
     }
-    let mut started: Vec<String> = jobs
-        .iter()
-        .filter(|j| j.run_now() == RunNow::Started)
-        .map(|j| j.spec.id.clone())
-        .collect();
+    let mut started: Vec<String> = Vec::new();
     for key in scheduled {
         if runtime::run_now(&state.pool, &key).await? == runtime::RunNow::Started {
             started.push(key);
@@ -898,9 +904,10 @@ async fn people(
     }))
 }
 
-/// Every loop this process runs, the reads of each integration and the folder scans, each
-/// with how often it runs, its last run (since this start), the result, how long it took and
-/// when it runs next; and what Singularr keeps to answer faster.
+/// Every job this process lists from the job runtime's tables: the reads of each integration,
+/// the plays, the folder scans and the processing rules. Each with how often it runs, its last
+/// run, the result, how long it took, its runs since this start and when it runs next. And what
+/// Singularr keeps to answer faster.
 #[utoipa::path(get, path = "/api/v1/jobs", tag = "system",
     responses((status = 200, body = JobsPanel), (status = 401, body = ProblemDoc)))]
 async fn jobs_list(State(state): State<AppState>) -> ApiResult<JobsPanel> {
@@ -938,20 +945,20 @@ async fn jobs_list(State(state): State<AppState>) -> ApiResult<JobsPanel> {
         size: 0,
         detail: "Not cached".to_string(),
     });
-    let mut views: Vec<_> = jobs::registry()
-        .list()
-        .iter()
-        .map(|j| job_view(j, &state.config))
-        .collect();
-    // The folder scans, the processing rules and the passes of the integrations run in the job
-    // runtime: their views come from their schedules.
+    let mut views = Vec::new();
     let listed = crate::lifecycle::jobs::listed_keys(&state.config, &state.engines);
     let keys: Vec<&str> = listed.iter().map(String::as_str).collect();
     for s in runtime::states(&state.pool, state.settings.started(), &keys).await? {
         if let Some(pass) = crate::lifecycle::jobs::listed(&s.key) {
+            // A media server's sessions read no pass of the server: their label names it all the
+            // same.
+            let sessions = (pass == crate::plays::service::SESSIONS)
+                .then(|| s.key.rsplit_once(':').map(|(server, _)| server))
+                .flatten();
             let of = s
                 .integration
                 .as_deref()
+                .or(sessions)
                 .map(|id| integration_name(&state.config, id))
                 .unwrap_or_default();
             views.push(schedule_view(&s, pass, &of));
@@ -966,7 +973,7 @@ async fn jobs_list(State(state): State<AppState>) -> ApiResult<JobsPanel> {
     }))
 }
 
-/// Run a job now: its loop wakes and runs once, then waits its interval again. Needs `library`.
+/// Run a job now: its schedule queues a run at once, then keeps its interval. Needs `library`.
 #[utoipa::path(post, path = "/api/v1/jobs/{id}/run", tag = "system", params(("id" = String, Path, description = "The job's id: radarr:titles, folder:music")),
     responses((status = 202, body = Started), (status = 404, body = ProblemDoc), (status = 409, description = "It is running now", body = ProblemDoc), (status = 403, body = ProblemDoc), (status = 401, body = ProblemDoc)))]
 async fn job_run(
@@ -976,17 +983,13 @@ async fn job_run(
 ) -> Result<Response, AppError> {
     caller.require(Scope::Library)?;
     let none = || AppError::not_found(format!("There is no job `{id}`."));
-    let started = match jobs::registry().get(&id) {
-        Some(job) => job.run_now() == RunNow::Started,
-        // A folder scan: a job of the runtime.
-        None if crate::lifecycle::jobs::listed(&id).is_some() => {
-            match runtime::run_now(&state.pool, &id).await? {
-                runtime::RunNow::Started => true,
-                runtime::RunNow::Running => false,
-                runtime::RunNow::Unknown => return Err(none()),
-            }
-        }
-        None => return Err(none()),
+    if crate::lifecycle::jobs::listed(&id).is_none() {
+        return Err(none());
+    }
+    let started = match runtime::run_now(&state.pool, &id).await? {
+        runtime::RunNow::Started => true,
+        runtime::RunNow::Running => false,
+        runtime::RunNow::Unknown => return Err(none()),
     };
     Ok(if started {
         (
