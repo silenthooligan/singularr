@@ -3476,6 +3476,646 @@ async fn the_server_and_seerr_passes_run_as_jobs() {
     t.drop_db().await;
 }
 
+/// The passes of the processing services, the processing rules and the intents are jobs of the
+/// runtime (B9c). A service's pass and the rules are listed with the ids and intervals of their
+/// loops. The intents are not. A whole read writes `ledger.whole_at`. A pass looks for stuck runs
+/// when `stuck.at` is 300 s old or missing. A process that holds no libraries and flows of a worker
+/// reads them with its first pass, though a whole read stands. The rules' first pass marks where
+/// the journal stands in `rules.cursor`.
+#[tokio::test]
+async fn the_processing_and_intents_passes_run_as_jobs() {
+    let Some(t) = TestDb::new("sync_jobs_processing").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    record_processing(&recorded, "hush_health_live.json");
+    let st = state_on(
+        &t.pool,
+        Journal::new(),
+        &[
+            ("HUSH_URL", HUSH),
+            ("TDARR_URL", TDARR),
+            ("SINGULARR_SYNC_JITTER_SECS", "0"),
+        ],
+        recorded.clone(),
+    );
+    // The worker's whole read stands from before this process. Its first pass reads the newest
+    // jobs alone. It reads the worker's libraries and flows all the same.
+    let whole_before = chrono::Utc::now() - chrono::Duration::minutes(5);
+    let mut conn = t.pool.acquire().await.unwrap();
+    claims::mark(&mut conn, "tdarr", "ledger.whole_at", whole_before)
+        .await
+        .unwrap();
+    drop(conn);
+    let worker = st.engines.processor("tdarr").unwrap().clone();
+    assert!(worker.setup().is_none());
+    let (jobs, sync) = start_sync_jobs(&st).await;
+    let run = |key: &'static str| {
+        let pool = t.pool.clone();
+        async move {
+            let ended = runtime::run_and_wait(&pool, key, serde_json::json!({}))
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(ended.ok(), "{key}: {ended:?}");
+            ended
+        }
+    };
+    for key in [
+        "hush:processing",
+        "tdarr:processing",
+        "singularr:processing-rules",
+        "singularr:intents",
+    ] {
+        run(key).await;
+    }
+    assert!(pass_rows(&t.pool).await.contains(&(
+        "hush".to_string(),
+        "processing".to_string(),
+        true
+    )));
+    assert!(
+        claims::marked_at(&t.pool, "hush", "ledger.whole_at")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        worker.setup().map(|s| s.flows.len()),
+        Some(4),
+        "the first pass of the process read the worker's libraries and flows"
+    );
+    assert_eq!(
+        claims::marked_at(&t.pool, "tdarr", "ledger.whole_at")
+            .await
+            .unwrap(),
+        Some(whole_before),
+        "the whole read still stands: the pass read the newest jobs"
+    );
+    // The pass looked for stuck runs: the bridge's old staged runs, each journaled once.
+    let looked = claims::marked_at(&t.pool, "hush", "stuck.at")
+        .await
+        .unwrap()
+        .expect("the pass looked for stuck runs");
+    let stuck = || {
+        let pool = t.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM events WHERE kind = 'processing_stuck'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    let journaled = stuck().await;
+    assert!(journaled > 0);
+    // Within 300 s the next pass does not look again.
+    run("hush:processing").await;
+    assert_eq!(
+        claims::marked_at(&t.pool, "hush", "stuck.at")
+            .await
+            .unwrap(),
+        Some(looked)
+    );
+    assert_eq!(stuck().await, journaled);
+    let cursor: Option<i64> = singularr::processing::store::rules_cursor(&t.pool)
+        .await
+        .unwrap();
+    assert!(cursor.is_some());
+    let marker: serde_json::Value =
+        sqlx::query_scalar("SELECT value FROM markers WHERE name = 'rules.cursor'")
+            .fetch_one(&t.pool)
+            .await
+            .unwrap();
+    assert_eq!(marker, serde_json::json!({"id": cursor.unwrap()}));
+
+    let app = routes::router(st.clone());
+    let owner: [(&str, &str); 1] = [("x-auth-request-email", "owner@example.com")];
+    let (status, _, panel) = call(&app, "GET", "/api/v1/jobs", &owner, None).await;
+    assert_eq!(status, StatusCode::OK, "{panel}");
+    let listed: Vec<(String, u64)> = panel["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|j| {
+            (
+                j["id"].as_str().unwrap().to_string(),
+                j["every"].as_u64().unwrap(),
+            )
+        })
+        .filter(|(id, _)| !id.starts_with("folder:"))
+        .collect();
+    assert_eq!(
+        listed,
+        vec![
+            ("hush:processing".to_string(), 60),
+            ("singularr:processing-rules".to_string(), 60),
+            ("tdarr:processing".to_string(), 60),
+        ]
+    );
+    jobs.stop().await;
+    sync.stop();
+    t.drop_db().await;
+}
+
+/// A rule claims a file before it sends it: a row in `sending` that commits first. The row names
+/// the job that claims it and has no detail. One claim holds a file, by any rule. A claim counts
+/// as sent: a run after a restart or a lost lease never sends the file again. The rule's log asks
+/// for a look once the claiming job ended (for a rule run from the API: after two minutes). It
+/// asks only while the service shows no run the claim's send could have opened. Such a run is of
+/// the claim's flow, started through the bridge's route by Singularr and made from 60 s before
+/// the claim to a day after it. It settles the claim as sent.
+#[tokio::test]
+async fn the_processing_rules_claim_a_file_before_they_send_it() {
+    let Some(t) = TestDb::new("rules_claims").await else {
+        return;
+    };
+    use singularr::processing::rules::{NewLog, RuleBody, RuleConditions};
+    let st = state_with(&t.pool, Journal::new(), &[("HUSH_URL", HUSH)]);
+    let mut conn = t.pool.acquire().await.unwrap();
+    let rule = processing_store::insert_rule(
+        &mut conn,
+        &RuleBody {
+            name: "Opus audio".to_string(),
+            enabled: true,
+            when: "import".to_string(),
+            conditions: RuleConditions {
+                file: serde_json::from_value(serde_json::json!({"audio_codec": ["Opus"]})).unwrap(),
+                ..RuleConditions::default()
+            },
+            service: "hush".to_string(),
+            flow: "audio".to_string(),
+        },
+        "user:owner@example.com",
+    )
+    .await
+    .unwrap();
+    drop(conn);
+    let path = "/movies/A Movie (2020)/A Movie.mkv".to_string();
+    let entry = NewLog {
+        claimed: false,
+        rule_id: rule.id,
+        rule_version: rule.version,
+        event_id: None,
+        title_id: None,
+        copy_id: None,
+        path: path.clone(),
+        service: "hush".to_string(),
+        flow: "audio".to_string(),
+        outcome: "sending",
+        detail: None,
+        evidence: Some("audio is Opus".to_string()),
+        run_id: None,
+    };
+    let claim = processing_store::claim_send(&t.pool, &entry, None)
+        .await
+        .unwrap();
+    assert!(claim.is_some());
+    // A second claim of the file, by any rule, does not take it.
+    assert_eq!(
+        processing_store::claim_send(&t.pool, &entry, Some(1))
+            .await
+            .unwrap(),
+        None
+    );
+    // The claim counts as sent: a pass after a restart skips the file.
+    assert_eq!(
+        processing_store::sent_paths(&t.pool, std::slice::from_ref(&path))
+            .await
+            .unwrap(),
+        vec![path.clone()]
+    );
+    let app = routes::router(st.clone());
+    let owner: [(&str, &str); 1] = [("x-auth-request-email", "owner@example.com")];
+    let newest = || {
+        let app = app.clone();
+        let at = format!("/api/v1/processing/rules/{}/log", rule.id);
+        async move {
+            let (status, _, page) = call(&app, "GET", &at, &owner, None).await;
+            assert_eq!(status, StatusCode::OK, "{page}");
+            page["entries"][0].clone()
+        }
+    };
+    // A claim of a rule run from the API, no detail: no look for two minutes, then a look.
+    let row = newest().await;
+    assert_eq!(
+        (&row["outcome"], &row["attention"], &row["detail"]),
+        (
+            &serde_json::json!("sending"),
+            &serde_json::json!(false),
+            &serde_json::Value::Null
+        ),
+        "{row}"
+    );
+    sqlx::query("UPDATE processing_rule_log SET at = now() - interval '3 minutes'")
+        .execute(&t.pool)
+        .await
+        .unwrap();
+    assert_eq!(newest().await["attention"], true);
+    // A claim of a job: no look while the job runs. Once it ended, a look.
+    let job: i64 = sqlx::query_scalar(
+        "INSERT INTO jobs (kind, queue, state, locked_by, locked_until, started_at)
+         VALUES ('processing.rules', 'default', 'running', 'test', now() + interval '1 minute',
+                 now())
+         RETURNING id",
+    )
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE processing_rule_log SET job_id = $1")
+        .bind(job)
+        .execute(&t.pool)
+        .await
+        .unwrap();
+    assert_eq!(newest().await["attention"], false);
+    sqlx::query(
+        "UPDATE jobs SET state = 'done', locked_by = NULL, locked_until = NULL,
+                finished_at = now()
+         WHERE id = $1",
+    )
+    .bind(job)
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(newest().await["attention"], true);
+    // Runs of the service whose source is the file. Each that the claim's send could not have
+    // opened leaves the claim Unconfirmed: one made long before the claim, one of another flow,
+    // one the bridge started on a tag, one made two days later. The claim was made 180 s ago.
+    let run = |id: &'static str, flow: &'static str, trigger: &'static str, ago: f64| {
+        let pool = t.pool.clone();
+        let path = path.clone();
+        async move {
+            sqlx::query(
+                "INSERT INTO processing_runs
+                     (id, integration, job_id, flow, trigger_text, state, created_at,
+                      source_path, raw)
+                 VALUES ('hush:' || $1, 'hush', $1, $2, $3, 'staged',
+                         now() - make_interval(secs => $4), $5, '{}')",
+            )
+            .bind(id)
+            .bind(flow)
+            .bind(trigger)
+            .bind(ago)
+            .bind(&path)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+    };
+    for (id, flow, trigger, ago) in [
+        ("j-before", "audio", "api:singularr", 600.0),
+        ("j-other-flow", "hevc", "api:singularr", 60.0),
+        ("j-tag", "audio", "tag:hush-audio", 60.0),
+        ("j-late", "audio", "api:singularr", -172_800.0),
+    ] {
+        run(id, flow, trigger, ago).await;
+        assert_eq!(
+            processing_store::settle_claims_by_runs(&t.pool, "hush")
+                .await
+                .unwrap(),
+            0,
+            "{id}"
+        );
+        let row = newest().await;
+        assert_eq!(
+            (&row["outcome"], &row["attention"]),
+            (&serde_json::json!("sending"), &serde_json::json!(true)),
+            "{id}: {row}"
+        );
+    }
+    // A run of the claim's flow that Singularr's send started, 30 s after the claim: the claim's.
+    run("j-after", "audio", "api:singularr", 150.0).await;
+    assert_eq!(newest().await["attention"], false);
+    assert_eq!(
+        processing_store::settle_claims_by_runs(&t.pool, "hush")
+            .await
+            .unwrap(),
+        1
+    );
+    let row = newest().await;
+    assert_eq!(
+        (&row["outcome"], &row["run"], &row["attention"]),
+        (
+            &serde_json::json!("sent"),
+            &serde_json::json!("hush:j-after"),
+            &serde_json::json!(false)
+        ),
+        "{row}"
+    );
+    t.drop_db().await;
+}
+
+/// A rule's send that gets no clear answer keeps its claim: a connection that broke after the
+/// call went out, a 502 without the bridge's own words. The file is not sent again. The
+/// processing pass settles the claim as sent once the bridge shows the run the send opened. A
+/// send by hand that the bridge takes settles it too. A refusal in the bridge's own words frees the file.
+/// A pass after one that was cut short writes no second entry for the claim it made.
+#[tokio::test]
+async fn a_send_without_a_clear_answer_keeps_its_claim() {
+    let Some(t) = TestDb::new("rules_unclear").await else {
+        return;
+    };
+    use serde_json::json;
+    use singularr::core::journal::event;
+    use singularr::core::outbound::Access;
+    use singularr::processing::rules::{self, NewLog, RuleBody, RuleConditions};
+    let journal = Journal::new();
+    let recorded = Recorded::new();
+    record_processing(&recorded, "hush_health_live.json");
+    let stage = format!("{HUSH}/stage");
+    recorded.answer(
+        Method::Post,
+        &stage,
+        201,
+        &fixture("hush_stage_staged.json"),
+    );
+    let out = outbound(recorded.clone());
+    let st = state_over(&t.pool, journal.clone(), &[("HUSH_URL", HUSH)], &out);
+    let policy = ActivePolicy::builtin().policy;
+    ledger_catalog(&t.pool, &journal, &recorded).await;
+    let bridge = st.engines.processor("hush").unwrap().clone();
+    processing::pass(&t.pool, &bridge, processing::Read::Whole)
+        .await
+        .unwrap();
+    let owner = "user:owner@example.com";
+    st.engines
+        .access
+        .set(&t.pool, &journal, owner, "hush", Access::Act)
+        .await
+        .unwrap();
+    let body = |when: &str| RuleBody {
+        name: format!("Atmos audio on {when}"),
+        enabled: true,
+        when: when.to_string(),
+        conditions: RuleConditions {
+            file: serde_json::from_value(json!({"audio_codec": ["Eac3"], "atmos": true})).unwrap(),
+            ..RuleConditions::default()
+        },
+        service: "hush".to_string(),
+        flow: "audio".to_string(),
+    };
+    let mut conn = t.pool.acquire().await.unwrap();
+    let asked = processing_store::insert_rule(&mut conn, &body("request"), owner)
+        .await
+        .unwrap();
+    drop(conn);
+    let run = || rules::request_run(&t.pool, &journal, &st.engines, &policy, &asked, true);
+    let newest = |rule: i64| {
+        let pool = t.pool.clone();
+        async move {
+            processing_store::rule_log(&pool, rule, 1)
+                .await
+                .unwrap()
+                .remove(0)
+        }
+    };
+    let clear = || {
+        let pool = t.pool.clone();
+        async move {
+            sqlx::query("DELETE FROM processing_rule_log")
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+    };
+
+    // The connection breaks after the call went out: no clear answer, the claim stays.
+    recorded.fail_once(Method::Post, &stage, "connection reset by peer");
+    let ran = run().await.unwrap();
+    assert_eq!((ran.matched, ran.logged, ran.sent), (1, 1, 0));
+    assert_eq!(staged_calls(&recorded), 1);
+    let row = newest(asked.id).await;
+    assert_eq!(
+        (row.outcome.as_str(), row.detail.as_deref()),
+        ("sending", Some(rules::NO_CLEAR_ANSWER))
+    );
+    // The claim holds the file: the next run sends nothing.
+    let again = run().await.unwrap();
+    assert_eq!((again.matched, again.logged, again.sent), (1, 0, 0));
+    assert_eq!(staged_calls(&recorded), 1);
+
+    // A 502 without the bridge's own words: the same.
+    clear().await;
+    recorded.answer_once(Method::Post, &stage, 502, "<html>Bad Gateway</html>", &[]);
+    let ran = run().await.unwrap();
+    assert_eq!((ran.logged, ran.sent), (1, 0));
+    assert_eq!(staged_calls(&recorded), 2);
+    let claimed = newest(asked.id).await;
+    assert_eq!(
+        (claimed.outcome.as_str(), claimed.detail.as_deref()),
+        ("sending", Some(rules::NO_CLEAR_ANSWER))
+    );
+    let kingdom_path = claimed.path.clone();
+    // The run the send opened, made after the claim: the processing pass settles the claim as
+    // sent.
+    sqlx::query(
+        "INSERT INTO processing_runs
+             (id, integration, job_id, flow, trigger_text, state, created_at, source_path, raw)
+         VALUES ('hush:j-after', 'hush', 'j-after', 'audio', 'api:singularr', 'staged', now(),
+                 $1, '{}')",
+    )
+    .bind(&kingdom_path)
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    processing::pass(&t.pool, &bridge, processing::Read::Newest)
+        .await
+        .unwrap();
+    let settled = newest(asked.id).await;
+    assert_eq!(
+        (
+            settled.outcome.as_str(),
+            settled.run_id.as_deref(),
+            settled.detail.as_deref()
+        ),
+        ("sent", Some("hush:j-after"), None)
+    );
+    sqlx::query("DELETE FROM processing_runs WHERE id = 'hush:j-after'")
+        .execute(&t.pool)
+        .await
+        .unwrap();
+
+    // A send by hand that the bridge takes settles the claim of the file too.
+    clear().await;
+    recorded.fail_once(Method::Post, &stage, "connection reset by peer");
+    run().await.unwrap();
+    assert_eq!(newest(asked.id).await.outcome, "sending");
+    let app = routes::router(st.clone());
+    let session: [(&str, &str); 1] = [("x-auth-request-email", "owner@example.com")];
+    let by_hand = json!({"title": "movie-1495", "file": KINGDOM_FILE, "flow": "audio"}).to_string();
+    let (status, _, sent) = call(
+        &app,
+        "POST",
+        "/api/v1/processing/runs",
+        &session,
+        Some(&by_hand),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{sent}");
+    let settled = newest(asked.id).await;
+    assert_eq!(
+        (settled.outcome.as_str(), settled.run_id.as_deref()),
+        ("sent", Some("hush:20261123T160500Z-0a1b2c3d"))
+    );
+
+    // A refusal in the bridge's own words frees the file: the next run sends it.
+    clear().await;
+    recorded.answer_once(
+        Method::Post,
+        &stage,
+        422,
+        r#"{"staged": false, "reason": "refused", "detail": "hushq: busy"}"#,
+        &[],
+    );
+    let ran = run().await.unwrap();
+    assert_eq!((ran.logged, ran.sent), (1, 0));
+    let refused = newest(asked.id).await;
+    assert_eq!(
+        (refused.outcome.as_str(), refused.detail.as_deref()),
+        ("refused", Some("hushq: busy"))
+    );
+    assert_eq!(run().await.unwrap().sent, 1);
+    assert_eq!(staged_calls(&recorded), 6);
+
+    // A pass after one that was cut short reads the same import again. The claim of the same
+    // rule and import is that pass's entry: no second entry, no second send.
+    clear().await;
+    let mut conn = t.pool.acquire().await.unwrap();
+    let on_import = processing_store::insert_rule(&mut conn, &body("import"), owner)
+        .await
+        .unwrap();
+    drop(conn);
+    let pass = || rules::import_pass(&t.pool, &journal, &st.engines, &policy, true, None);
+    pass().await.unwrap();
+    let kingdom: i64 = sqlx::query_scalar("SELECT id FROM copies WHERE relative_path = $1")
+        .bind(KINGDOM_FILE)
+        .fetch_one(&t.pool)
+        .await
+        .unwrap();
+    let mut tx = journal.begin(&t.pool).await.unwrap();
+    tx.append_one(event(
+        "copy_added",
+        "copy",
+        kingdom,
+        "sync:radarr",
+        json!({}),
+    ))
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    let imported: i64 = sqlx::query_scalar("SELECT max(id) FROM events")
+        .fetch_one(&t.pool)
+        .await
+        .unwrap();
+    let cut_short = NewLog {
+        claimed: false,
+        rule_id: on_import.id,
+        rule_version: on_import.version,
+        event_id: Some(imported),
+        title_id: None,
+        copy_id: Some(kingdom),
+        path: kingdom_path.clone(),
+        service: "hush".to_string(),
+        flow: "audio".to_string(),
+        outcome: "sending",
+        detail: None,
+        evidence: None,
+        run_id: None,
+    };
+    assert!(
+        processing_store::claim_send(&t.pool, &cut_short, Some(1))
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let passed = pass().await.unwrap();
+    assert_eq!((passed.imports, passed.logged, passed.sent), (1, 0, 0));
+    let log = processing_store::rule_log(&t.pool, on_import.id, 10)
+        .await
+        .unwrap();
+    assert_eq!(
+        log.iter().map(|e| e.outcome.as_str()).collect::<Vec<_>>(),
+        vec!["sending"]
+    );
+    assert_eq!(staged_calls(&recorded), 6);
+    t.drop_db().await;
+}
+
+/// A notice that comes while the intents' job runs asks for one run after it: a notice late in a
+/// run does not wait for the schedule. More notices in that run ask for nothing more.
+#[tokio::test]
+async fn a_notice_during_an_intents_run_asks_for_one_run_after_it() {
+    let Some(t) = TestDb::new("intents_follow").await else {
+        return;
+    };
+    use singularr::requests::intents;
+    let st = state_with(&t.pool, Journal::new(), &[]);
+    runtime::Runtime::reconcile(
+        &t.pool,
+        &runtime_jobs::schedules(&st.config, &st.settings, None),
+    )
+    .await
+    .unwrap();
+    // A run of the intents' job is on.
+    let first = runtime::run_after(&t.pool, intents::JOB, serde_json::json!({}))
+        .await
+        .unwrap()
+        .unwrap();
+    sqlx::query(
+        "UPDATE jobs SET state = 'running', locked_by = 'test', started_at = now(),
+                locked_until = now() + interval '1 minute'
+         WHERE id = $1",
+    )
+    .bind(first)
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    let queued = || {
+        let pool = t.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT id FROM jobs WHERE schedule_key = $1 AND state = 'queued'",
+            )
+            .bind(intents::JOB)
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    let trigger = intents::Trigger::new(t.pool.clone());
+    let follow = trigger
+        .notice()
+        .await
+        .expect("a run is on: one run after it is asked for");
+    assert!(
+        trigger.notice().await.is_none(),
+        "one run after it, whatever the notices"
+    );
+    assert!(
+        queued().await.is_empty(),
+        "nothing queued while the run is on"
+    );
+    // The run ends: the run after it is queued.
+    sqlx::query(
+        "UPDATE jobs SET state = 'done', locked_by = NULL, locked_until = NULL,
+                finished_at = now()
+         WHERE id = $1",
+    )
+    .bind(first)
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), follow)
+        .await
+        .expect("the run after it is asked for once the run ends")
+        .unwrap();
+    let next = queued().await;
+    assert_eq!(next.len(), 1);
+    assert!(next[0] > first);
+    t.drop_db().await;
+}
+
 /// One integration as `GET /api/v1/integrations` lists it.
 async fn listed_integration(
     app: &axum::Router,
@@ -3728,7 +4368,19 @@ async fn start_jobs_with(st: &AppState, sync: Option<Arc<lifecycle_sync::SyncJob
                 &st.config,
                 st.settings.clone(),
             )),
+            processing: sync
+                .as_ref()
+                .map(|_| singularr::processing::service::ProcessingDeps {
+                    pool: st.pool.clone(),
+                    journal: st.journal.clone(),
+                    engines: st.engines.clone(),
+                    interval: st.config.sync.processing,
+                    jitter: st.config.sync.jitter,
+                    settings: st.settings.clone(),
+                    policy: st.policy.clone(),
+                }),
             sync,
+            intents: request_rules(),
         },
     )
     .await
@@ -11489,8 +12141,8 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         "a job that is over is no run to open"
     );
 
-    // The bridge refuses: its own words. It fails: a problem of the service. It does not
-    // answer in time: said so, and the call is not made again.
+    // The bridge refuses: its own words. It fails: a problem of the service. It gives no clear
+    // answer: said so. The call is not made again.
     let send_kingdom =
         json!({"title": "movie-1495", "file": KINGDOM_FILE, "flow": "hevc"}).to_string();
     recorded.answer(
@@ -11542,7 +12194,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
     );
     let (status, _, unkeyed) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{unkeyed}");
-    let late = "HUSH did not answer in time; the file may still be staged.";
+    let unclear = "HUSH gave no clear answer and may have taken the file.";
     let before = staged_calls(&recorded);
     recorded.fail(
         Method::Post,
@@ -11552,8 +12204,16 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
     let (status, _, timed_out) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
     assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{timed_out}");
     assert_eq!(
-        (&timed_out["code"], &timed_out["detail"]),
-        (&json!("singularr.timeout"), &json!(late))
+        (
+            &timed_out["code"],
+            &timed_out["title"],
+            &timed_out["detail"]
+        ),
+        (
+            &json!("singularr.unconfirmed"),
+            &json!("Unconfirmed"),
+            &json!(unclear)
+        )
     );
     assert_eq!(staged_calls(&recorded), before + 1, "asked once, not again");
     // The bridge's own word that it gave up waiting reads the same.
@@ -11565,7 +12225,28 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
     );
     let (status, _, timed_out) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
     assert_eq!(status, StatusCode::GATEWAY_TIMEOUT);
-    assert_eq!(timed_out["detail"], late);
+    assert_eq!(timed_out["detail"], unclear);
+    // A connection that broke after the call went out reads the same. So does a 502 without the
+    // bridge's own words. Each is asked once.
+    let before = staged_calls(&recorded);
+    recorded.fail(
+        Method::Post,
+        &format!("{HUSH}/stage"),
+        "connection reset by peer",
+    );
+    let (status, _, broke) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{broke}");
+    assert_eq!(broke["code"], "singularr.unconfirmed");
+    recorded.answer(
+        Method::Post,
+        &format!("{HUSH}/stage"),
+        502,
+        "<html>Bad Gateway</html>",
+    );
+    let (status, _, gateway) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{gateway}");
+    assert_eq!(gateway["detail"], unclear);
+    assert_eq!(staged_calls(&recorded), before + 2);
     // None of these is a send: the journal still has the two that went through.
     let journaled = get_ok(&app, "/api/v1/journal?kind=processing.sent").await;
     assert_eq!(journaled["events"].as_array().unwrap().len(), 2);
@@ -12658,7 +13339,7 @@ async fn processing_rules_watch_imports_and_send_once() {
     let services = [("HUSH_URL", HUSH), ("TDARR_URL", TDARR)];
     let st = state_over(&t.pool, journal.clone(), &services, &out);
     let policy = ActivePolicy::builtin().policy;
-    let pass = || rules::import_pass(&t.pool, &journal, &st.engines, &policy, true);
+    let pass = || rules::import_pass(&t.pool, &journal, &st.engines, &policy, true, None);
     // The first pass marks where the journal stands: the rules start with what comes after.
     assert_eq!(pass().await.unwrap(), rules::ImportPassed::default());
 
@@ -13051,7 +13732,7 @@ async fn the_worker_page_and_the_rules_routes_answer() {
     // An import the rule watches: the log says what it would have sent, next to what the
     // service did on its own for the same file.
     let policy = ActivePolicy::builtin().policy;
-    rules::import_pass(&t.pool, &journal, &st.engines, &policy, true)
+    rules::import_pass(&t.pool, &journal, &st.engines, &policy, true, None)
         .await
         .unwrap();
     let kingdom: i64 = sqlx::query_scalar("SELECT id FROM copies WHERE relative_path = $1")
@@ -13070,7 +13751,7 @@ async fn the_worker_page_and_the_rules_routes_answer() {
     .await
     .unwrap();
     tx.commit().await.unwrap();
-    rules::import_pass(&t.pool, &journal, &st.engines, &policy, true)
+    rules::import_pass(&t.pool, &journal, &st.engines, &policy, true, None)
         .await
         .unwrap();
     let log = get_ok(&app, &format!("{one}/log")).await;

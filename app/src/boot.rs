@@ -17,7 +17,7 @@ use singularr::metadata::service::ProviderSet;
 use singularr::music::service::MusicLibrary;
 use singularr::plays::service::{self as plays, PlaysDeps};
 use singularr::policy;
-use singularr::processing::service::{self as processing, ProcessingDeps};
+use singularr::processing::service::ProcessingDeps;
 use singularr::releases::assess::Assessor;
 use singularr::requests::service::Requests;
 use singularr::settings::Settings;
@@ -281,20 +281,17 @@ async fn serve_owner() -> Result<(), String> {
         None
     };
 
-    // The processing services are engines too: one loop each, with the sync.
-    let processing_loops = if config.sync.enabled {
-        processing::spawn(ProcessingDeps {
-            pool: pool.clone(),
-            journal: journal.clone(),
-            engines: engines.clone(),
-            interval: config.sync.processing,
-            jitter: config.sync.jitter,
-            settings: settings.clone(),
-            policy: active.clone(),
-        })
-    } else {
-        Vec::new()
-    };
+    // The processing services are engines too. With the sync, their passes and the processing
+    // rules are jobs of the runtime (below).
+    let processing_deps = config.sync.enabled.then(|| ProcessingDeps {
+        pool: pool.clone(),
+        journal: journal.clone(),
+        engines: engines.clone(),
+        interval: config.sync.processing,
+        jitter: config.sync.jitter,
+        settings: settings.clone(),
+        policy: active.clone(),
+    });
     // The location database the statistics place addresses with, whether or not the sync runs,
     // once a media server or a play history gives plays to locate.
     let locations = singularr::plays::locations::plays_are_read(&config).then(|| {
@@ -316,8 +313,8 @@ async fn serve_owner() -> Result<(), String> {
     } else {
         Vec::new()
     };
-    // Singularr Requests: what it states about the rules, and the loop that records its intents
-    // (in R1 as shadow: nothing reaches Seerr). Both run whether or not the sync does.
+    // Singularr Requests: what it states about the rules. The job that records its intents (in R1
+    // as shadow: nothing reaches Seerr) runs whether or not the sync does.
     let rules = Requests::new(&config.request_rules).rules;
     singularr::requests::store::write_face_settings(
         &pool,
@@ -327,7 +324,6 @@ async fn serve_owner() -> Result<(), String> {
     )
     .await
     .map_err(|e| format!("the request face's settings could not be written: {e}"))?;
-    let intents = singularr::requests::intents::spawn(pool.clone(), journal.clone(), rules);
     let music_library = Arc::new(MusicLibrary::new(&config.music.root));
     let home_movies = Arc::new(HomeMovies::new(&config.home_movies.root));
 
@@ -382,6 +378,8 @@ async fn serve_owner() -> Result<(), String> {
                 settings.clone(),
             )),
             sync: sync.as_ref().map(|s| s.jobs()),
+            processing: processing_deps,
+            intents: rules,
         },
     )
     .await
@@ -457,10 +455,9 @@ async fn serve_owner() -> Result<(), String> {
         if let Some(sync) = &sync {
             sync.stop();
         }
-        for task in processing_loops.iter().chain(play_loops.iter()) {
+        for task in &play_loops {
             task.abort();
         }
-        intents.abort();
         if let Some(locations) = &locations {
             locations.abort();
         }

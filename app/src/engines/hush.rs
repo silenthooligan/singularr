@@ -25,7 +25,7 @@ use super::{
 };
 use crate::core::config::ProcessorConfig;
 use crate::core::outbound::{
-    Body, Calls, Method, OutRequest, Outbound, encode_component, expect_ok,
+    Body, Calls, ConnectorError, Method, OutRequest, Outbound, encode_component, expect_ok,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -163,6 +163,17 @@ pub fn flow_label(mode: &str) -> String {
         .unwrap_or_else(|| mode.to_string())
 }
 
+/// How the bridge names the trigger of a job that a send through its route opened:
+/// `api:<requester>`. Singularr's sends name [`SENDER`] as their requester ([`sent_trigger`]).
+/// This is the bridge's vocabulary, named here once: it stands until the SDK's run carries a
+/// typed requester (B11).
+pub const API_TRIGGER: &str = "api:";
+
+/// The trigger of a job that one of Singularr's sends opened ([`API_TRIGGER`]).
+pub fn sent_trigger() -> String {
+    format!("{API_TRIGGER}{SENDER}")
+}
+
 /// What started a job, from the bridge's trigger text: its import rules, the drain of its
 /// backlog, a tag on the title in the manager, or a person.
 pub fn trigger_words(raw: &str) -> TriggerWords {
@@ -172,8 +183,8 @@ pub fn trigger_words(raw: &str) -> TriggerWords {
         "backlog drain" => ("backlog", "Backlog".to_string()),
         "manual" => ("manual", "By hand".to_string()),
         _ => match raw.split_once(':').map(|(what, who)| (what, who.trim())) {
-            // Staged on demand, through the bridge's own route: by Singularr (under its
-            // name now or an earlier one), or by another program.
+            // Staged on demand through the bridge's own route ([`API_TRIGGER`]). Singularr
+            // stages under its name now or an earlier one. Another program stages under its own.
             Some(("api", who)) if who == SENDER || EARLIER_SENDERS.contains(&who) => {
                 ("api", "Singularr".to_string())
             }
@@ -409,6 +420,10 @@ fn stage_option(v: &Value) -> Option<StageOption> {
 
 /// How a `POST /stage` ended, from its status and its body. `None` for a status that says
 /// there is no such route with a body that is not the route's own: a bridge without it.
+/// [`Sent::Unanswered`] for an answer that does not settle whether the bridge staged the file.
+/// A 504 is one. A body that says staged under a status that says otherwise is one. A 5xx is one
+/// unless the bridge's own body says `"staged": false`. An answer without the route's own body is
+/// one unless the taxonomy reads its status as a no (a 4xx).
 pub fn sent(status: u16, answer: &Value) -> Option<Sent> {
     let staged = flag(answer, "staged");
     let reason = text(answer, "reason");
@@ -425,8 +440,14 @@ pub fn sent(status: u16, answer: &Value) -> Option<Sent> {
         });
     }
     // The bridge gave up waiting on its own staging, or what stands in front of it gave up
-    // waiting on the bridge.
-    if status == 504 {
+    // waiting on the bridge. A body that says staged under a status that says otherwise. A 5xx
+    // without the bridge's own word that it did not stage. A status without the route's own body
+    // that the taxonomy does not read as a no.
+    let unclear = status == 504
+        || staged == Some(true)
+        || (status >= 500 && staged != Some(false))
+        || (!own && !ConnectorError::from_status(status, "").act_settled_no());
+    if unclear {
         return Some(Sent::Unanswered);
     }
     Some(Sent::Refused {
@@ -611,7 +632,18 @@ impl Processor for Hush {
     /// Stage one file for one flow: the one call that changes something in the bridge. The
     /// key travels as a bearer when one is configured, and never otherwise.
     async fn send(&self, path: &str, flow: &str, requested_by: &str) -> Result<Sent, EngineError> {
-        if !self.offers().await?.stage {
+        // What the bridge offers is read before the act. A read that fails sends nothing: the
+        // act was not sent.
+        let offered = match self.offers().await {
+            Ok(offered) => offered,
+            Err(e) => {
+                return Err(EngineError::NotSent {
+                    engine: self.id.clone(),
+                    message: e.to_string(),
+                });
+            }
+        };
+        if !offered.stage {
             return Ok(Sent::NotOffered);
         }
         let url = format!("{}{STAGE_PATH}", self.base);
@@ -624,10 +656,18 @@ impl Processor for Hush {
         let res = match self.out.send(req).await {
             Ok(res) => res,
             // The bridge can wait minutes on its own staging lock, longer than a call waits
-            // for its answer. No answer in time is not a no, and the call is not made again:
-            // the next pass finds the job if the bridge staged the file after all.
-            Err(e) if e.timed_out() => return Ok(Sent::Unanswered),
-            Err(e) => return Err(e.into()),
+            // for its answer. An error that does not say the act surely did not take place is
+            // no clear answer: a timeout, a connection that broke after the call went out, an
+            // answer too large to read. The next pass finds the job if the bridge staged the
+            // file. The call is not made again.
+            Err(e) => {
+                let e = EngineError::from(e);
+                return if e.act_settled_no() {
+                    Err(e)
+                } else {
+                    Ok(Sent::Unanswered)
+                };
+            }
         };
         let answer: Value = serde_json::from_slice(&res.body).unwrap_or(Value::Null);
         Ok(match sent(res.status, &answer) {
@@ -680,7 +720,9 @@ mod tests {
     use super::*;
     use crate::core::config::ProcessorKind;
     use crate::core::outbound::recorded::Recorded;
-    use crate::core::outbound::{Access, AccessSwitch, Allowlist, OutboundError, TIMED_OUT};
+    use crate::core::outbound::{
+        Access, AccessSwitch, Allowlist, OutboundError, TIMED_OUT, TOO_LARGE,
+    };
     use std::sync::Arc;
 
     const BASE: &str = "http://10.0.0.60:8787";
@@ -1476,10 +1518,36 @@ mod tests {
             Some(Sent::Unanswered)
         );
         assert_eq!(sent(504, &json!("Gateway Timeout")), Some(Sent::Unanswered));
-        // An answer that says staged with a status that says otherwise is no success, and a
-        // body that is not the route's own is a failure, or no route at all.
-        assert_eq!(refusal(500, json!({"staged": true})).0, Refusal::Failed);
-        assert_eq!(refusal(502, Value::Null).0, Refusal::Failed);
+        // A body that says staged under a status that says otherwise settles nothing. An answer
+        // without the route's own body settles nothing either, unless its status is a no: a 4xx
+        // refuses. A 404 or a 405 is no route at all.
+        assert_eq!(sent(500, &json!({"staged": true})), Some(Sent::Unanswered));
+        for status in [200, 201, 500, 502, 503] {
+            assert_eq!(
+                sent(status, &Value::Null),
+                Some(Sent::Unanswered),
+                "{status}"
+            );
+        }
+        assert_eq!(
+            sent(502, &json!("<html>Bad Gateway</html>")),
+            Some(Sent::Unanswered)
+        );
+        assert_eq!(refusal(400, Value::Null).0, Refusal::Failed);
+        assert_eq!(refusal(403, json!("Forbidden")).0, Refusal::Failed);
+        // A 5xx refuses only with the bridge's own word that it did not stage.
+        assert_eq!(
+            sent(500, &json!({"reason": "error", "detail": "ledger locked"})),
+            Some(Sent::Unanswered)
+        );
+        assert_eq!(
+            sent(503, &json!({"reason": "busy"})),
+            Some(Sent::Unanswered)
+        );
+        assert_eq!(
+            refusal(500, json!({"staged": false, "reason": "error"})).0,
+            Refusal::Failed
+        );
         assert_eq!(sent(404, &Value::Null), None);
         assert_eq!(sent(405, &json!("Method Not Allowed")), None);
         let old = Recorded::new();
@@ -1501,7 +1569,53 @@ mod tests {
             Sent::Unanswered
         );
         assert_eq!(slow.methods_seen(), vec![Method::Get, Method::Post]);
-        // A bridge that cannot be reached is an error, not a late answer.
+        // A connection that breaks after the call went out is no clear answer either. So is a
+        // 502 from what stands in front of the bridge. Each call is made once.
+        let reset = Recorded::new();
+        reset.fail(Method::Post, "/stage", "connection reset by peer");
+        let (h, switch) = offering(reset.clone(), None);
+        switch.set(Access::Act);
+        assert_eq!(
+            h.send(DAMSEL, "hevc", SENDER).await.unwrap(),
+            Sent::Unanswered
+        );
+        assert_eq!(reset.methods_seen(), vec![Method::Get, Method::Post]);
+        let gateway = Recorded::new();
+        gateway.answer(Method::Post, "/stage", 502, "<html>Bad Gateway</html>");
+        let (h, switch) = offering(gateway.clone(), None);
+        switch.set(Access::Act);
+        assert_eq!(
+            h.send(DAMSEL, "hevc", SENDER).await.unwrap(),
+            Sent::Unanswered
+        );
+        assert_eq!(gateway.methods_seen(), vec![Method::Get, Method::Post]);
+        // An answer too large to read came after the call went out: no clear answer either.
+        let large = Recorded::new();
+        large.fail(
+            Method::Post,
+            "/stage",
+            &format!("{TOO_LARGE}: more than 8 bytes"),
+        );
+        let (h, switch) = offering(large.clone(), None);
+        switch.set(Access::Act);
+        assert_eq!(
+            h.send(DAMSEL, "hevc", SENDER).await.unwrap(),
+            Sent::Unanswered
+        );
+        // A read of what the bridge offers that fails before the act sends nothing: the act was
+        // not sent. That is a clear no. The error carries the read's own words.
+        let blind = Recorded::new();
+        let (h, switch) = offering(blind.clone(), None);
+        blind.fail(Method::Get, &format!("{BASE}/health"), TIMED_OUT);
+        switch.set(Access::Act);
+        let not_sent = h.send(DAMSEL, "hevc", SENDER).await.unwrap_err();
+        assert!(
+            matches!(&not_sent, EngineError::NotSent { message, .. } if message.contains(TIMED_OUT)),
+            "{not_sent}"
+        );
+        assert!(not_sent.act_settled_no());
+        assert_eq!(blind.methods_seen(), vec![Method::Get]);
+        // A bridge that cannot be reached is an error: the call reached nothing.
         let down = Recorded::new();
         down.fail(Method::Post, "/stage", "connection refused or unreachable");
         let (h, switch) = offering(down, None);

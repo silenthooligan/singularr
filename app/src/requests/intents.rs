@@ -14,9 +14,13 @@ use super::store;
 use crate::core::error::{AppError, AppResult};
 use crate::core::journal::{Journal, event};
 use crate::core::model::{Page, Paging};
+use crate::core::runtime::{self, RunNow};
 use serde_json::{Value, json};
 use sqlx::PgPool;
-use std::time::Duration;
+use sqlx::postgres::PgListener;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 
 /// The channel the intent trigger notifies.
@@ -115,36 +119,136 @@ pub async fn process_new(
     }
 }
 
-/// The intents loop of the full process: listen, poll, handle. Stop it by aborting the handle.
-pub fn spawn(pool: PgPool, journal: Journal, rules: Rules) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut listener = match sqlx::postgres::PgListener::connect_with(&pool).await {
-            Ok(mut l) => match l.listen(CHANNEL).await {
-                Ok(()) => Some(l),
-                Err(e) => {
-                    tracing::warn!(error = %e, "LISTEN request_intents failed; polling only");
-                    None
+/// The key of the intents' schedule in the job runtime.
+pub const JOB: &str = "singularr:intents";
+
+/// The kind of the intents' job: its handler.
+pub const KIND: &str = "requests.intents";
+
+/// `requests.intents`: the new intents, handled ([`process_new`]). It runs every 15 s. A notice
+/// from the portal asks for a run at once ([`spawn_trigger`]).
+pub struct IntentsJob {
+    pub pool: PgPool,
+    pub journal: Journal,
+    pub rules: Rules,
+}
+
+#[async_trait::async_trait]
+impl crate::core::runtime::Handler for IntentsJob {
+    async fn run(
+        &self,
+        cx: crate::core::runtime::Cx,
+    ) -> Result<crate::core::runtime::Done, crate::core::runtime::Failed> {
+        let journal = self.journal.fenced(std::sync::Arc::new(cx.lease));
+        match process_new(&self.pool, &journal, &self.rules).await {
+            Ok(n) => {
+                if n > 0 {
+                    tracing::info!(intents = n, "request intents recorded in shadow");
                 }
-            },
+                Ok(crate::core::runtime::Done::from(
+                    crate::core::units::counted(n as i64, "intent", "intents"),
+                ))
+            }
             Err(e) => {
-                tracing::warn!(error = %e, "no listener connection; polling intents only");
-                None
-            }
-        };
-        loop {
-            match process_new(&pool, &journal, &rules).await {
-                Ok(0) => {}
-                Ok(n) => tracing::info!(intents = n, "request intents recorded in shadow"),
-                Err(e) => tracing::warn!(error = %e, "request intents were not handled"),
-            }
-            match listener.as_mut() {
-                Some(l) => {
-                    let _ = tokio::time::timeout(Duration::from_secs(15), l.recv()).await;
-                }
-                None => tokio::time::sleep(Duration::from_secs(15)).await,
+                tracing::warn!(error = %e, "request intents were not handled");
+                Err(crate::core::runtime::Failed::from(e.to_string()))
             }
         }
+    }
+}
+
+/// The first wait before the intents' listener connects again. Each wait doubles the last.
+const LISTEN_AGAIN: Duration = Duration::from_secs(1);
+/// The longest wait before the intents' listener connects again.
+const LISTEN_AGAIN_MAX: Duration = Duration::from_secs(60);
+
+/// What a notice from the portal asks of the intents' job: a run now. While a run is on, one run
+/// after it: the notice may have come after that run read the intents.
+#[derive(Clone)]
+pub struct Trigger {
+    pool: PgPool,
+    /// A run after the one that is on was asked for. More notices in that run ask for nothing more.
+    following: Arc<AtomicBool>,
+}
+
+impl Trigger {
+    pub fn new(pool: PgPool) -> Trigger {
+        Trigger {
+            pool,
+            following: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Ask for a run now. While a run is on, the task that asks for one run after it
+    /// ([`runtime::run_after`]). `None` when this notice started no such task.
+    pub async fn notice(&self) -> Option<JoinHandle<()>> {
+        match runtime::run_now(&self.pool, JOB).await {
+            Ok(RunNow::Running) => {
+                if self.following.swap(true, Ordering::AcqRel) {
+                    return None;
+                }
+                let pool = self.pool.clone();
+                let following = self.following.clone();
+                Some(tokio::spawn(async move {
+                    if let Err(e) = runtime::run_after(&pool, JOB, json!({})).await {
+                        tracing::warn!(error = %e, "the intents' run after the one on was not asked for");
+                    }
+                    following.store(false, Ordering::Release);
+                }))
+            }
+            Ok(_) => None,
+            Err(e) => {
+                tracing::warn!(error = %e, "the intents' job was not asked for");
+                None
+            }
+        }
+    }
+}
+
+/// Ask the intents' job for a run each time the portal records an intent (`NOTIFY
+/// request_intents`, [`Trigger::notice`]). A listener that comes up asks for one run: the notices
+/// sent while none listened are caught up. A listener that fails connects again after a wait that
+/// doubles from 1 s to 60 s. One that stayed up 60 s starts again from 1 s. Meanwhile the job's
+/// own 15 s and the runtime's wake-up stand. Stop it by aborting the handle.
+pub fn spawn_trigger(pool: PgPool) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let trigger = Trigger::new(pool.clone());
+        let mut wait = LISTEN_AGAIN;
+        loop {
+            match listen(&pool).await {
+                Ok(mut listener) => {
+                    let up = Instant::now();
+                    trigger.notice().await;
+                    loop {
+                        match listener.recv().await {
+                            Ok(_) => {
+                                trigger.notice().await;
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "the intents' listener broke off; it connects again");
+                                break;
+                            }
+                        }
+                    }
+                    if up.elapsed() >= LISTEN_AGAIN_MAX {
+                        wait = LISTEN_AGAIN;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "the intents' listener could not listen; it tries again");
+                }
+            }
+            tokio::time::sleep(wait).await;
+            wait = (wait * 2).min(LISTEN_AGAIN_MAX);
+        }
     })
+}
+
+/// A listener on the intents' channel.
+async fn listen(pool: &PgPool) -> Result<PgListener, sqlx::Error> {
+    let mut listener = PgListener::connect_with(pool).await?;
+    listener.listen(CHANNEL).await?;
+    Ok(listener)
 }
 
 /// The intents, newest first, for the owner's Requests page and `GET /api/v1/requests/intents`.

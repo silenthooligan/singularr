@@ -1182,9 +1182,9 @@ fn protected_words(tag: &str) -> String {
     format!("Protected by tag {tag}")
 }
 
-/// What a send that got no answer in time is answered with.
-fn unanswered_words(name: &str) -> String {
-    format!("{name} did not answer in time; the file may still be staged.")
+/// What a send with no clear answer is answered with.
+fn unconfirmed_words(name: &str) -> String {
+    format!("{name} gave no clear answer and may have taken the file.")
 }
 
 /// The tag that keeps this file's title away from a service, when the title carries it in
@@ -1470,12 +1470,13 @@ async fn not_taken(
                 format!("{}.", not_offered_words(name)),
             ));
         }
+        // The service may have taken the file: the words invite no second send.
         SendOutcome::Unanswered => {
             return Ok(problem(
                 StatusCode::GATEWAY_TIMEOUT,
-                "singularr.timeout",
-                "No answer in time",
-                unanswered_words(name),
+                "singularr.unconfirmed",
+                "Unconfirmed",
+                unconfirmed_words(name),
             ));
         }
         SendOutcome::Refused {
@@ -1578,10 +1579,24 @@ async fn send(state: &AppState, caller: &Caller, body: &SendRequest) -> AppResul
         Err(EngineError::Outbound(OutboundError::NotAllowed { .. })) => {
             return Ok(not_allowed(read_only_words(access.label("send"), &name)));
         }
+        // An error is a send that surely did not take place (`processing::send`).
         Err(e) => {
-            return Err(AppError::Upstream(format!("Could not reach {name}: {e}")));
+            return Err(AppError::Upstream(format!(
+                "{name} did not take the file: {e}"
+            )));
         }
     };
+    // A claim of a processing rule on this file is settled: the service took the file.
+    if let Err(e) = store::settle_claim_of_path(
+        &state.pool,
+        &path,
+        &service,
+        handed.run_id(&service).as_deref(),
+    )
+    .await
+    {
+        tracing::warn!(service = %service, error = %e, "a claim of the file was not settled");
+    }
     // The run as the lists show it. The workers are not asked for this answer: the file was
     // staged a moment ago.
     let run = match &handed.run {
@@ -1915,7 +1930,7 @@ async fn processing_options(
         (status = 409, description = "`singularr.already_staged`: the service has the file already; `singularr.not_offered`: it takes no file on demand", body = ProblemDoc),
         (status = 422, description = "`singularr.refused`: the service refused, in its own words", body = ProblemDoc),
         (status = 502, description = "The service failed", body = ProblemDoc),
-        (status = 504, description = "`singularr.timeout`: no answer in time; the service may still stage the file", body = ProblemDoc),
+        (status = 504, description = "`singularr.unconfirmed`: no clear answer; the service may have taken the file", body = ProblemDoc),
         (status = 401, body = ProblemDoc)))]
 async fn processing_send(
     State(state): State<AppState>,
@@ -2279,8 +2294,8 @@ mod tests {
         );
         assert_eq!(protected_words("keep-away"), "Protected by tag keep-away");
         assert_eq!(
-            unanswered_words("HUSH"),
-            "HUSH did not answer in time; the file may still be staged."
+            unconfirmed_words("HUSH"),
+            "HUSH gave no clear answer and may have taken the file."
         );
         assert_eq!(not_offered_words("HUSH"), "Sending not supported by HUSH");
         // A flow as an option, in the names the client reads.

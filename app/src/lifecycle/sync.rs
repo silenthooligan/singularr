@@ -455,12 +455,14 @@ async fn store_listing(
 }
 
 /// What a pass writes in the transaction that ends its job, once it succeeded.
-enum Last {
+pub(crate) enum Last {
     Nothing,
     /// An arr's queue as read: it replaces the arr's queue rows.
     Queue(Vec<QueueItem>),
     /// The marker of the arr's loaded grab history: the newest record id of the read.
     Loaded(i64),
+    /// Markers of the integration with the time now.
+    Markers(Vec<&'static str>),
     /// What a titles pass changed in the format book. `full_at`: the start of a full file pass.
     Titles {
         full_at: Option<DateTime<Utc>>,
@@ -470,11 +472,11 @@ enum Last {
 
 /// One run of a pass: its job, the journal its writes go through, the integration it reads and
 /// the pass's name.
-struct Run<'a> {
-    cx: &'a Cx,
-    journal: &'a Journal,
-    engine: &'a str,
-    pass: &'static str,
+pub(crate) struct Run<'a> {
+    pub(crate) cx: &'a Cx,
+    pub(crate) journal: &'a Journal,
+    pub(crate) engine: &'a str,
+    pub(crate) pass: &'static str,
 }
 
 fn millis(d: Duration) -> i64 {
@@ -538,10 +540,7 @@ impl SyncJobs {
         }
     }
 
-    /// A pass ended. The metrics and the log hear how it went. One transaction holds the pass's
-    /// last writes, its pass row (`EngineSet::report_in`) and the end of its job. The run is a
-    /// check of its integration. The answer holds whether that transaction committed and the
-    /// run's outcome. A run whose lease is lost writes nothing and counts for nothing.
+    /// A pass ended ([`end_run`]): its job's detail is what the pass counted.
     async fn end(
         &self,
         run: &Run<'_>,
@@ -549,90 +548,119 @@ impl SyncJobs {
         outcome: Result<PassOk, String>,
         last: Last,
     ) -> (bool, Result<Done, Failed>) {
-        let (engine, pass) = (run.engine, run.pass);
-        let took = started.elapsed();
-        observe::sync_pass(engine, pass, took, outcome.is_ok());
-        if let Err(e) = &outcome {
-            tracing::warn!(engine, pass, error = %e, "sync pass failed");
-        }
-        let ended = match &outcome {
-            Ok(ok) => Ok(Done::from(ok.summary())),
-            Err(e) => Err(Failed::from(e.clone())),
-        };
-        let mut ended = ended;
-        let committed = match self.write_end(run, &outcome, last, &ended).await {
-            Ok(up) => {
-                observe::engine_up(engine, up);
-                true
-            }
-            Err(LeaseError::Lost) => {
-                tracing::warn!(
-                    engine,
-                    pass,
-                    "the run's lease is lost: its pass is not recorded"
-                );
-                return (false, Err(Failed::from(LeaseError::Lost.to_string())));
-            }
-            // The end of the run is the runtime's to write then. The run counts as failed: the Jobs
-            // page and the backoff hear it.
-            Err(LeaseError::Db(e)) => {
-                tracing::error!(engine, pass, error = %e, "the engine state could not be recorded");
-                ended = Err(Failed::from(format!(
-                    "the end of the pass could not be written: {e}"
-                )));
-                false
-            }
-        };
-        let detail = match &ended {
-            Ok(done) => done.detail.clone(),
-            Err(failed) => failed.error.clone(),
-        };
-        jobs::registry().record_check(
-            engine,
-            Check {
-                at: Utc::now(),
-                ok: ended.is_ok(),
-                via: pass.to_string(),
-                ms: millis(took),
-                detail,
-            },
-        );
-        (committed, ended)
+        end_run(
+            &self.deps.pool,
+            &self.deps.engines,
+            run,
+            started,
+            outcome,
+            None,
+            last,
+        )
+        .await
     }
+}
 
-    async fn write_end(
-        &self,
-        run: &Run<'_>,
-        outcome: &Result<PassOk, String>,
-        last: Last,
-        ended: &Result<Done, Failed>,
-    ) -> Result<bool, LeaseError> {
-        let mut tx = run.journal.begin(&self.deps.pool).await?;
-        if outcome.is_ok() {
-            match last {
-                Last::Nothing => {}
-                Last::Queue(items) => claims::put_queue(tx.conn(), run.engine, &items).await?,
-                Last::Loaded(newest) => claims::mark_loaded(tx.conn(), run.engine, newest).await?,
-                Last::Titles {
-                    full_at,
-                    formats: changes,
-                } => {
-                    if let Some(at) = full_at {
-                        claims::mark(tx.conn(), run.engine, claims::FILES_FULL_AT, at).await?;
-                    }
-                    formats::write(tx.conn(), run.engine, &changes).await?;
+/// A pass ended. The metrics and the log hear how it went. One transaction holds the pass's last
+/// writes, its pass row (`EngineSet::report_in`) and the end of its job. The run is a check of its
+/// integration. `detail` is the job's line when the pass words it itself, else what it counted.
+/// The answer holds whether that transaction committed and the run's outcome. A run whose lease
+/// is lost writes nothing and counts for nothing.
+pub(crate) async fn end_run(
+    pool: &PgPool,
+    engines: &EngineSet,
+    run: &Run<'_>,
+    started: Instant,
+    outcome: Result<PassOk, String>,
+    detail: Option<String>,
+    last: Last,
+) -> (bool, Result<Done, Failed>) {
+    let (engine, pass) = (run.engine, run.pass);
+    let took = started.elapsed();
+    observe::sync_pass(engine, pass, took, outcome.is_ok());
+    if let Err(e) = &outcome {
+        tracing::warn!(engine, pass, error = %e, "sync pass failed");
+    }
+    let mut ended = match &outcome {
+        Ok(ok) => Ok(Done::from(detail.unwrap_or_else(|| ok.summary()))),
+        Err(e) => Err(Failed::from(e.clone())),
+    };
+    let committed = match write_end(pool, engines, run, &outcome, last, &ended).await {
+        Ok(up) => {
+            observe::engine_up(engine, up);
+            true
+        }
+        Err(LeaseError::Lost) => {
+            tracing::warn!(
+                engine,
+                pass,
+                "the run's lease is lost: its pass is not recorded"
+            );
+            return (false, Err(Failed::from(LeaseError::Lost.to_string())));
+        }
+        // The end of the run is the runtime's to write then. The run counts as failed: the Jobs
+        // page and the backoff hear it.
+        Err(LeaseError::Db(e)) => {
+            tracing::error!(engine, pass, error = %e, "the engine state could not be recorded");
+            ended = Err(Failed::from(format!(
+                "the end of the pass could not be written: {e}"
+            )));
+            false
+        }
+    };
+    let detail = match &ended {
+        Ok(done) => done.detail.clone(),
+        Err(failed) => failed.error.clone(),
+    };
+    jobs::registry().record_check(
+        engine,
+        Check {
+            at: Utc::now(),
+            ok: ended.is_ok(),
+            via: pass.to_string(),
+            ms: millis(took),
+            detail,
+        },
+    );
+    (committed, ended)
+}
+
+async fn write_end(
+    pool: &PgPool,
+    engines: &EngineSet,
+    run: &Run<'_>,
+    outcome: &Result<PassOk, String>,
+    last: Last,
+    ended: &Result<Done, Failed>,
+) -> Result<bool, LeaseError> {
+    let mut tx = run.journal.begin(pool).await?;
+    if outcome.is_ok() {
+        match last {
+            Last::Nothing => {}
+            Last::Queue(items) => claims::put_queue(tx.conn(), run.engine, &items).await?,
+            Last::Loaded(newest) => claims::mark_loaded(tx.conn(), run.engine, newest).await?,
+            Last::Markers(names) => {
+                for name in names {
+                    claims::mark(tx.conn(), run.engine, name, Utc::now()).await?;
                 }
             }
+            Last::Titles {
+                full_at,
+                formats: changes,
+            } => {
+                if let Some(at) = full_at {
+                    claims::mark(tx.conn(), run.engine, claims::FILES_FULL_AT, at).await?;
+                }
+                formats::write(tx.conn(), run.engine, &changes).await?;
+            }
         }
-        let up = self
-            .deps
-            .engines
-            .report_in(&mut tx, run.engine, run.pass, outcome)
-            .await?;
-        tx.finish(&run.cx.lease, ended).await?;
-        tx.commit().await?;
-        Ok(up)
     }
+    let up = engines
+        .report_in(&mut tx, run.engine, run.pass, outcome)
+        .await?;
+    tx.finish(&run.cx.lease, ended).await?;
+    tx.commit().await?;
+    Ok(up)
 }
 
 /// `manager.titles`: one pass over an arr's titles ([`titles_pass_with`]), a full file pass when
@@ -865,7 +893,7 @@ impl Handler for AccountsJob {
         let site = sync.site(&cx)?;
         match users_pass(&sync.deps.pool, &site, &sync.rules).await {
             Ok(r) => Ok(Done::from(format!(
-                "{} read, {} removed",
+                "{}, {} removed",
                 units::counted(r.read as i64, "account", "accounts"),
                 units::count(r.removed as i64)
             ))),
@@ -908,10 +936,8 @@ impl Handler for DiscoverJob {
         }
         let at = Utc::now();
         let stored = discover_pass(&sync.deps.pool, &site).await;
-        let done: Result<Done, Failed> = Ok(Done::from(format!(
-            "{} stored",
-            units::counted(stored as i64, "list", "lists")
-        )));
+        let done: Result<Done, Failed> =
+            Ok(Done::from(units::counted(stored as i64, "list", "lists")));
         let journal = sync.deps.journal.fenced(Arc::new(cx.lease.clone()));
         let ended = async {
             let mut tx = journal.begin(&sync.deps.pool).await?;

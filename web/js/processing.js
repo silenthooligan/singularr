@@ -287,9 +287,15 @@
         if (r.data?.run) drawer(r.data.run, { onClose: () => location.reload() }); else setTimeout(() => location.reload(), 1200);
         return;
       }
-      btn.disabled = false; btn.innerHTML = label;
+      btn.innerHTML = label;
       const code = String(r.data?.code || '');
-      const what = r.status === 403 ? 'Needs write access' : code === 'singularr.already_staged' ? 'Already queued' : r.status === 422 ? `${svcName} refused the file` : r.status === 504 ? `${svcName} timed out` : "Couldn't send";
+      /* No clear answer: the service may have taken the file. The button stays off: a second send is no retry. */
+      if (code === 'singularr.unconfirmed') {
+        $('#proc-error', dlg.el).innerHTML = String(MQ.callout('Unconfirmed', r.data?.detail || '', 'warn'));
+        return;
+      }
+      btn.disabled = false;
+      const what = r.status === 403 ? 'Needs write access' : code === 'singularr.already_staged' ? 'Already queued' : r.status === 422 ? `${svcName} refused the file` : "Couldn't send";
       $('#proc-error', dlg.el).innerHTML = String(MQ.callout(what, r.data?.detail || '', 'bad'));
     });
     return dlg;

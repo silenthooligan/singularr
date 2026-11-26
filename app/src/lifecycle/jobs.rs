@@ -1,15 +1,16 @@
-//! The jobs of the job runtime (`core::runtime`): the three folder scans, the search index, the
-//! notification dispatcher (B9a) and, with the sync, the passes of the managers and the download
-//! clients (B9b), of the media servers and of the Seerr sites (B9c). Their keys, queues and
-//! intervals are those of platform design section 4.8. The processing services, the processing
-//! rules, the intents and the plays keep their loops until they move (B9c, B9d).
+//! The jobs of the job runtime (`core::runtime`). In every process: the three folder scans, the
+//! search index and the notification dispatcher (B9a), the request intents (B9c). With the sync:
+//! the passes of the managers and the download clients (B9b), the passes of the media servers,
+//! the Seerr sites and the processing services (B9c), the processing rules (B9c). Their keys,
+//! queues and intervals are those of platform design section 4.8. The plays keep their loops
+//! until they move (B9d).
 //!
 //! The runtime runs on a pool of its own ([`connections`]). The handlers write on the app's pool.
-//! The folder scans and the sync's passes write through a journal fenced by their run's lease: a
-//! run whose lease is lost commits nothing. A sync pass ends its job in the transaction that
-//! writes its pass row (`integration_health`). The index and the dispatcher write what their next
-//! run writes again: the whole index, deliveries keyed by channel and event. They read no
-//! integration and write no pass row.
+//! The folder scans, the sync's passes, the processing rules and the intents write through a
+//! journal fenced by their run's lease: a run whose lease is lost commits nothing. A sync pass
+//! ends its job in the transaction that writes its pass row (`integration_health`). The index and
+//! the dispatcher write what their next run writes again: the whole index, deliveries keyed by
+//! channel and event. They read no integration and write no pass row.
 
 use crate::core::config::Config;
 use crate::core::journal::Journal;
@@ -21,6 +22,8 @@ use crate::lifecycle::sync::{self, SyncJobs};
 use crate::metadata::service::ProviderSet;
 use crate::music::service::{self as music, MusicLibrary};
 use crate::notify::service::{self as notify, Describe, Notifier};
+use crate::processing::service as processing;
+use crate::requests::intents;
 use crate::search::Search;
 use crate::search::index;
 use crate::settings::Settings;
@@ -30,17 +33,17 @@ use std::time::Duration;
 use tokio::task::JoinHandle;
 
 /// The lease of each of these jobs. The heartbeat renews it every third of it.
-const LEASE: Duration = Duration::from_secs(120);
+pub const LEASE: Duration = Duration::from_secs(120);
 
 /// The workers of each queue but the sync's. The scan queue has one for each folder scan: a scan
 /// asked for from the API never waits behind another folder's scan. The others are the design's
 /// defaults (section 4.2).
-pub const WORKERS: [(&str, usize); 3] = [("scan", 3), ("index", 1), ("notify", 2)];
+pub const WORKERS: [(&str, usize); 4] = [("scan", 3), ("index", 1), ("notify", 2), ("default", 2)];
 
 /// The passes of the sync, by the names their loops had: what each reads, its job's kind, the
 /// setting of its interval and whether the Jobs page lists it. The accounts and the discover
 /// lists of a Seerr site were read by its requests loop: their schedules are not listed.
-const SYNC_PASSES: [(&str, &str, &str, bool); 8] = [
+const SYNC_PASSES: [(&str, &str, &str, bool); 9] = [
     ("titles", sync::TITLES, "jobs.titles", true),
     ("queue", sync::QUEUE, "jobs.queue", true),
     ("history", sync::HISTORY, "jobs.history", true),
@@ -49,6 +52,12 @@ const SYNC_PASSES: [(&str, &str, &str, bool); 8] = [
     ("requests", sync::REQUESTS, "jobs.requests", true),
     ("accounts", sync::ACCOUNTS, "jobs.requests", false),
     ("discover", sync::DISCOVER, "", false),
+    (
+        "processing",
+        processing::PROCESSING,
+        "jobs.processing.syncEvery",
+        true,
+    ),
 ];
 
 /// The workers of every queue. The sync queue has one for each of its schedules, as each pass had a
@@ -67,16 +76,19 @@ pub fn connections(sync: Option<&EngineSet>) -> u32 {
     runtime::connections(workers(sync).iter().map(|(_, n)| n).sum())
 }
 
-/// The folder scans the Jobs page lists, each with the pass its loop was named by.
-const LISTED: [(&str, &str); 3] = [
+/// The schedules of no integration the Jobs page lists, each with the pass its loop was named
+/// by: the folder scans and the processing rules.
+const LISTED: [(&str, &str); 4] = [
     (sync::MOVIE_FOLDERS_JOB, "movie-folders"),
     (music::JOB, "music"),
     (homemovies::JOB, "home-movies"),
+    (processing::RULES_JOB, "processing-rules"),
 ];
 
-/// The keys of the schedules the Jobs page lists: the folder scans and, with the sync on, the
-/// passes of each manager and download client. The search index and the dispatcher are not
-/// listed: `GET /api/v1/jobs` keeps the ids of the loops.
+/// The keys of the schedules the Jobs page reads: the folder scans, the processing rules and,
+/// with the sync on, the passes of each integration ([`listed`] names the ones it shows). The
+/// search index, the dispatcher and the intents are not listed: `GET /api/v1/jobs` keeps the ids
+/// of the loops.
 pub fn listed_keys(config: &Config, engines: &EngineSet) -> Vec<String> {
     let mut keys: Vec<String> = LISTED.iter().map(|(key, _)| key.to_string()).collect();
     keys.extend(
@@ -87,8 +99,8 @@ pub fn listed_keys(config: &Config, engines: &EngineSet) -> Vec<String> {
     keys
 }
 
-/// The keys of the schedules that read an integration, each with that integration: the passes of
-/// the managers and the download clients while the sync is on.
+/// The keys of the schedules that read an integration, each with that integration: the sync's
+/// passes while the sync is on.
 pub fn integration_keys(config: &Config, engines: &EngineSet) -> Vec<(String, String)> {
     if !config.sync.enabled {
         return Vec::new();
@@ -131,6 +143,10 @@ fn sync_keys(engines: &EngineSet) -> Vec<(String, String, &'static str)> {
     for server in &engines.media_servers {
         let id = server.id();
         out.push((format!("{id}:server"), id.to_string(), "server"));
+    }
+    for processor in &engines.processors {
+        let id = processor.id();
+        out.push((format!("{id}:processing"), id.to_string(), "processing"));
     }
     // The discover lists come from the first site (the Plex one when it is), as the owner's
     // Discover page asks it.
@@ -223,6 +239,38 @@ pub fn schedules(config: &Config, settings: &Settings, sync: Option<&EngineSet>)
         lease: LEASE,
         source: Source::Default,
     });
+    // The processing rules after each start within the jitter, as their loop ran: with the sync,
+    // when a processing service is configured.
+    if sync.is_some_and(|e| !e.processors.is_empty()) {
+        out.push(Schedule {
+            key: processing::RULES_JOB.to_string(),
+            kind: processing::RULES.to_string(),
+            integration: None,
+            queue: "default".to_string(),
+            every: config.sync.processing,
+            floor: Duration::from_secs(15),
+            first: Duration::ZERO,
+            jitter: config.sync.jitter,
+            on_start: true,
+            lease: LEASE,
+            source: source("jobs.processing.syncEvery"),
+        });
+    }
+    // The intents every 15 s, whether or not the sync runs. A `NOTIFY request_intents` asks for a
+    // run at once (`intents::spawn_trigger`).
+    out.push(Schedule {
+        key: intents::JOB.to_string(),
+        kind: intents::KIND.to_string(),
+        integration: None,
+        queue: "default".to_string(),
+        every: Duration::from_secs(15),
+        floor: Duration::from_secs(15),
+        first: Duration::ZERO,
+        jitter: Duration::ZERO,
+        on_start: true,
+        lease: LEASE,
+        source: Source::Default,
+    });
     // Each pass of the sync after each start within its jitter, as its loop ran. The floors are
     // those of their settings.
     for (key, integration, pass) in sync.map(sync_keys).unwrap_or_default() {
@@ -234,6 +282,7 @@ pub fn schedules(config: &Config, settings: &Settings, sync: Option<&EngineSet>)
             "server" => (s.server, 300),
             "requests" | "accounts" => (s.requests, 60),
             "discover" => (crate::requests::discover::TTL, 1800),
+            "processing" => (s.processing, 15),
             _ => (s.downloads, 10),
         };
         let (_, kind, setting, _) = SYNC_PASSES
@@ -279,6 +328,11 @@ pub struct JobsDeps {
     pub describe: Arc<dyn Describe>,
     /// The sync's passes, when the sync runs (`SINGULARR_SYNC_ENABLED`).
     pub sync: Option<Arc<SyncJobs>>,
+    /// The processing services' passes and the processing rules, when the sync runs.
+    pub processing: Option<processing::ProcessingDeps>,
+    /// The request rules the intents are handled under. The intents run whether or not the sync
+    /// does.
+    pub intents: crate::requests::rules::Rules,
 }
 
 /// The jobs of this process: the runtime and the triggers that ask it for runs after events.
@@ -301,8 +355,8 @@ impl Jobs {
 
 /// Write the schedules, then start the runtime with their handlers and workers. The triggers ask
 /// for a pass of the index 30 s after a library event. They ask for a round of the dispatcher
-/// after each commit. With the sync, the claims and markers of an arr the configuration no longer
-/// runs go first.
+/// after each commit. They ask for a run of the intents' job on each `NOTIFY request_intents`.
+/// With the sync, the claims and markers of an arr the configuration no longer runs go first.
 pub async fn start(config: &Config, deps: JobsDeps) -> Result<Jobs, sqlx::Error> {
     start_with(config, deps, Timing::default()).await
 }
@@ -384,6 +438,22 @@ pub async fn start_with(
             .handle(sync::ACCOUNTS, Arc::new(sync::AccountsJob(jobs.clone())))
             .handle(sync::DISCOVER, Arc::new(sync::DiscoverJob(jobs.clone())));
     }
+    if let Some(p) = &deps.processing {
+        runtime = runtime
+            .handle(
+                processing::PROCESSING,
+                Arc::new(processing::ProcessingJob(p.clone())),
+            )
+            .handle(processing::RULES, Arc::new(processing::RulesJob(p.clone())));
+    }
+    runtime = runtime.handle(
+        intents::KIND,
+        Arc::new(intents::IntentsJob {
+            pool: deps.pool.clone(),
+            journal: deps.journal.clone(),
+            rules: deps.intents.clone(),
+        }),
+    );
     for (queue, n) in workers(engines.as_deref()) {
         runtime = runtime.workers(queue, n);
     }
@@ -391,6 +461,7 @@ pub async fn start_with(
     let triggers = vec![
         index::spawn_trigger(deps.pool.clone(), &deps.journal),
         notify::spawn_trigger(deps.pool.clone(), &deps.journal),
+        intents::spawn_trigger(deps.pool.clone()),
     ];
     Ok(Jobs { running, triggers })
 }
@@ -429,6 +500,7 @@ mod tests {
                 ("folder:home-movies", "scan.home-movies", "scan", 21_600),
                 ("singularr:index", "search.index", "index", 900),
                 ("singularr:notify-dispatch", "notify.dispatch", "notify", 60),
+                ("singularr:intents", "requests.intents", "default", 15),
             ]
         );
         assert!(all.iter().all(|s| s.integration.is_none()));
@@ -463,7 +535,7 @@ mod tests {
             (listed("seerr:accounts"), listed("seerr:discover")),
             (None, None)
         );
-        assert_eq!(connections(None), 15);
+        assert_eq!(connections(None), 19);
 
         let without_roots = Config::from(&BTreeMap::from([(
             "DATABASE_URL",

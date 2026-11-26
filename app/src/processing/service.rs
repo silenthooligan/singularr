@@ -7,9 +7,9 @@
 //! names: `{tmdb-N}` or `{tvdb-N}` in a folder's name, then `{imdb-ttN}`.
 //!
 //! A pass reads at one of two cadences ([`Read`]). Every pass asks for the newest jobs alone,
-//! which is light for the service. The whole list is asked for on the first pass of a process
-//! and then when the last whole read is older than [`WHOLE_READ_EVERY`]; a [`Reader`] keeps
-//! that time in memory, one per service.
+//! which is light for the service. The whole list is asked for when no whole read stands: the
+//! marker `ledger.whole_at` of the last one that ended well is missing or older than
+//! [`WHOLE_READ_EVERY`] ([`ProcessingJob`]).
 //!
 //! A service lists its newest jobs and no more than so many at once. Where it can be asked
 //! for more, two things keep the table whole: every pass asks it by id for the stored open
@@ -27,10 +27,14 @@
 //! a flow works on a copy of the file in its own cache folder.
 //!
 //! A worker service has records of its own. Its libraries and flows are configuration: the
-//! pass has the adapter read them with every whole read and keep them, and a run is placed in
-//! the library whose folder its queue path lies below ([`placed`]). Where the file of an open
-//! run stands in the worker's records is asked with the live state ([`live_files`]), never
-//! stored, and says why a stuck run is stuck.
+//! adapter reads them with every whole read and with any pass of a process that holds none. It
+//! keeps them in memory. A run is placed in the library whose folder its queue path lies below
+//! ([`placed`]). Where the file of an open run stands in the worker's records is asked with the
+//! live state ([`live_files`]). It is never stored. It says why a stuck run is stuck.
+//!
+//! The processing job looks for runs that went stuck right after a pass ([`ProcessingJob`]). A
+//! pass also settles the claims of the processing rules whose sends got no clear answer: the run
+//! the send opened settles its claim ([`store::settle_claims_by_runs`]).
 
 use super::model::{
     FlowStat, IMPORTED, Link, LiveFile, LiveWorker, Run, STUCK_AFTER, STUCK_AFTER_DEFAULT,
@@ -39,9 +43,8 @@ use super::model::{
 };
 use super::store;
 use crate::catalog::store as catalog_store;
-use crate::core::jobs::{self, JobSpec};
 use crate::core::journal::{Journal, event};
-use crate::core::observe;
+use crate::core::runtime::{Cx, Done, Failed, Handler};
 use crate::core::units;
 use crate::engines::service::{EngineSet, PassOk};
 use crate::engines::{
@@ -49,12 +52,14 @@ use crate::engines::{
     Refusal, SENDER, Sent, TriggerWords, WorkerAct, WorkerFile, WorkerFlow, WorkerLibrary,
     WorkerReport,
 };
-use crate::lifecycle::sync::jitter;
+use crate::lifecycle::claims;
+use crate::lifecycle::sync::{Last, Run as PassRun, end_run};
 use crate::metadata::record::{
     EpisodeRef, ProcessingRun, RunEvent, RunFile, RunFlow, RunInWorker, RunLibrary, RunReplaced,
     RunTrigger, RunWorker,
 };
 use crate::settings::Settings;
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::future::join_all;
 use serde_json::json;
@@ -63,7 +68,6 @@ use sqlx::PgPool;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::task::JoinHandle;
 
 /// The name of the pass, in jobs, metrics and the journal.
 pub const PASS: &str = "processing";
@@ -76,10 +80,10 @@ pub const RUNS_LIMIT: u32 = 2000;
 /// A service lists its jobs newest first by when they started, so the newest few hold every
 /// new job and every change to a recent one, and a small service answers them in a fraction of
 /// a second. Its whole list is megabytes that take it seconds to write, and it has other work
-/// in those seconds. So the whole list is read on the first pass of a process, which fills the
-/// table, and after that only this often. The whole read is what sees an older job change: an
-/// open run that newer jobs pushed out of the newest few closes in the table at the next whole
-/// read, so this is also the longest such a run still reads as open.
+/// in those seconds. So the whole list is read when no whole read stands: the first pass fills
+/// the table. After that it is read only this often. The whole read is what sees an older job
+/// change: an open run that newer jobs pushed out of the newest few closes in the table at the
+/// next whole read. This is also the longest such a run still reads as open.
 pub const WHOLE_READ_EVERY: Duration = Duration::from_secs(30 * 60);
 /// A stored run's `last_seen_at` moves at most this often, so a pass that finds nothing new
 /// writes next to nothing.
@@ -474,11 +478,13 @@ pub async fn pass(
     let took = started.elapsed();
     let service = processor.id();
     // A worker's own records: its libraries and flows with the whole read, its totals with
-    // every pass. A service that answers and does not give them is not down: what was read
-    // before stays, and the pass says what it could not read.
+    // every pass. A process that holds no libraries and flows of the service reads them with any
+    // pass: a start within a whole read that stands has none. A service that answers and does
+    // not give them is not down. What was read before stays. The pass says what it could not
+    // read.
     let mut unread: Vec<String> = Vec::new();
     let mut again = false;
-    if read == Read::Whole
+    if (read == Read::Whole || processor.setup().is_none())
         && let Err(e) = processor.read_setup().await
     {
         again = true;
@@ -582,6 +588,21 @@ pub async fn pass(
             Err(e) => unread.push(format!("Open runs not read: {e}")),
         }
     }
+    // A claim of a processing rule whose send got no clear answer: the run the send opened
+    // settles it as sent. A database error leaves the claims to the next pass.
+    match store::settle_claims_by_runs(pool, service).await {
+        Ok(0) => {}
+        Ok(settled) => tracing::info!(
+            service,
+            settled,
+            "claims of the processing rules settled by the service's runs"
+        ),
+        Err(e) => tracing::warn!(
+            service,
+            error = %e,
+            "the claims of the processing rules were not settled; the next pass tries again"
+        ),
+    }
     if !unread.is_empty() {
         tracing::warn!(service, unread = %unread.join("; "), "the processing service did not give everything the pass reads");
     }
@@ -667,14 +688,24 @@ pub struct Handed {
     pub run: Option<Run>,
 }
 
+impl Handed {
+    /// The id of the run the service opened: the stored run's, else the one its job names.
+    pub fn run_id(&self, service: &str) -> Option<String> {
+        self.run
+            .as_ref()
+            .map(|r| r.id.clone())
+            .or_else(|| self.job.as_ref().map(|job| run_id(service, job)))
+    }
+}
+
 /// How handing a file to a flow ended.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SendOutcome {
     Taken(Box<Handed>),
     /// The service takes no file on demand.
     NotOffered,
-    /// The service did not answer in time. It may still stage the file: the next pass finds
-    /// the job if it did. The call is not made again.
+    /// No clear answer: the call went out and nothing says whether the service took the file.
+    /// It may have: the next pass finds the job if it did. The call is not made again.
     Unanswered,
     /// The service said no.
     Refused {
@@ -693,14 +724,24 @@ pub enum SendOutcome {
 /// protected); `core::outbound` lets the call through only while the integration's access is
 /// `act`. After a good send the service is asked for the job it opened and the run is stored
 /// at once, so it is on every page before the next pass, and a `processing_sent` event says
-/// who sent what.
+/// who sent what. An error says the file surely was not handed over
+/// ([`EngineError::act_settled_no`]). Any other error of a service's send is no clear answer
+/// ([`SendOutcome::Unanswered`]), whatever the service.
 pub async fn send(
     pool: &PgPool,
     journal: &Journal,
     processor: &Arc<dyn Processor>,
     what: Sending<'_>,
 ) -> Result<SendOutcome, EngineError> {
-    let (mode, job) = match processor.send(what.path, what.flow, SENDER).await? {
+    let answer = match processor.send(what.path, what.flow, SENDER).await {
+        Ok(answer) => answer,
+        Err(e) if !e.act_settled_no() => {
+            tracing::warn!(service = processor.id(), error = %e, "a send got no clear answer");
+            Sent::Unanswered
+        }
+        Err(e) => return Err(e),
+    };
+    let (mode, job) = match answer {
         Sent::Staged { mode, job, .. } => (mode, job),
         Sent::NotOffered => return Ok(SendOutcome::NotOffered),
         Sent::Unanswered => return Ok(SendOutcome::Unanswered),
@@ -785,10 +826,9 @@ pub async fn send(
     Ok(SendOutcome::Taken(Box::new(Handed { mode, job, run })))
 }
 
-/// One processing service, and when its whole list was last read.
-///
-/// The time is kept in memory and nowhere else: a process that starts reads every list whole
-/// once, which is also what fills an empty table.
+/// Passes over one processing service at the times a caller gives. It keeps in memory when the
+/// whole list was last read. The processing job keeps that time in the marker `ledger.whole_at`
+/// ([`ProcessingJob`]). This reader serves tests that drive passes on a clock of their own.
 pub struct Reader {
     processor: Arc<dyn Processor>,
     whole_at: Option<Instant>,
@@ -802,8 +842,8 @@ impl Reader {
         }
     }
 
-    /// Which read a pass that starts at `now` makes: the whole list when it was never read by
-    /// this process or the last whole read is [`WHOLE_READ_EVERY`] old, else the newest jobs.
+    /// Which read a pass that starts at `now` makes: the whole list when this reader never read
+    /// it or the last whole read is [`WHOLE_READ_EVERY`] old, else the newest jobs.
     pub fn read_at(&self, now: Instant) -> Read {
         match self.whole_at {
             Some(at) if now.saturating_duration_since(at) < WHOLE_READ_EVERY => Read::Newest,
@@ -837,7 +877,8 @@ pub struct ProcessingDeps {
     pub policy: crate::policy::PolicyHandle,
 }
 
-/// How often a service's open runs are looked at for ones that went stuck.
+/// How often a service's open runs are looked at for ones that went stuck: after a pass, when the
+/// marker `stuck.at` of the last look is this old or missing ([`ProcessingJob`]).
 pub const STUCK_LOOK_EVERY: Duration = Duration::from_secs(300);
 /// Open runs one look takes at most, the oldest first.
 const STUCK_LOOKED: i64 = 50;
@@ -992,103 +1033,155 @@ pub async fn journal_stuck(
 /// The name of the processing rules' pass, in jobs and logs.
 pub const RULES_PASS: &str = "processing-rules";
 
-/// Start one loop per configured processing service, and the loop of the processing rules.
-pub fn spawn(deps: ProcessingDeps) -> Vec<JoinHandle<()>> {
-    let mut loops: Vec<JoinHandle<()>> = deps
-        .engines
-        .processors
-        .iter()
-        .map(|p| tokio::spawn(service_loop(deps.clone(), p.clone())))
-        .collect();
-    if !deps.engines.processors.is_empty() {
-        loops.push(tokio::spawn(rules_loop(deps)));
-    }
-    loops
-}
+/// The kinds of the processing jobs: their handlers in the runtime.
+pub const PROCESSING: &str = "processing.pass";
+pub const RULES: &str = "processing.rules";
 
-/// The processing rules, against every import since the last pass, then the interval.
-async fn rules_loop(deps: ProcessingDeps) {
-    let job = jobs::registry().register(JobSpec {
-        id: format!("singularr:{RULES_PASS}"),
-        pass: RULES_PASS.to_string(),
-        integration: None,
-        every: deps.interval,
-    });
-    job.wait(jitter(deps.jitter)).await;
-    loop {
-        let started = job.begin();
-        // The policy in force at the start of this pass: a saved profile takes effect at the next one.
-        let active = deps.policy.current();
-        let passed = super::rules::import_pass(
-            &deps.pool,
-            &deps.journal,
-            &deps.engines,
-            &active.policy,
-            true,
-        )
-        .await;
-        if let Err(e) = &passed {
-            tracing::warn!(error = %e, "the processing rules pass failed");
-        }
-        job.end(
-            started,
-            passed.map(|p| {
-                format!(
-                    "{}, {}, {} sent",
-                    crate::core::units::counted(p.imports as i64, "import", "imports"),
-                    crate::core::units::counted(p.logged as i64, "match", "matches"),
-                    crate::core::units::count(p.sent as i64)
-                )
-            }),
-        );
-        job.wait(deps.interval).await;
+/// The key of the processing rules' schedule.
+pub const RULES_JOB: &str = "singularr:processing-rules";
+
+/// The marker of a processing service's last whole read: when it ended well.
+pub const WHOLE_AT: &str = "ledger.whole_at";
+
+/// The marker of a processing service's last look for stuck runs.
+pub const STUCK_AT: &str = "stuck.at";
+
+impl ProcessingDeps {
+    /// The processing service a job reads.
+    fn processor(&self, cx: &Cx) -> Result<Arc<dyn Processor>, Failed> {
+        let id = cx.job.integration.as_deref().unwrap_or_default();
+        self.engines
+            .processors
+            .iter()
+            .find(|p| p.id() == id)
+            .cloned()
+            .ok_or_else(|| {
+                Failed::from(format!("no processing service `{id}` runs in this process"))
+            })
     }
 }
 
-/// A pass, its result recorded in the engine state and on its job, then the interval.
-async fn service_loop(deps: ProcessingDeps, processor: Arc<dyn Processor>) {
-    let id = processor.id().to_string();
-    let job = jobs::registry().register(JobSpec::of(&id, PASS, deps.interval));
-    let mut reader = Reader::new(processor.clone());
-    let mut looked: Option<Instant> = None;
-    job.wait(jitter(deps.jitter)).await;
-    loop {
-        let started = job.begin();
-        let passed = reader.pass(&deps.pool, started).await;
-        // The job says which read it was; the engine state keeps the counts.
-        job.end(
-            started,
-            passed
-                .as_ref()
-                .map(|p| p.detail.clone())
-                .map_err(Clone::clone),
-        );
-        // What closed and what went stuck is news for the journal, and from there for the
-        // notification channels.
-        if let Ok(p) = &passed {
-            if let Err(e) = journal_closed(&deps.pool, &deps.journal, &processor, &p.closed).await {
+/// `processing.pass`: one pass over a processing service ([`pass`]): the whole list when its
+/// marker (`ledger.whole_at`) is [`WHOLE_READ_EVERY`] old or missing, else the newest jobs. The
+/// runs that closed go to the journal. After a pass that read the service, its open runs are
+/// looked at for ones that went stuck ([`journal_stuck`]) when the marker `stuck.at` is
+/// [`STUCK_LOOK_EVERY`] old or missing: the table is as fresh as a pass leaves it. The journal is
+/// fenced by the run's lease. The pass row, the markers and the end of the job are one commit.
+pub struct ProcessingJob(pub ProcessingDeps);
+
+#[async_trait]
+impl Handler for ProcessingJob {
+    async fn run(&self, cx: Cx) -> Result<Done, Failed> {
+        let deps = &self.0;
+        let processor = deps.processor(&cx)?;
+        let id = processor.id().to_string();
+        let fenced = ProcessingDeps {
+            journal: deps.journal.fenced(Arc::new(cx.lease.clone())),
+            ..deps.clone()
+        };
+        let unread = |e: sqlx::Error| {
+            Failed::from(format!("a marker of the service could not be read: {e}"))
+        };
+        let whole_at = claims::marked_at(&deps.pool, &id, WHOLE_AT)
+            .await
+            .map_err(unread)?;
+        let stuck_at = claims::marked_at(&deps.pool, &id, STUCK_AT)
+            .await
+            .map_err(unread)?;
+        let now = Utc::now();
+        let stands = |at: Option<DateTime<Utc>>, every: Duration| {
+            at.is_some_and(|at| chrono::Duration::from_std(every).is_ok_and(|e| now - at < e))
+        };
+        let read = if stands(whole_at, WHOLE_READ_EVERY) {
+            Read::Newest
+        } else {
+            Read::Whole
+        };
+        let started = Instant::now();
+        let mut passed = pass(&deps.pool, &processor, read).await;
+        let mut markers = Vec::new();
+        if let Ok(p) = &mut passed {
+            // What closed is news for the journal. The notification channels read it there.
+            if let Err(e) = journal_closed(&deps.pool, &fenced.journal, &processor, &p.closed).await
+            {
                 tracing::error!(service = %id, error = %e, "runs that closed could not be journaled");
             }
-            if looked.is_none_or(|at| at.elapsed() >= STUCK_LOOK_EVERY) {
-                looked = Some(Instant::now());
-                if let Err(e) = journal_stuck(&deps, &processor).await {
-                    tracing::warn!(service = %id, error = %e, "stuck runs could not be looked for");
+            // A whole read stands only when it read what only a whole read reads.
+            if read == Read::Whole && !p.again {
+                markers.push(WHOLE_AT);
+            }
+            if !stands(stuck_at, STUCK_LOOK_EVERY) {
+                match journal_stuck(&fenced, &processor).await {
+                    Ok(n) => {
+                        markers.push(STUCK_AT);
+                        if n > 0 {
+                            let stuck = units::counted(n as i64, "stuck run", "stuck runs");
+                            p.detail = format!("{}; {stuck}", p.detail);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(service = %id, error = %e, "stuck runs could not be looked for");
+                        p.detail = format!("{}; Stuck runs not read: {e}", p.detail);
+                    }
                 }
             }
         }
+        let detail = passed.as_ref().ok().map(|p| p.detail.clone());
         let outcome = passed.map(|p| p.ok);
-        observe::sync_pass(&id, PASS, started.elapsed(), outcome.is_ok());
-        if let Err(e) = &outcome {
-            tracing::warn!(service = %id, error = %e, "processing pass failed");
-        }
-        if let Err(e) = deps
-            .engines
-            .report(&deps.pool, &deps.journal, &id, PASS, outcome)
-            .await
+        let run = PassRun {
+            cx: &cx,
+            journal: &fenced.journal,
+            engine: &id,
+            pass: PASS,
+        };
+        end_run(
+            &deps.pool,
+            &deps.engines,
+            &run,
+            started,
+            outcome,
+            detail,
+            Last::Markers(markers),
+        )
+        .await
+        .1
+    }
+}
+
+/// `processing.rules`: the processing rules against every import since the last pass
+/// ([`super::rules::import_pass`]). The policy in force at its start holds for it. A rule
+/// claims a file before it sends it: a file goes at most once, across a restart or a lost
+/// lease. A claim carries the job's id. Its journal is fenced by the run's lease.
+pub struct RulesJob(pub ProcessingDeps);
+
+#[async_trait]
+impl Handler for RulesJob {
+    async fn run(&self, cx: Cx) -> Result<Done, Failed> {
+        let deps = &self.0;
+        let journal = deps.journal.fenced(Arc::new(cx.lease.clone()));
+        // A saved profile takes effect at the next pass.
+        let active = deps.policy.current();
+        match super::rules::import_pass(
+            &deps.pool,
+            &journal,
+            &deps.engines,
+            &active.policy,
+            true,
+            Some(cx.job.id),
+        )
+        .await
         {
-            tracing::error!(service = %id, error = %e, "the engine state could not be recorded");
+            Ok(p) => Ok(Done::from(format!(
+                "{}, {}, {} sent",
+                units::counted(p.imports as i64, "import", "imports"),
+                units::counted(p.logged as i64, "match", "matches"),
+                units::count(p.sent as i64)
+            ))),
+            Err(e) => {
+                tracing::warn!(error = %e, "the processing rules pass failed");
+                Err(Failed::from(e))
+            }
         }
-        job.wait(deps.interval).await;
     }
 }
 
@@ -1784,7 +1877,6 @@ mod tests {
     use crate::core::outbound::{Allowlist, Method, Outbound};
     use crate::engines::hush::{self, Hush};
     use crate::engines::{ProcessorFile, ProcessorWorker, WorkerFile, WorkerSetup};
-    use async_trait::async_trait;
     use serde_json::Value;
     use std::sync::Mutex;
 

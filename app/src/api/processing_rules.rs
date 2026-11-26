@@ -36,8 +36,11 @@ const PREVIEW_SHOWN: usize = 100;
 /// Entries of a log on one page by default, and at most.
 const LOG_DEFAULT: i64 = 100;
 const LOG_MAX: i64 = 500;
-/// The six ways a rule's entry ends.
-const OUTCOMES: [&str; 6] = ["shadow", "held", "skipped", "sent", "refused", "failed"];
+/// The seven outcomes of a rule's entry: a claim stays `sending` until an answer or a run of the
+/// service settles it.
+const OUTCOMES: [&str; 7] = [
+    "shadow", "held", "skipped", "sending", "sent", "refused", "failed",
+];
 
 /// How many entries of each outcome.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, ToSchema)]
@@ -45,6 +48,7 @@ pub struct OutcomeCounts {
     pub shadow: i64,
     pub held: i64,
     pub skipped: i64,
+    pub sending: i64,
     pub sent: i64,
     pub refused: i64,
     pub failed: i64,
@@ -56,9 +60,11 @@ impl OutcomeCounts {
             "shadow" => &mut self.shadow,
             "held" => &mut self.held,
             "skipped" => &mut self.skipped,
+            "sending" => &mut self.sending,
             "sent" => &mut self.sent,
             "refused" => &mut self.refused,
-            _ => &mut self.failed,
+            "failed" => &mut self.failed,
+            _ => return,
         };
         *slot += n;
     }
@@ -162,9 +168,14 @@ pub struct ServiceDid {
 #[serde(rename_all = "camelCase")]
 pub struct LogView {
     pub at: DateTime<Utc>,
-    /// `shadow`, `held`, `skipped`, `sent`, `refused` or `failed`.
+    /// `shadow`, `held`, `skipped`, `sending`, `sent`, `refused` or `failed`.
     pub outcome: String,
-    /// Why it was held, skipped, refused or failed, in a few words.
+    /// A send not confirmed: its row is in `sending`, the job that claimed the file ended (for a
+    /// rule run from the API: two minutes passed) and the service shows no run the send opened.
+    /// The page offers to send the file again.
+    pub attention: bool,
+    /// Why it was held, skipped, refused or failed, in a few words. A claim's says why it stays
+    /// in `sending`.
     pub detail: Option<String>,
     pub evidence: Option<String>,
     pub file: String,
@@ -506,7 +517,7 @@ fn service_runs(runs: Vec<Run>) -> HashMap<(i64, String), ServiceDid> {
         let (Some(title), Some(source)) = (r.title_id, r.source_path.as_deref()) else {
             continue;
         };
-        if r.trigger.starts_with("api:") {
+        if r.trigger.starts_with(crate::engines::hush::API_TRIGGER) {
             continue;
         }
         out.entry((title, file_name(source).to_string()))
@@ -566,6 +577,7 @@ async fn rules_log(
                         .filter(|d| Some(&d.run) != r.run_id.as_ref())
                         .cloned(),
                     title: r.title_id.and_then(|t| cards.get(&t).cloned()),
+                    attention: r.attention,
                     at: r.at,
                     outcome: r.outcome,
                     detail: r.detail,

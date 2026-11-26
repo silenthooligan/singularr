@@ -729,7 +729,7 @@ async fn integration_sync(
         )));
     }
     let jobs = jobs::registry().of_integration(&id);
-    // The passes of a manager or a download client are schedules of the job runtime.
+    // The passes of an integration are schedules of the job runtime.
     let scheduled: Vec<String> =
         crate::lifecycle::jobs::integration_keys(&state.config, &state.engines)
             .into_iter()
@@ -943,7 +943,7 @@ async fn jobs_list(State(state): State<AppState>) -> ApiResult<JobsPanel> {
         .iter()
         .map(|j| job_view(j, &state.config))
         .collect();
-    // The folder scans and the passes of the managers and download clients run in the job
+    // The folder scans, the processing rules and the passes of the integrations run in the job
     // runtime: their views come from their schedules.
     let listed = crate::lifecycle::jobs::listed_keys(&state.config, &state.engines);
     let keys: Vec<&str> = listed.iter().map(String::as_str).collect();

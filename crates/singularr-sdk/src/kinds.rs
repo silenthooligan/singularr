@@ -22,6 +22,25 @@ pub enum EngineError {
     },
     #[error("{engine} refused the sign-in: {message}")]
     Login { engine: String, message: String },
+    /// An act was not sent: a read it needs first failed. Nothing of the act reached the service.
+    #[error("the act was not sent to {engine}: {message}")]
+    NotSent { engine: String, message: String },
+}
+
+impl EngineError {
+    /// An act that ended in this error surely did not take place. The way out refused it, it
+    /// reached nothing or the service said no ([`crate::error::ConnectorError::act_settled_no`]).
+    /// A refused sign-in or a failed read comes before the act ([`EngineError::NotSent`]). Any
+    /// other error may have come after the service took the act. An answer too large to read is
+    /// one: it came after the call went out.
+    pub fn act_settled_no(&self) -> bool {
+        match self {
+            EngineError::Outbound(OutboundError::TooLarge { .. }) => false,
+            EngineError::Outbound(e) => e.taxonomy().act_settled_no(),
+            EngineError::Login { .. } | EngineError::NotSent { .. } => true,
+            EngineError::Decode { .. } => false,
+        }
+    }
 }
 
 /// What `/system/status` says.
@@ -1362,8 +1381,10 @@ pub enum Sent {
         /// whose file still lies in a queue.
         job: Option<String>,
     },
-    /// It did not answer in time, or gave up waiting on its own work. That is not a no:
-    /// it may still stage the file. The call is never made a second time.
+    /// No clear answer: the call went out and nothing says whether the service took the file
+    /// (no answer in time, a connection that broke, an error status without the service's own
+    /// words). That is not a no: it may have taken the file. The call is never made a second
+    /// time.
     Unanswered,
 }
 
@@ -1772,7 +1793,9 @@ pub trait Processor: Send + Sync {
     }
     /// Hand one file to one flow. This is an act: it is refused on the way out unless the
     /// integration's access is `act`. `requested_by` names the caller in the service's
-    /// own record of the job.
+    /// own record of the job. A call that went out with no clear answer is
+    /// [`Sent::Unanswered`]. An error is a no only for [`EngineError::act_settled_no`]. The
+    /// caller reads any other error as no clear answer.
     async fn send(
         &self,
         _path: &str,

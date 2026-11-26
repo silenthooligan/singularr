@@ -12,7 +12,7 @@
 
   /* ------------------------------------------------------------ words */
   const KINDS = [['transcodeGpu', 'Transcode GPU'], ['transcodeCpu', 'Transcode CPU'], ['healthGpu', 'Health check GPU'], ['healthCpu', 'Health check CPU']];
-  const OUTCOME = { shadow: ['Would send', 'info'], held: ['Held', 'warn'], skipped: ['Skipped', 'mute'], sent: ['Sent', 'ok'], refused: ['Refused', 'bad'], failed: ['Failed', 'bad'] };
+  const OUTCOME = { shadow: ['Would send', 'info'], held: ['Held', 'warn'], skipped: ['Skipped', 'mute'], sending: ['Sending', 'info'], unconfirmed: ['Unconfirmed', 'warn'], sent: ['Sent', 'ok'], refused: ['Refused', 'bad'], failed: ['Failed', 'bad'] };
   const outcome = o => { const w = OUTCOME[o] || [fmt.cap(o || ''), 'mute']; return html`<span class="mq-state" data-tone="${w[1]}"><span class="mq-dot"></span>${w[0]}</span>`; };
   /* The condition language's fields, as chips: enumerations, lists of words, numbers. */
   const FIELDS = [
@@ -212,12 +212,23 @@
       /* A rule's log in a drawer: what it sent and would have sent, next to what the service did. */
       async function log(rule) {
         const page = await MQ.api(`/processing/rules/${rule.id}/log`);
+        const entries = page?.entries || [];
         const d = MQ.drawer({ title: rule.name, label: rule.name, wide: true, sub: rule.when === 'request' ? 'On request' : 'On import', body: html`<div id="pr-log"></div>` });
-        MQ.table($('#pr-log', d.el), { id: 'pr-log', rows: page?.entries || [], toolbar: false, pageSize: 50, empty: { title: 'No matches' },
+        /* A send not confirmed: the send dialog sends the file again, a click each time. It opens with the whole
+           title record: its line of the file's last run shows. A title that does not load opens nothing. */
+        d.el.addEventListener('click', async e => {
+          const b = e.target.closest('[data-resend]'); if (!b) return;
+          const x = entries.find(y => y.path === b.dataset.resend); if (!x) return;
+          const t = x.title?.id ? await MQ.title(x.title.id).catch(() => null) : null;
+          if (!t) { MQ.toast("Couldn't load title", 'bad'); return; }
+          const held = (t.library?.editions || []).flatMap(ed => ed.files || []).find(file => file.fileName === x.file);
+          MQ.proc.send(t, held || { fileName: x.file });
+        });
+        MQ.table($('#pr-log', d.el), { id: 'pr-log', rows: entries, toolbar: false, pageSize: 50, empty: { title: 'No matches' },
           columns: [
             { key: 'at', label: 'Date', type: 'rel', always: true, cls: 'c-dim' },
             { key: 'file', label: 'File', render: x => html`<span class="mq-cell-two"><b>${x.title?.title || x.file}</b><small class="mono">${x.file}</small></span>` },
-            { key: 'outcome', label: 'Status', render: x => html`${outcome(x.outcome)}${x.detail ? html` <span class="pr-meta">${x.detail}</span>` : ''}` },
+            { key: 'outcome', label: 'Status', render: x => html`${outcome(x.attention ? 'unconfirmed' : x.outcome)}${x.detail ? html` <span class="pr-meta">${x.detail}</span>` : ''}${x.attention ? html` <button type="button" class="mq-btn mq-btn--sm" data-resend="${x.path}">Send again</button>` : ''}` },
             { key: 'serviceDid', label: 'Service run', render: x => (x.serviceDid ? html`<span class="mq-cell-two"><b>${x.serviceDid.flow}</b><small>${MQ.join([P().word({ state: x.serviceDid.state }), x.serviceDid.trigger], ' · ')}</small></span>` : html`<span class="faint">None</span>`) },
             { key: 'evidence', label: 'Why', cls: 'hide-md c-dim' },
           ] });
