@@ -6,7 +6,6 @@ instance file and `singularrd` for the server binary.
 
 See the [illustrated product and identity guide](./Singularr%20Event%20Horizon%20Guide.pdf) and the
 [identity board](./Singularr%20Event%20Horizon%20Board.png).
-[Download the complete identity kit](https://github.com/silenthooligan/singularr/releases/download/identity-v1.0/Singularr.Event.Horizon.Kit.zip).
 
 ## Choose a mark
 
