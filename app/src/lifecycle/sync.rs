@@ -1,6 +1,7 @@
 //! The sync: what Singularr reads from the integrations. The passes of the managers (titles,
-//! queue, grab history) and of the download clients are jobs of the job runtime
-//! (`lifecycle::jobs`, B9b). The media servers' pass is still a loop of its own until B9c.
+//! queue, grab history) and of the download clients (B9b), of the media servers and of the Seerr
+//! sites (requests, accounts, discover lists, B9c) are jobs of the job runtime
+//! (`lifecycle::jobs`).
 //!
 //! The integrations are shared production services. The passes are slow by default. The first run
 //! after a start waits a random delay. A show's files are read only when its file count changed,
@@ -26,14 +27,19 @@ use crate::core::runtime::{Cx, Done, Failed, Handler, Lease, LeaseError};
 use crate::core::units;
 use crate::engines::service::{EngineSet, PassOk};
 use crate::engines::{
-    ClientListing, DownloadClient, FormatBook, FormatChanges, LibraryEngine, Protocol, QueueItem,
+    ClientListing, DownloadClient, FormatBook, FormatChanges, LibraryEngine, MediaServer, Protocol,
+    QueueItem, RequestSite,
 };
+use crate::requests::discover;
+use crate::requests::rules::Rules;
+use crate::requests::sync::{PassConfig, discover_pass, requests_pass, users_pass};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use serde_json::json;
 use sqlx::PgPool;
 use std::collections::HashSet;
+use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
@@ -47,6 +53,13 @@ pub const TITLES: &str = "manager.titles";
 pub const QUEUE: &str = "manager.queue";
 pub const HISTORY: &str = "manager.history";
 pub const DOWNLOADS: &str = "download.listing";
+pub const SERVER: &str = "server.pass";
+pub const REQUESTS: &str = "requests.pass";
+pub const ACCOUNTS: &str = "requests.accounts";
+pub const DISCOVER: &str = "requests.discover";
+
+/// The marker of a Seerr site's discover lists: when they were last stored.
+pub const DISCOVER_AT: &str = "discover.at";
 
 #[derive(Clone)]
 pub struct SyncDeps {
@@ -98,13 +111,15 @@ impl Heard {
     }
 }
 
-/// What the manager and download jobs run with. `reassessed` turns true once the stored copies
-/// were assessed again at this start. A titles pass waits for it. Each engine's rows then keep a
-/// single writer.
+/// What the integrations' jobs run with. `reassessed` turns true once the stored copies were
+/// assessed again at this start. A titles pass waits for it. Each engine's rows then keep a single
+/// writer. `rules` are the request rules: the owner's accounts are marked when a Seerr site's
+/// accounts are read.
 pub struct SyncJobs {
     pub deps: SyncDeps,
     pub reassessed: watch::Receiver<bool>,
     pub heard: Heard,
+    pub rules: Rules,
 }
 
 /// The running loops. Dropping the handle leaves them running; call [`SyncHandle::stop`].
@@ -136,9 +151,9 @@ pub fn jitter(max: Duration) -> Duration {
     Duration::from_millis((uuid::Uuid::new_v4().as_u128() % (millis as u128 + 1)) as u64)
 }
 
-/// Start the re-assessment of the stored copies and the media servers' loops. The manager and
-/// download passes are jobs: they run with [`SyncHandle::jobs`].
-pub fn spawn(deps: SyncDeps) -> SyncHandle {
+/// Start the re-assessment of the stored copies. The integrations' passes are jobs: they run with
+/// [`SyncHandle::jobs`].
+pub fn spawn(deps: SyncDeps, rules: Rules) -> SyncHandle {
     let (done, reassessed) = watch::channel(false);
     let mut tasks = Vec::new();
 
@@ -148,25 +163,30 @@ pub fn spawn(deps: SyncDeps) -> SyncHandle {
         let deps = deps.clone();
         tasks.push(tokio::spawn(async move {
             let started = Instant::now();
-            match reassess(&deps.pool, &deps.journal, deps.assess.clone(), deps.policy_event).await {
-                Ok(r) if r.examined > 0 => tracing::info!(
+            // A panic signals as a failure does: the copies keep their old scores. The channel then
+            // closes without the signal at a stop alone.
+            let assessed = AssertUnwindSafe(reassess(
+                &deps.pool,
+                &deps.journal,
+                deps.assess.clone(),
+                deps.policy_event,
+            ))
+            .catch_unwind()
+            .await;
+            match assessed {
+                Ok(Ok(r)) if r.examined > 0 => tracing::info!(
                     examined = r.examined,
                     updated = r.updated,
                     score_changed = r.score_changed,
                     seconds = started.elapsed().as_secs(),
                     "stored copies were assessed again under the current policy and build"
                 ),
-                Ok(_) => {}
-                Err(e) => tracing::error!(error = %e, "assessing the stored copies again failed; they keep their old scores until the next start"),
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => tracing::error!(error = %e, "assessing the stored copies again failed; they keep their old scores until the next start"),
+                Err(_) => tracing::error!("assessing the stored copies again panicked; they keep their old scores until the next start"),
             }
             let _ = done.send(true);
         }));
-    }
-    for server in deps.engines.media_servers.iter().cloned() {
-        tasks.push(tokio::spawn(super::server::server_loop(
-            deps.clone(),
-            server,
-        )));
     }
     SyncHandle {
         tasks,
@@ -174,6 +194,7 @@ pub fn spawn(deps: SyncDeps) -> SyncHandle {
             deps,
             reassessed,
             heard: Heard::default(),
+            rules,
         }),
     }
 }
@@ -310,22 +331,26 @@ pub async fn titles_pass_with(
     ))
 }
 
-/// Read grab history pages, newest first, until a page holds a grab a complete read stored
-/// (`loaded`, the marker [`claims::HISTORY_LOADED`]). It stops at the end of the history too. It
-/// stops after `max_pages` pages at most. Each page's download ids are stored in a transaction that proves the
-/// run's lease. Without a marker the read goes on to the end or the cap. The log says how many
-/// pages were read. When the cap came first it says that older grabs were not read.
+/// Read grab history pages, newest first, until a page holds a record at or below `loaded`: the
+/// newest record id of the last read that ended well (the marker [`claims::HISTORY_LOADED`]). It
+/// stops at the end of the history too. It stops after `max_pages` pages at most. A first page
+/// whose newest record is below `loaded` voids the marker: the arr's database was restored or
+/// rebuilt. The read then goes on to the end or the cap. Each page's download ids are stored in a
+/// transaction that proves the run's lease. The log says how many pages were read. When the cap
+/// came first it says that older grabs were not read. Returns the newest record id it saw too.
 async fn history_pass(
     deps: &SyncDeps,
     engine: &Arc<dyn LibraryEngine>,
     lease: &Lease,
-    loaded: Option<DateTime<Utc>>,
+    loaded: Option<i64>,
     max_pages: u32,
-) -> Result<PassOk, String> {
+) -> Result<(PassOk, Option<i64>), String> {
     let id = engine.engine().id.clone();
     let mut complete = false;
     let mut latency = Duration::ZERO;
     let mut pages = 0u32;
+    let mut loaded = loaded;
+    let mut newest = None;
     for page in 1..=max_pages {
         let asked = Instant::now();
         let grabs = engine
@@ -335,15 +360,22 @@ async fn history_pass(
         pages = page;
         if page == 1 {
             latency = asked.elapsed();
+            newest = grabs.record_ids.iter().copied().max();
+            if let (Some(top), Some(mark)) = (newest, loaded)
+                && top < mark
+            {
+                tracing::warn!(
+                    engine = %id,
+                    newest = top,
+                    marker = mark,
+                    "the grab history's newest record is older than the last read's: the history is read anew"
+                );
+                loaded = None;
+            }
         }
         let end = grabs.records < HISTORY_PAGE as usize
             || (page as i64) * (HISTORY_PAGE as i64) >= grabs.total_records;
-        let met = match loaded {
-            Some(at) => claims::known_before(&deps.pool, &id, &grabs.download_ids, at)
-                .await
-                .map_err(|e| format!("the grab history could not be read back: {e}"))?,
-            None => false,
-        };
+        let met = loaded.is_some_and(|mark| grabs.record_ids.iter().any(|r| *r <= mark));
         store_page(&deps.pool, lease, &id, &grabs.download_ids)
             .await
             .map_err(|e| format!("the grab history could not be stored: {e}"))?;
@@ -360,15 +392,18 @@ async fn history_pass(
         tracing::warn!(
             engine = %id,
             pages,
-            "the grab history was read to its most pages before it met grabs it had: older grabs were not read"
+            "the grab history was read to its most pages before it met records it had: older grabs were not read"
         );
     }
     let known = claims::history_count(&deps.pool, &id)
         .await
         .map_err(|e| format!("the grab history could not be counted: {e}"))?;
-    Ok(PassOk::new(
-        latency,
-        json!({ "grabs_known": known, "grab_history_complete": complete, "history_pages": pages }),
+    Ok((
+        PassOk::new(
+            latency,
+            json!({ "grabs_known": known, "grab_history_complete": complete, "history_pages": pages }),
+        ),
+        newest,
     ))
 }
 
@@ -424,8 +459,8 @@ enum Last {
     Nothing,
     /// An arr's queue as read: it replaces the arr's queue rows.
     Queue(Vec<QueueItem>),
-    /// A marker of the arr, with the database's time of the commit that ends the job.
-    MarkNow(&'static str),
+    /// The marker of the arr's loaded grab history: the newest record id of the read.
+    Loaded(i64),
     /// What a titles pass changed in the format book. `full_at`: the start of a full file pass.
     Titles {
         full_at: Option<DateTime<Utc>>,
@@ -469,6 +504,38 @@ impl SyncJobs {
             .find(|c| c.id() == id)
             .cloned()
             .ok_or_else(|| Failed::from(format!("no download client `{id}` runs in this process")))
+    }
+
+    /// The media server a job reads.
+    fn server(&self, cx: &Cx) -> Result<Arc<dyn MediaServer>, Failed> {
+        let id = cx.job.integration.as_deref().unwrap_or_default();
+        self.deps
+            .engines
+            .media_servers
+            .iter()
+            .find(|s| s.id() == id)
+            .cloned()
+            .ok_or_else(|| Failed::from(format!("no media server `{id}` runs in this process")))
+    }
+
+    /// The Seerr site a job reads.
+    fn site(&self, cx: &Cx) -> Result<Arc<dyn RequestSite>, Failed> {
+        let id = cx.job.integration.as_deref().unwrap_or_default();
+        self.deps
+            .engines
+            .request_sites
+            .iter()
+            .find(|s| s.id() == id)
+            .cloned()
+            .ok_or_else(|| Failed::from(format!("no Seerr site `{id}` runs in this process")))
+    }
+
+    /// The deps of a run: the journal fenced by its lease.
+    fn fenced(&self, cx: &Cx) -> SyncDeps {
+        SyncDeps {
+            journal: self.deps.journal.fenced(Arc::new(cx.lease.clone())),
+            ..self.deps.clone()
+        }
     }
 
     /// A pass ended. The metrics and the log hear how it went. One transaction holds the pass's
@@ -545,7 +612,7 @@ impl SyncJobs {
             match last {
                 Last::Nothing => {}
                 Last::Queue(items) => claims::put_queue(tx.conn(), run.engine, &items).await?,
-                Last::MarkNow(name) => claims::mark_now(tx.conn(), run.engine, name).await?,
+                Last::Loaded(newest) => claims::mark_loaded(tx.conn(), run.engine, newest).await?,
                 Last::Titles {
                     full_at,
                     formats: changes,
@@ -581,12 +648,12 @@ impl Handler for TitlesJob {
         let engine = sync.arr(&cx)?;
         let id = engine.engine().id.clone();
         // The stored copies are assessed again before any titles pass of this start. A stop ends
-        // the re-assessment without its signal: the pass then does not start.
+        // the re-assessment without its signal: the job then waits for the stop. The runtime gives
+        // a job a stop cuts short back to its queue, with no result and no backoff. The next start
+        // runs it.
         let mut reassessed = sync.reassessed.clone();
         if reassessed.wait_for(|done| *done).await.is_err() {
-            return Err(Failed::from(
-                "stopping: the stored copies were not assessed again",
-            ));
+            std::future::pending::<()>().await;
         }
         let full_at = claims::marked_at(&sync.deps.pool, &id, claims::FILES_FULL_AT)
             .await
@@ -596,10 +663,7 @@ impl Handler for TitlesJob {
                 ))
             })?;
         let full = claims::files_full_due(full_at, sync.deps.config.files_full, Utc::now());
-        let deps = SyncDeps {
-            journal: sync.deps.journal.fenced(Arc::new(cx.lease.clone())),
-            ..sync.deps.clone()
-        };
+        let deps = sync.fenced(&cx);
         let book = formats::book(&sync.deps.pool, &id)
             .await
             .map_err(|e| Failed::from(format!("the format book could not be read: {e}")))?;
@@ -664,9 +728,9 @@ impl Handler for QueueJob {
     }
 }
 
-/// `manager.history`: an arr's grab history, newest first, to the first page that holds a grab a
-/// complete read stored ([`history_pass`]), at most `jobs.historyPages` pages. The marker
-/// (`history.loaded`) is written in the transaction that ends the job.
+/// `manager.history`: an arr's grab history, newest first, to the first page that holds a record
+/// the last read that ended well saw ([`history_pass`]), at most `jobs.historyPages` pages. The
+/// marker (`history.loaded`) is written in the transaction that ends the job.
 pub struct HistoryJob(pub Arc<SyncJobs>);
 
 #[async_trait]
@@ -676,16 +740,19 @@ impl Handler for HistoryJob {
         let engine = sync.arr(&cx)?;
         let id = engine.engine().id.clone();
         let journal = sync.deps.journal.fenced(Arc::new(cx.lease.clone()));
-        let loaded = claims::marked_at(&sync.deps.pool, &id, claims::HISTORY_LOADED)
-            .await
-            .map_err(|e| {
-                Failed::from(format!(
-                    "the marker of the grab history could not be read: {e}"
-                ))
-            })?;
+        let loaded = claims::loaded_id(&sync.deps.pool, &id).await.map_err(|e| {
+            Failed::from(format!(
+                "the marker of the grab history could not be read: {e}"
+            ))
+        })?;
         let started = Instant::now();
         let pages = sync.deps.config.history_max_pages;
-        let outcome = history_pass(&sync.deps, &engine, &cx.lease, loaded, pages).await;
+        let passed = history_pass(&sync.deps, &engine, &cx.lease, loaded, pages).await;
+        let (outcome, last) = match passed {
+            Ok((ok, Some(newest))) => (Ok(ok), Last::Loaded(newest)),
+            Ok((ok, None)) => (Ok(ok), Last::Nothing),
+            Err(e) => (Err(e), Last::Nothing),
+        };
         let read = outcome.is_ok();
         let run = Run {
             cx: &cx,
@@ -693,7 +760,6 @@ impl Handler for HistoryJob {
             engine: &id,
             pass: "history",
         };
-        let last = Last::MarkNow(claims::HISTORY_LOADED);
         let (committed, ended) = sync.end(&run, started, outcome, last).await;
         if read && committed {
             sync.heard.history_read(&id);
@@ -736,6 +802,136 @@ impl Handler for DownloadsJob {
             pass: "downloads",
         };
         sync.end(&run, started, outcome, Last::Nothing).await.1
+    }
+}
+
+/// `server.pass`: one pass over a media server ([`super::server::server_pass`]): its sections,
+/// items, ratings, plays and music. Its writes go through a journal fenced by the run's lease.
+pub struct ServerJob(pub Arc<SyncJobs>);
+
+#[async_trait]
+impl Handler for ServerJob {
+    async fn run(&self, cx: Cx) -> Result<Done, Failed> {
+        let sync = &self.0;
+        let server = sync.server(&cx)?;
+        let id = server.id().to_string();
+        let deps = sync.fenced(&cx);
+        let started = Instant::now();
+        let outcome = super::server::server_pass(&deps, &server).await;
+        let run = Run {
+            cx: &cx,
+            journal: &deps.journal,
+            engine: &id,
+            pass: "server",
+        };
+        sync.end(&run, started, outcome, Last::Nothing).await.1
+    }
+}
+
+/// `requests.pass`: one read of a Seerr site's requests ([`requests_pass`]). Its writes go
+/// through a journal fenced by the run's lease.
+pub struct RequestsJob(pub Arc<SyncJobs>);
+
+#[async_trait]
+impl Handler for RequestsJob {
+    async fn run(&self, cx: Cx) -> Result<Done, Failed> {
+        let sync = &self.0;
+        let site = sync.site(&cx)?;
+        let id = site.id().to_string();
+        let journal = sync.deps.journal.fenced(Arc::new(cx.lease.clone()));
+        let started = Instant::now();
+        let outcome = requests_pass(&sync.deps.pool, &journal, &site, PassConfig::default())
+            .await
+            .map(|(ok, _)| ok);
+        let run = Run {
+            cx: &cx,
+            journal: &journal,
+            engine: &id,
+            pass: "requests",
+        };
+        sync.end(&run, started, outcome, Last::Nothing).await.1
+    }
+}
+
+/// `requests.accounts`: one read of a Seerr site's accounts ([`users_pass`]): who may sign in
+/// to Singularr Requests. It writes no pass row, as the loop wrote none. Its rows replace what the
+/// site no longer lists. A run that lost its lease writes the same rows the next run writes.
+pub struct AccountsJob(pub Arc<SyncJobs>);
+
+#[async_trait]
+impl Handler for AccountsJob {
+    async fn run(&self, cx: Cx) -> Result<Done, Failed> {
+        let sync = &self.0;
+        let site = sync.site(&cx)?;
+        match users_pass(&sync.deps.pool, &site, &sync.rules).await {
+            Ok(r) => Ok(Done::from(format!(
+                "{} read, {} removed",
+                units::counted(r.read as i64, "account", "accounts"),
+                units::count(r.removed as i64)
+            ))),
+            Err(e) => {
+                tracing::warn!(site = %site.id(), error = %e, "the accounts were not read");
+                Err(Failed::from(e.to_string()))
+            }
+        }
+    }
+}
+
+/// `requests.discover`: the discover lists of the first Seerr site, as the owner's Discover page
+/// asks them. A run whose marker (`discover.at`) is younger than the lists' life reads nothing:
+/// its next run comes as they expire. A pass that stored a list writes the marker in the commit
+/// that ends its job.
+pub struct DiscoverJob(pub Arc<SyncJobs>);
+
+#[async_trait]
+impl Handler for DiscoverJob {
+    async fn run(&self, cx: Cx) -> Result<Done, Failed> {
+        let sync = &self.0;
+        let site = sync.site(&cx)?;
+        let id = site.id().to_string();
+        let stored_at = claims::marked_at(&sync.deps.pool, &id, DISCOVER_AT)
+            .await
+            .map_err(|e| Failed::from(format!("the marker of the lists could not be read: {e}")))?;
+        // Fresh lists: the next run comes as they expire.
+        let left = stored_at.and_then(|at| {
+            let age = (Utc::now() - at).to_std().unwrap_or_default();
+            discover::TTL
+                .checked_sub(age)
+                .filter(|left| !left.is_zero())
+        });
+        if let Some(left) = left {
+            return Ok(Done {
+                detail: "Lists fresh".to_string(),
+                again: Some(left),
+                ..Done::default()
+            });
+        }
+        let at = Utc::now();
+        let stored = discover_pass(&sync.deps.pool, &site).await;
+        let done: Result<Done, Failed> = Ok(Done::from(format!(
+            "{} stored",
+            units::counted(stored as i64, "list", "lists")
+        )));
+        let journal = sync.deps.journal.fenced(Arc::new(cx.lease.clone()));
+        let ended = async {
+            let mut tx = journal.begin(&sync.deps.pool).await?;
+            // A pass that stored no list leaves the marker: the next run reads them again.
+            if stored > 0 {
+                claims::mark(tx.conn(), &id, DISCOVER_AT, at).await?;
+            }
+            tx.finish(&cx.lease, &done).await?;
+            tx.commit().await?;
+            Ok::<(), LeaseError>(())
+        }
+        .await;
+        match ended {
+            Ok(()) => done,
+            Err(LeaseError::Lost) => Err(Failed::from(LeaseError::Lost.to_string())),
+            Err(LeaseError::Db(e)) => {
+                tracing::warn!(site = %id, error = %e, "the marker of the lists was not written");
+                done
+            }
+        }
     }
 }
 

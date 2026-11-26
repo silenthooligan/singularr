@@ -57,6 +57,8 @@ pub struct QueueItem {
 pub struct GrabPage {
     /// Download ids (torrent hashes, usenet job ids), upper case.
     pub download_ids: Vec<String>,
+    /// The ids of the page's history records, as the arr numbers them.
+    pub record_ids: Vec<i64>,
     pub records: usize,
     pub total_records: i64,
 }

@@ -285,6 +285,7 @@ impl ArrClient {
         Ok(GrabPage {
             records: raw.records.len(),
             total_records: raw.total_records.unwrap_or(0),
+            record_ids: raw.records.iter().filter_map(|r| r.id).collect(),
             download_ids: raw
                 .records
                 .into_iter()
@@ -647,6 +648,7 @@ struct RawQueuePage {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RawHistoryRecord {
+    id: Option<i64>,
     download_id: Option<String>,
 }
 

@@ -2715,24 +2715,6 @@ async fn the_runtimes_jobs_leave_the_pass_rows_alone() {
     t.drop_db().await;
 }
 
-/// The grab history of one Radarr in three pages of 250, 250 and 100 records: 600 ids.
-fn record_history_pages(recorded: &Recorded) {
-    for (page, records) in [(1, 250), (2, 250), (3, 100)] {
-        let ids: Vec<serde_json::Value> = (0..records)
-            .map(|i| serde_json::json!({ "downloadId": format!("{:040X}", page * 1000 + i) }))
-            .collect();
-        recorded.answer(
-            Method::Get,
-            &format!("{RADARR}/api/v3/history?page={page}&pageSize=250"),
-            200,
-            &serde_json::json!({
-                "page": page, "pageSize": 250, "totalRecords": 600, "records": ids
-            })
-            .to_string(),
-        );
-    }
-}
-
 /// The calls of one page of a grab history.
 fn page_calls(recorded: &Recorded, page: u32) -> usize {
     let part = format!("/history?page={page}&pageSize=250");
@@ -2844,9 +2826,19 @@ async fn the_manager_and_download_passes_run_as_jobs() {
             && claimed.contains(&("radarr".into(), "history".into(), 2)),
         "{claimed:?}"
     );
+    // Sonarr's history holds no record: no marker says where a read stopped.
+    assert_eq!(
+        (
+            claims::loaded_id(&t.pool, "radarr")
+                .await
+                .unwrap()
+                .is_some(),
+            claims::loaded_id(&t.pool, "sonarr").await.unwrap()
+        ),
+        (true, None)
+    );
     for (arr, name) in [
         ("radarr", claims::HISTORY_LOADED),
-        ("sonarr", claims::HISTORY_LOADED),
         ("radarr", claims::FILES_FULL_AT),
         ("sonarr", claims::FILES_FULL_AT),
     ] {
@@ -2990,13 +2982,15 @@ async fn the_manager_and_download_passes_run_as_jobs() {
     t.drop_db().await;
 }
 
-/// A history read takes pages newest first until a page holds a grab a complete read stored. A
-/// start reads the first page alone when nothing came since. A bulk search of 500 grabs is read to
-/// the grabs it had. A read cut short (here a page that fails, as a lost lease would) keeps its
-/// pages and moves no marker: the next read goes on to the same grabs. A start whose last full
-/// file pass is recent makes no full file pass. Radarr's format book outlives a start.
+/// A history read takes pages newest first until a page holds a record the last read that ended
+/// well saw (by the arr's record ids). A start reads the first page alone when nothing came since.
+/// A re-grab of an old torrent at the top of a burst of 300 grabs reads on to those records. A read
+/// cut short (here a page that fails, as a lost lease would) keeps its pages and moves no marker:
+/// the next read goes on to the same records. Record ids that go backwards void the marker: the
+/// read goes to its most pages. A start whose last full file pass is recent makes no full file
+/// pass. Radarr's format book outlives a start.
 #[tokio::test]
-async fn a_history_read_stops_at_the_grabs_it_has() {
+async fn a_history_read_stops_at_the_records_it_has() {
     let Some(t) = TestDb::new("sync_markers").await else {
         return;
     };
@@ -3007,13 +3001,39 @@ async fn a_history_read_stops_at_the_grabs_it_has() {
         &fixture("radarr_movie.json"),
         &fixture("radarr_moviefile.json"),
     );
-    record_history_pages(&recorded);
+    // Each record: its id and the download id it grabbed.
+    let hash = |n: i64| format!("{:040X}", n);
+    let records = |from: i64, to: i64| -> Vec<(i64, String)> {
+        (to..=from).rev().map(|id| (id, hash(id))).collect()
+    };
+    let answer = |pages: Vec<Vec<(i64, String)>>, total: i64| {
+        for (n, page) in pages.into_iter().enumerate() {
+            let records: Vec<serde_json::Value> = page
+                .into_iter()
+                .map(|(id, download)| serde_json::json!({ "id": id, "downloadId": download }))
+                .collect();
+            recorded.answer(
+                Method::Get,
+                &format!("{RADARR}/api/v3/history?page={}&pageSize=250", n + 1),
+                200,
+                &serde_json::json!({
+                    "page": n + 1, "pageSize": 250, "totalRecords": total, "records": records
+                })
+                .to_string(),
+            );
+        }
+    };
+    answer(
+        vec![records(1000, 751), records(750, 501), records(500, 401)],
+        600,
+    );
     let st = state_on(
         &t.pool,
         Journal::new(),
         &[
             ("RADARR_API_KEY", "test-key"),
             ("SINGULARR_SYNC_JITTER_SECS", "0"),
+            ("SINGULARR_SYNC_HISTORY_MAX_PAGES", "3"),
         ],
         recorded.clone(),
     );
@@ -3027,9 +3047,9 @@ async fn a_history_read_stops_at_the_grabs_it_has() {
             assert!(ended.ok(), "{key}: {ended:?}");
         }
     };
-    let history: i64 = 600;
     let count = || async { claims::history_count(&t.pool, "radarr").await.unwrap() };
-
+    let loaded = || async { claims::loaded_id(&t.pool, "radarr").await.unwrap() };
+    let calls = |n| page_calls(&recorded, n);
     let moviefile_calls = || {
         recorded
             .urls_seen()
@@ -3037,14 +3057,22 @@ async fn a_history_read_stops_at_the_grabs_it_has() {
             .filter(|u| u.contains("/moviefile"))
             .count()
     };
+    let complete = || async {
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT counts->>'grab_history_complete' FROM engine_state WHERE engine = 'radarr'",
+        )
+        .fetch_one(&t.pool)
+        .await
+        .unwrap()
+    };
 
     // The first start reads the whole history. Its titles pass asks about the files' formats.
     let (jobs, sync) = start_sync_jobs(&st).await;
     run("radarr:history").await;
     run("radarr:titles").await;
-    assert_eq!((page_calls(&recorded, 2), page_calls(&recorded, 3)), (1, 1));
+    assert_eq!((calls(2), calls(3)), (1, 1));
+    assert_eq!((count().await, loaded().await), (600, Some(1000)));
     assert_eq!(moviefile_calls(), 1);
-    assert_eq!(count().await, history);
     let full_at = claims::marked_at(&t.pool, "radarr", claims::FILES_FULL_AT)
         .await
         .unwrap();
@@ -3052,13 +3080,13 @@ async fn a_history_read_stops_at_the_grabs_it_has() {
     jobs.stop().await;
     sync.stop();
 
-    // A start inside its interval: the first page of the history, no full file pass. The format
-    // book from the first start answers for the files: no file is asked about again.
+    // A start with nothing new: the first page of the history, no full file pass, no file asked
+    // about again.
     let (jobs, sync) = start_sync_jobs(&st).await;
     run("radarr:history").await;
     run("radarr:titles").await;
-    assert!(page_calls(&recorded, 1) >= 2);
-    assert_eq!((page_calls(&recorded, 2), page_calls(&recorded, 3)), (1, 1));
+    assert!(calls(1) >= 2);
+    assert_eq!((calls(2), calls(3)), (1, 1));
     assert_eq!(moviefile_calls(), 1);
     assert_eq!(
         claims::marked_at(&t.pool, "radarr", claims::FILES_FULL_AT)
@@ -3067,39 +3095,20 @@ async fn a_history_read_stops_at_the_grabs_it_has() {
         full_at
     );
 
-    // A bulk search: 500 new grabs, then the newest page of the first read.
-    let page = |ids: Vec<String>| {
-        let records: Vec<serde_json::Value> = ids
-            .into_iter()
-            .map(|id| serde_json::json!({ "downloadId": id }))
-            .collect();
-        serde_json::json!({ "page": 1, "pageSize": 250, "totalRecords": 1100, "records": records })
-            .to_string()
-    };
-    let ids = |from: i32, n: i32| -> Vec<String> {
-        (from..from + n).map(|i| format!("{:040X}", i)).collect()
-    };
-    for (n, body) in [
-        (1, page(ids(10_000, 250))),
-        (2, page(ids(20_000, 250))),
-        (3, page(ids(1000, 250))),
-    ] {
-        recorded.answer(
-            Method::Get,
-            &format!("{RADARR}/api/v3/history?page={n}&pageSize=250"),
-            200,
-            &body,
-        );
-    }
-    let loaded = || async {
-        claims::marked_at(&t.pool, "radarr", claims::HISTORY_LOADED)
-            .await
-            .unwrap()
-    };
-    let before = loaded().await;
-    let calls = |n| page_calls(&recorded, n);
-    let (one, two, three) = (calls(1), calls(2), calls(3));
-    // A read cut short at its second page: the first page stays, the marker stays.
+    // A burst of 300 grabs whose newest re-grabs an old torrent: the read goes on to page 2.
+    let mut burst = records(1300, 1051);
+    burst[0].1 = hash(990);
+    let mut second = records(1050, 1001);
+    second.extend(records(1000, 801));
+    answer(vec![burst.clone(), second], 900);
+    let two = calls(2);
+    run("radarr:history").await;
+    assert_eq!(calls(2), two + 1);
+    assert_eq!((count().await, loaded().await), (899, Some(1300)));
+
+    // A read cut short at its second page: the first page stays, the marker stays. The next read
+    // goes past the page the cut read stored, to the records the last good read saw.
+    answer(vec![records(1550, 1301), burst], 1150);
     recorded.answer_once(
         Method::Get,
         "/api/v3/history?page=2&pageSize=250",
@@ -3107,21 +3116,28 @@ async fn a_history_read_stops_at_the_grabs_it_has() {
         "{}",
         &[],
     );
+    let (one, two) = (calls(1), calls(2));
     let cut = runtime::run_and_wait(&t.pool, "radarr:history", serde_json::json!({}))
         .await
         .unwrap()
         .unwrap();
     assert!(!cut.ok(), "{cut:?}");
-    assert_eq!(count().await, history + 250);
-    assert_eq!(loaded().await, before);
-    // The next read goes past the pages the cut read stored, to the grabs the first read had.
+    assert_eq!((count().await, loaded().await), (1149, Some(1300)));
     run("radarr:history").await;
-    assert_eq!(
-        (calls(1), calls(2), calls(3)),
-        (one + 2, two + 2, three + 1)
+    assert_eq!((calls(1), calls(2)), (one + 2, two + 2));
+    assert_eq!((count().await, loaded().await), (1149, Some(1550)));
+
+    // The arr's database was rebuilt: its newest record is older than the marker's. The read goes
+    // to its most pages (3 here). The marker takes the new newest record.
+    answer(
+        vec![records(750, 501), records(500, 251), records(250, 1)],
+        5000,
     );
-    assert_eq!(count().await, history + 500);
-    assert!(loaded().await > before);
+    let three = calls(3);
+    run("radarr:history").await;
+    assert_eq!(calls(3), three + 1);
+    assert_eq!(loaded().await, Some(750));
+    assert_eq!(complete().await.as_deref(), Some("false"));
     jobs.stop().await;
     sync.stop();
     t.drop_db().await;
@@ -3292,6 +3308,171 @@ async fn a_download_that_leaves_the_queue_loses_its_claim() {
         .collect();
     assert_eq!(held, vec!["BBBB"]);
     drop(conn);
+    t.drop_db().await;
+}
+
+/// The passes of the media servers and the Seerr sites are jobs of the runtime (B9c). The media
+/// server's pass and a site's requests are listed with the ids and intervals of their loops. A
+/// site's accounts and its discover lists have schedules of their own that are not listed, as the
+/// requests loop read them. A media server that does not answer fails its job and writes a
+/// failed pass row. The discover lists of a fresh marker are not read again: the next run comes
+/// as they expire.
+#[tokio::test]
+async fn the_server_and_seerr_passes_run_as_jobs() {
+    let Some(t) = TestDb::new("sync_jobs_sites").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    let requests: serde_json::Value =
+        serde_json::from_str(&fixture("seerr_requests.json")).unwrap();
+    // The job reads the requests in pages of 100, as the loop did.
+    record_seerr(&recorded, &requests, 100);
+    recorded.answer(
+        Method::Get,
+        &format!("{SEERR}/api/v1/user?take=100&skip=0"),
+        200,
+        &fixture("seerr_users.json"),
+    );
+    let st = state_on(
+        &t.pool,
+        Journal::new(),
+        &[
+            ("SEERR_API_KEY", "test-key"),
+            ("PLEX_URL", PLEX),
+            ("PLEX_TOKEN", "plex-token"),
+            ("SINGULARR_SYNC_JITTER_SECS", "0"),
+        ],
+        recorded.clone(),
+    );
+    let schedules = runtime_jobs::schedules(&st.config, &st.settings, Some(&st.engines));
+    let keys: Vec<(&str, &str, u64, bool)> = schedules
+        .iter()
+        .filter(|s| s.integration.is_some())
+        .map(|s| {
+            (
+                s.key.as_str(),
+                s.kind.as_str(),
+                s.every.as_secs(),
+                runtime_jobs::listed(&s.key).is_some(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        keys,
+        vec![
+            ("plex:server", "server.pass", 3600, true),
+            ("seerr:requests", "requests.pass", 300, true),
+            ("seerr:accounts", "requests.accounts", 300, false),
+            ("seerr:discover", "requests.discover", 1800, false),
+        ]
+    );
+    let passes = st.engines.passes(true);
+    for pass in [("plex", "server"), ("seerr", "requests")] {
+        assert!(passes.contains(&(pass.0.to_string(), pass.1)), "{pass:?}");
+    }
+
+    let (jobs, sync) = start_sync_jobs(&st).await;
+    let run = |key: &'static str| {
+        let pool = t.pool.clone();
+        async move {
+            runtime::run_and_wait(&pool, key, serde_json::json!({}))
+                .await
+                .unwrap()
+                .unwrap()
+        }
+    };
+    for key in ["seerr:requests", "seerr:accounts", "seerr:discover"] {
+        let ended = run(key).await;
+        assert!(ended.ok(), "{key}: {ended:?}");
+    }
+    let server = run("plex:server").await;
+    assert!(!server.ok(), "{server:?}");
+    assert_eq!(
+        pass_rows(&t.pool).await,
+        vec![
+            ("plex".to_string(), "server".to_string(), false),
+            ("seerr".to_string(), "requests".to_string(), true)
+        ]
+    );
+    let accounts: i64 = sqlx::query_scalar("SELECT count(*) FROM seerr_users")
+        .fetch_one(&t.pool)
+        .await
+        .unwrap();
+    assert!(accounts > 0);
+    assert!(
+        claims::marked_at(&t.pool, "seerr", "discover.at")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    // A second run within the lists' life reads nothing.
+    let discover_calls = || {
+        recorded
+            .urls_seen()
+            .iter()
+            .filter(|u| u.contains("/api/v1/discover"))
+            .count()
+    };
+    let before = discover_calls();
+    assert!(before > 0);
+    let again = run("seerr:discover").await;
+    assert_eq!(again.detail.as_deref(), Some("Lists fresh"));
+    let next_in: f64 = sqlx::query_scalar(
+        "SELECT EXTRACT(EPOCH FROM next_run_at - now())::float8 FROM job_schedules
+         WHERE key = 'seerr:discover'",
+    )
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    assert!(
+        (1700.0..=1800.0).contains(&next_in),
+        "the next run comes as the lists expire: {next_in}"
+    );
+    assert_eq!(discover_calls(), before);
+
+    let app = routes::router(st.clone());
+    let owner: [(&str, &str); 1] = [("x-auth-request-email", "owner@example.com")];
+    let (status, _, panel) = call(&app, "GET", "/api/v1/jobs", &owner, None).await;
+    assert_eq!(status, StatusCode::OK, "{panel}");
+    let listed: Vec<(String, u64, String)> = panel["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|j| j["integration"].is_string())
+        .map(|j| {
+            (
+                j["id"].as_str().unwrap().to_string(),
+                j["every"].as_u64().unwrap(),
+                j["lastResult"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed,
+        vec![
+            ("plex:server".to_string(), 3600, "failed".to_string()),
+            ("seerr:requests".to_string(), 300, "ok".to_string()),
+        ]
+    );
+    let (status, _, started) = call(
+        &app,
+        "POST",
+        "/api/v1/integrations/seerr/sync",
+        &owner,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+    assert_eq!(
+        started["jobs"],
+        serde_json::json!(["seerr:requests", "seerr:accounts", "seerr:discover"])
+    );
+    jobs.stop().await;
+    sync.stop();
+    assert_eq!(
+        st.engines.forget_other_passes(&t.pool, true).await.unwrap(),
+        0
+    );
     t.drop_db().await;
 }
 
@@ -3505,17 +3686,20 @@ async fn start_jobs(st: &AppState) -> Jobs {
 /// The jobs of the runtime over a test's state with the sync's passes: those of its managers and
 /// download clients. The stored copies are assessed under the built-in policy.
 async fn start_sync_jobs(st: &AppState) -> (Jobs, SyncHandle) {
-    let handle = lifecycle_sync::spawn(SyncDeps {
-        config: st.config.sync.clone(),
-        pool: st.pool.clone(),
-        journal: st.journal.clone(),
-        engines: st.engines.clone(),
-        assess: Arc::new(Assessor::new(
-            Arc::new(ActivePolicy::builtin()),
-            "test-build",
-        )),
-        policy_event: None,
-    });
+    let handle = lifecycle_sync::spawn(
+        SyncDeps {
+            config: st.config.sync.clone(),
+            pool: st.pool.clone(),
+            journal: st.journal.clone(),
+            engines: st.engines.clone(),
+            assess: Arc::new(Assessor::new(
+                Arc::new(ActivePolicy::builtin()),
+                "test-build",
+            )),
+            policy_event: None,
+        },
+        request_rules(),
+    );
     let jobs = start_jobs_with(st, Some(handle.jobs())).await;
     (jobs, handle)
 }

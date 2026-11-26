@@ -158,7 +158,9 @@ async fn integration_panels(state: &AppState) -> AppResult<Vec<IntegrationPanel>
     // An integration's jobs: its loops' and its schedules' in the job runtime, by id.
     let mut ids = panels::job_ids(&jobs::registry().list());
     for (of, key) in crate::lifecycle::jobs::integration_keys(&state.config, &state.engines) {
-        ids.entry(of).or_default().push(key);
+        if crate::lifecycle::jobs::listed(&key).is_some() {
+            ids.entry(of).or_default().push(key);
+        }
     }
     for keys in ids.values_mut() {
         keys.sort();

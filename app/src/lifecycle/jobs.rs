@@ -1,7 +1,8 @@
 //! The jobs of the job runtime (`core::runtime`): the three folder scans, the search index, the
 //! notification dispatcher (B9a) and, with the sync, the passes of the managers and the download
-//! clients (B9b). Their keys, queues and intervals are those of platform design section 4.8. The
-//! other integrations' loops keep running on their own until they move (B9c, B9d).
+//! clients (B9b), of the media servers and of the Seerr sites (B9c). Their keys, queues and
+//! intervals are those of platform design section 4.8. The processing services, the processing
+//! rules, the intents and the plays keep their loops until they move (B9c, B9d).
 //!
 //! The runtime runs on a pool of its own ([`connections`]). The handlers write on the app's pool.
 //! The folder scans and the sync's passes write through a journal fenced by their run's lease: a
@@ -37,19 +38,24 @@ const LEASE: Duration = Duration::from_secs(120);
 pub const WORKERS: [(&str, usize); 3] = [("scan", 3), ("index", 1), ("notify", 2)];
 
 /// The passes of the sync, by the names their loops had: what each reads, its job's kind, the
-/// setting of its interval.
-const SYNC_PASSES: [(&str, &str, &str); 4] = [
-    ("titles", sync::TITLES, "jobs.titles"),
-    ("queue", sync::QUEUE, "jobs.queue"),
-    ("history", sync::HISTORY, "jobs.history"),
-    ("downloads", sync::DOWNLOADS, "jobs.downloads"),
+/// setting of its interval and whether the Jobs page lists it. The accounts and the discover
+/// lists of a Seerr site were read by its requests loop: their schedules are not listed.
+const SYNC_PASSES: [(&str, &str, &str, bool); 8] = [
+    ("titles", sync::TITLES, "jobs.titles", true),
+    ("queue", sync::QUEUE, "jobs.queue", true),
+    ("history", sync::HISTORY, "jobs.history", true),
+    ("downloads", sync::DOWNLOADS, "jobs.downloads", true),
+    ("server", sync::SERVER, "jobs.server", true),
+    ("requests", sync::REQUESTS, "jobs.requests", true),
+    ("accounts", sync::ACCOUNTS, "jobs.requests", false),
+    ("discover", sync::DISCOVER, "", false),
 ];
 
 /// The workers of every queue. The sync queue has one for each of its schedules, as each pass had a
 /// loop of its own: a download client's pass never waits behind a manager's titles.
 pub fn workers(sync: Option<&EngineSet>) -> Vec<(&'static str, usize)> {
     let mut out = WORKERS.to_vec();
-    let passes = sync.map(|e| 3 * e.arrs.len() + e.download_clients.len());
+    let passes = sync.map(|e| sync_keys(e).len());
     if let Some(n) = passes.filter(|n| *n > 0) {
         out.push(("sync", n));
     }
@@ -105,7 +111,7 @@ pub fn listed(key: &str) -> Option<&'static str> {
     }
     SYNC_PASSES
         .iter()
-        .find(|(name, ..)| *name == pass)
+        .find(|(name, _, _, listed)| *name == pass && *listed)
         .map(|(name, ..)| *name)
 }
 
@@ -121,6 +127,20 @@ fn sync_keys(engines: &EngineSet) -> Vec<(String, String, &'static str)> {
     for client in &engines.download_clients {
         let id = client.id();
         out.push((format!("{id}:downloads"), id.to_string(), "downloads"));
+    }
+    for server in &engines.media_servers {
+        let id = server.id();
+        out.push((format!("{id}:server"), id.to_string(), "server"));
+    }
+    // The discover lists come from the first site (the Plex one when it is), as the owner's
+    // Discover page asks it.
+    for (n, site) in engines.request_sites.iter().enumerate() {
+        let id = site.id();
+        out.push((format!("{id}:requests"), id.to_string(), "requests"));
+        out.push((format!("{id}:accounts"), id.to_string(), "accounts"));
+        if n == 0 {
+            out.push((format!("{id}:discover"), id.to_string(), "discover"));
+        }
     }
     out
 }
@@ -211,9 +231,12 @@ pub fn schedules(config: &Config, settings: &Settings, sync: Option<&EngineSet>)
             "titles" => (s.titles, 60),
             "queue" => (s.queue, 15),
             "history" => (s.history, 60),
+            "server" => (s.server, 300),
+            "requests" | "accounts" => (s.requests, 60),
+            "discover" => (crate::requests::discover::TTL, 1800),
             _ => (s.downloads, 10),
         };
-        let (_, kind, setting) = SYNC_PASSES
+        let (_, kind, setting, _) = SYNC_PASSES
             .iter()
             .find(|(name, ..)| *name == pass)
             .copied()
@@ -229,7 +252,11 @@ pub fn schedules(config: &Config, settings: &Settings, sync: Option<&EngineSet>)
             jitter: s.jitter,
             on_start: true,
             lease: LEASE,
-            source: source(setting),
+            source: if setting.is_empty() {
+                Source::Default
+            } else {
+                source(setting)
+            },
         });
     }
     out
@@ -351,7 +378,11 @@ pub async fn start_with(
             .handle(sync::TITLES, Arc::new(sync::TitlesJob(jobs.clone())))
             .handle(sync::QUEUE, Arc::new(sync::QueueJob(jobs.clone())))
             .handle(sync::HISTORY, Arc::new(sync::HistoryJob(jobs.clone())))
-            .handle(sync::DOWNLOADS, Arc::new(sync::DownloadsJob(jobs.clone())));
+            .handle(sync::DOWNLOADS, Arc::new(sync::DownloadsJob(jobs.clone())))
+            .handle(sync::SERVER, Arc::new(sync::ServerJob(jobs.clone())))
+            .handle(sync::REQUESTS, Arc::new(sync::RequestsJob(jobs.clone())))
+            .handle(sync::ACCOUNTS, Arc::new(sync::AccountsJob(jobs.clone())))
+            .handle(sync::DISCOVER, Arc::new(sync::DiscoverJob(jobs.clone())));
     }
     for (queue, n) in workers(engines.as_deref()) {
         runtime = runtime.workers(queue, n);
@@ -416,9 +447,21 @@ mod tests {
                 listed("radarr-4k:history"),
                 listed("qbittorrent:downloads"),
                 listed("plex:server"),
+                listed("seerr:requests"),
                 listed("folder:titles")
             ),
-            (Some("history"), Some("downloads"), None, None)
+            (
+                Some("history"),
+                Some("downloads"),
+                Some("server"),
+                Some("requests"),
+                None
+            )
+        );
+        // A Seerr site's accounts and discover lists are not listed: its requests loop read them.
+        assert_eq!(
+            (listed("seerr:accounts"), listed("seerr:discover")),
+            (None, None)
         );
         assert_eq!(connections(None), 15);
 

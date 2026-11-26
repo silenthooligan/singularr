@@ -15,19 +15,16 @@ use super::store::{self, MediaWrite};
 use crate::catalog::model::TitleKind;
 use crate::catalog::store::{self as catalog_store, TitleLink};
 use crate::core::journal::{Journal, event};
-use crate::core::observe;
 use crate::core::outbound::OutboundError;
 use crate::engines::model::DiscoverList;
-use crate::engines::service::{EngineSet, PassOk};
+use crate::engines::service::PassOk;
 use crate::engines::{EngineError, RequestSite, SiteRequest};
-use crate::lifecycle::sync::jitter;
 use chrono::SubsecRound;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::task::JoinHandle;
 
 /// The most pages one pass reads (50,000 requests at the default page size).
 const MAX_PAGES: u32 = 500;
@@ -405,17 +402,6 @@ pub async fn apply(
     Ok(report)
 }
 
-#[derive(Clone)]
-pub struct RequestSyncDeps {
-    pub pool: PgPool,
-    pub journal: Journal,
-    pub engines: Arc<EngineSet>,
-    pub interval: Duration,
-    pub jitter: Duration,
-    /// The request rules: the owner's accounts are marked when the accounts are read.
-    pub rules: super::rules::Rules,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum UsersError {
     #[error(transparent)]
@@ -524,63 +510,4 @@ pub async fn discover_pass(pool: &PgPool, site: &Arc<dyn RequestSite>) -> usize 
         }
     }
     stored
-}
-
-/// One loop per configured Seerr site. Stop them by aborting the handles.
-pub fn spawn(deps: RequestSyncDeps) -> Vec<JoinHandle<()>> {
-    deps.engines
-        .request_sites
-        .iter()
-        .map(|site| tokio::spawn(requests_loop(deps.clone(), site.clone())))
-        .collect()
-}
-
-async fn requests_loop(deps: RequestSyncDeps, site: Arc<dyn RequestSite>) {
-    let job = crate::core::jobs::registry().register(crate::core::jobs::JobSpec::of(
-        site.id(),
-        "requests",
-        deps.interval,
-    ));
-    job.wait(jitter(deps.jitter)).await;
-    // The discover lists come from the first configured site (the Plex one when it is), as
-    // the owner's Discover page asks it.
-    let lists_here = deps
-        .engines
-        .request_sites
-        .first()
-        .is_some_and(|first| first.id() == site.id());
-    let mut lists_at: Option<Instant> = None;
-    loop {
-        let started = job.begin();
-        let outcome = requests_pass(&deps.pool, &deps.journal, &site, PassConfig::default())
-            .await
-            .map(|(ok, _)| ok);
-        job.end(started, crate::engines::service::pass_result(&outcome));
-        observe::sync_pass(site.id(), "requests", started.elapsed(), outcome.is_ok());
-        if let Err(e) = &outcome {
-            tracing::warn!(site = site.id(), error = %e, "requests pass failed");
-        }
-        if let Err(e) = deps
-            .engines
-            .report(&deps.pool, &deps.journal, site.id(), "requests", outcome)
-            .await
-        {
-            tracing::error!(site = site.id(), error = %e, "the engine state could not be recorded");
-        }
-        match users_pass(&deps.pool, &site, &deps.rules).await {
-            Ok(r) => tracing::debug!(
-                site = site.id(),
-                read = r.read,
-                removed = r.removed,
-                complete = r.complete,
-                "accounts read"
-            ),
-            Err(e) => tracing::warn!(site = site.id(), error = %e, "the accounts were not read"),
-        }
-        if lists_here && lists_at.is_none_or(|at| at.elapsed() >= super::discover::TTL) {
-            discover_pass(&deps.pool, &site).await;
-            lists_at = Some(Instant::now());
-        }
-        job.wait(deps.interval).await;
-    }
 }

@@ -7,13 +7,11 @@
 //! the music of every music section (artists, albums, tracks). Everything is written in one
 //! transaction; a pass that fails writes nothing and the loop goes on.
 
-use super::sync::{SyncDeps, jitter};
+use super::sync::SyncDeps;
 use crate::catalog::model::Library;
 use crate::catalog::service as catalog;
 use crate::catalog::store::{self as catalog_store, ServerLibraryWrite, TitleServerWrite};
-use crate::core::jobs::{self, JobSpec};
-use crate::core::observe;
-use crate::engines::service::{PassOk, pass_result};
+use crate::engines::service::PassOk;
 use crate::engines::{MediaServer, ServerSection};
 use crate::music::store as music_store;
 use serde_json::json;
@@ -200,29 +198,6 @@ pub async fn server_pass(deps: &SyncDeps, server: &Arc<dyn MediaServer>) -> Resu
             "platform": identity.platform,
         }),
     })
-}
-
-/// The server loop: a pass, the result recorded in the engine state, then the interval.
-pub async fn server_loop(deps: SyncDeps, server: Arc<dyn MediaServer>) {
-    let job = jobs::registry().register(JobSpec::of(server.id(), "server", deps.config.server));
-    job.wait(jitter(deps.config.jitter)).await;
-    loop {
-        let started = job.begin();
-        let outcome = server_pass(&deps, &server).await;
-        job.end(started, pass_result(&outcome));
-        observe::sync_pass(server.id(), "server", started.elapsed(), outcome.is_ok());
-        if let Err(e) = &outcome {
-            tracing::warn!(server = server.id(), error = %e, "server pass failed");
-        }
-        if let Err(e) = deps
-            .engines
-            .report(&deps.pool, &deps.journal, server.id(), "server", outcome)
-            .await
-        {
-            tracing::error!(server = server.id(), error = %e, "the engine state could not be recorded");
-        }
-        job.wait(deps.config.server).await;
-    }
 }
 
 #[cfg(test)]

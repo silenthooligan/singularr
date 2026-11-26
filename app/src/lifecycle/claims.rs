@@ -14,10 +14,10 @@ use sqlx::{PgConnection, PgPool};
 use std::collections::HashSet;
 use std::time::Duration;
 
-/// The marker of a loaded grab history: when the last read that reached grabs it had (or the end
-/// of the history) ended, by the database's clock. Written in the transaction that ends that
-/// read. A grab stored at or before it belongs to a complete read: a later read stops at the
-/// first page that holds one ([`known_before`]).
+/// The marker of a loaded grab history: the newest history record id of the last read that ended
+/// well and the time of that read (`{"id": ..., "at": ...}`). Written in the transaction that ends
+/// that read.
+/// A later read stops at the first page that holds a record at or below it ([`loaded_id`]).
 pub const HISTORY_LOADED: &str = "history.loaded";
 
 /// The marker of the last full file pass of an arr: when it started.
@@ -218,44 +218,28 @@ pub async fn mark(
     markers::put(conn, manager, name, &json!({ "at": at.to_rfc3339() })).await
 }
 
-/// One of these ids was stored for an arr's grab history at or before `loaded`: by a read that
-/// reached grabs it had or the end of the history. A read stops at the first page that holds one.
-pub async fn known_before(
-    pool: &PgPool,
-    manager: &str,
-    ids: &[String],
-    loaded: DateTime<Utc>,
-) -> Result<bool, sqlx::Error> {
-    if ids.is_empty() {
-        return Ok(false);
-    }
-    sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM download_claims
-                        WHERE manager = $1 AND source = 'history' AND download_id = ANY($2)
-                          AND seen_at <= $3)",
-    )
-    .bind(manager)
-    .bind(ids)
-    .bind(loaded)
-    .fetch_one(pool)
-    .await
+/// The newest history record id the last read of an arr's grab history that ended well saw.
+/// `None` while no read ended well.
+pub async fn loaded_id(pool: &PgPool, manager: &str) -> Result<Option<i64>, sqlx::Error> {
+    Ok(markers::get(pool, manager, HISTORY_LOADED)
+        .await?
+        .and_then(|v| v.get("id").and_then(Value::as_i64)))
 }
 
-/// Write a marker of an arr with the database's time now, in the caller's transaction.
-pub async fn mark_now(
+/// Write the marker of an arr's loaded grab history in the caller's transaction: the newest record
+/// id of the read and the time now.
+pub async fn mark_loaded(
     conn: &mut PgConnection,
     manager: &str,
-    name: &str,
+    newest: i64,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "INSERT INTO markers (scope, name, value) VALUES ($1, $2, jsonb_build_object('at', now()))
-         ON CONFLICT (scope, name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
+    markers::put(
+        conn,
+        manager,
+        HISTORY_LOADED,
+        &json!({ "id": newest, "at": Utc::now().to_rfc3339() }),
     )
-    .bind(manager)
-    .bind(name)
-    .execute(conn)
     .await
-    .map(|_| ())
 }
 
 /// A full file pass is due when none ended yet. It is due again once the last one is

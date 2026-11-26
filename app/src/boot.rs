@@ -20,7 +20,6 @@ use singularr::policy;
 use singularr::processing::service::{self as processing, ProcessingDeps};
 use singularr::releases::assess::Assessor;
 use singularr::requests::service::Requests;
-use singularr::requests::sync::{self as request_sync, RequestSyncDeps};
 use singularr::settings::Settings;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -264,14 +263,17 @@ async fn serve_owner() -> Result<(), String> {
             editions.clone(),
             env!("SINGULARR_BUILD_ID"),
         ));
-        Some(sync::spawn(SyncDeps {
-            config: config.sync.clone(),
-            pool: pool.clone(),
-            journal: journal.clone(),
-            engines: engines.clone(),
-            assess,
-            policy_event: policy_event.map(|e| e.id),
-        }))
+        Some(sync::spawn(
+            SyncDeps {
+                config: config.sync.clone(),
+                pool: pool.clone(),
+                journal: journal.clone(),
+                engines: engines.clone(),
+                assess,
+                policy_event: policy_event.map(|e| e.id),
+            },
+            Requests::new(&config.request_rules).rules,
+        ))
     } else {
         tracing::warn!(
             "SINGULARR_SYNC_ENABLED is off: the catalog is served as it is and no engine is asked"
@@ -279,20 +281,6 @@ async fn serve_owner() -> Result<(), String> {
         None
     };
 
-    // The Seerr integration is an engine: its loop runs only with the sync. The two folders are
-    // read-only mounts, not engines, and are scanned either way.
-    let request_loops = if config.sync.enabled {
-        request_sync::spawn(RequestSyncDeps {
-            pool: pool.clone(),
-            journal: journal.clone(),
-            engines: engines.clone(),
-            interval: config.sync.requests,
-            jitter: config.sync.jitter,
-            rules: Requests::new(&config.request_rules).rules,
-        })
-    } else {
-        Vec::new()
-    };
     // The processing services are engines too: one loop each, with the sync.
     let processing_loops = if config.sync.enabled {
         processing::spawn(ProcessingDeps {
@@ -365,9 +353,9 @@ async fn serve_owner() -> Result<(), String> {
 
     // The job runtime: the three folder scans, the search index and the notification dispatcher,
     // whether or not the sync runs. The scans read mounts. The index and the dispatcher read
-    // Singularr's own tables. With the sync it runs the passes of the managers and the download
-    // clients too. The runtime's own statements have a pool of their own: a heartbeat never waits
-    // behind a query of the app.
+    // Singularr's own tables. With the sync it runs the passes of the managers, the download
+    // clients, the media servers and the Seerr sites too. The runtime's own statements have a pool
+    // of their own: a heartbeat never waits behind a query of the app.
     let sync_engines = sync.as_ref().map(|_| engines.as_ref());
     let runtime_pool = db::connect_url(
         &config.bootstrap.database_url,
@@ -469,11 +457,7 @@ async fn serve_owner() -> Result<(), String> {
         if let Some(sync) = &sync {
             sync.stop();
         }
-        for task in request_loops
-            .iter()
-            .chain(processing_loops.iter())
-            .chain(play_loops.iter())
-        {
+        for task in processing_loops.iter().chain(play_loops.iter()) {
             task.abort();
         }
         intents.abort();
