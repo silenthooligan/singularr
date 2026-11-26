@@ -3,6 +3,20 @@
 Versions follow semantic versioning. Releases before 1.0 are betas. A minor release before 1.0 may
 change settings or behavior.
 
+## 0.1.3 (beta)
+
+- Job runtime in PostgreSQL: schedules, jobs under leases, markers. Every background pass runs on it. Last runs and results survive a restart. A failing schedule backs off five intervals at most.
+- Write access per action of an integration: `<TYPE>_ACCESS` takes `read`, `act` or a list of actions. Integrations show partial write access.
+- Health per integration and pass.
+- Outbound calls: reads retried with backoff, `Retry-After` honored, a limit of calls in flight per host, a circuit breaker, a size limit per answer.
+- Processing rules send a file at most once. A send with no clear answer shows as Unconfirmed.
+- Plays: one play per item in a session (autoplay, the next track). A failed reading of the sessions is tried again after 10 s while something plays.
+- Download ownership and Radarr's custom formats kept across restarts. A grab history read stops at the records it has.
+- Image: `singularrd health` as the health check; ffmpeg and ffprobe (LGPL build, the source as a release of this repository). Compose: Meilisearch as the search.
+- Singularr Requests: the portal's database role created from `SINGULARR_REQUESTS_DB_PASSWORD`.
+- Crates `singularr-sdk` (connector kinds, manifests, the HTTP layer) and `singularr-platform` (database, journal, job runtime, settings, access).
+- Migrations 0022 to 0028. An older build does not start on a database that ran them: restore a backup to go back.
+
 ## 0.1.2 (beta)
 
 - Statistics: Overview, History, Users, Libraries, Players, Graphs; shared filters (dates, kind, library, person, media server, player, app, platform, delivery); History sorts every column; a drawer per play.
