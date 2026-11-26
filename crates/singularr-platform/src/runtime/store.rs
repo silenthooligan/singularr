@@ -34,6 +34,48 @@ async fn notify(conn: &mut PgConnection, queues: &[String]) -> Result<(), sqlx::
     Ok(())
 }
 
+/// A job of no schedule: one act's send, one read of an act.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewJob<'a> {
+    pub kind: &'a str,
+    pub queue: &'a str,
+    pub integration: Option<&'a str>,
+    pub payload: Value,
+    /// A second job of the kind with this key is not queued.
+    pub key: Option<String>,
+    /// It runs no sooner than this after the commit.
+    pub after: Duration,
+    /// Its runs at most: a run whose lease ran out is one.
+    pub max_attempts: i32,
+}
+
+/// Queue a job of no schedule in the caller's transaction: its queue's workers wake in every
+/// process with the commit. `None` when a job of the kind with its key is there already.
+pub async fn queue_job(
+    conn: &mut PgConnection,
+    job: NewJob<'_>,
+) -> Result<Option<i64>, sqlx::Error> {
+    let id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO jobs (kind, queue, integration, payload, idempotency_key, max_attempts, run_at)
+         VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(secs => $7::float8))
+         ON CONFLICT DO NOTHING
+         RETURNING id",
+    )
+    .bind(job.kind)
+    .bind(job.queue)
+    .bind(job.integration)
+    .bind(&job.payload)
+    .bind(&job.key)
+    .bind(job.max_attempts.max(1))
+    .bind(job.after.as_secs_f64())
+    .fetch_optional(&mut *conn)
+    .await?;
+    if id.is_some() {
+        notify(conn, &[job.queue.to_string()]).await?;
+    }
+    Ok(id)
+}
+
 /// Give a schedule another interval while the process runs: a setting saved now. Its next run
 /// comes closer when the interval shrinks. False when no schedule has this key.
 pub async fn set_every(

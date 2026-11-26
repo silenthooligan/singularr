@@ -1843,3 +1843,594 @@ async fn a_marker_keeps_its_value() {
     );
     t.drop_db().await;
 }
+
+/// The act outbox over its tables. Each test sets the answers of its delivery.
+mod outbox_tests {
+    use super::*;
+    use singularr_platform::journal::JournalTx;
+    use singularr_platform::outbox::{
+        self, Act, ConfirmBy, Confirmation, Deliver, Delivered, EnqueueError, Enqueued, Held,
+        NewAct, Outbox, Plan, Resend,
+    };
+
+    /// A delivery that answers each send with the next of `sends` and each read with the next of
+    /// `reads` (not seen yet when none is left). It notes each change of state it hears of.
+    struct Scripted {
+        allows: AtomicBool,
+        sends: Mutex<Vec<Delivered>>,
+        reads: Mutex<Vec<Confirmation>>,
+        sent: AtomicUsize,
+        plan: Plan,
+        changes: Mutex<Vec<String>>,
+    }
+
+    impl Scripted {
+        fn new(plan: Plan, sends: Vec<Delivered>, reads: Vec<Confirmation>) -> Arc<Scripted> {
+            Arc::new(Scripted {
+                allows: AtomicBool::new(true),
+                sends: Mutex::new(sends),
+                reads: Mutex::new(reads),
+                sent: AtomicUsize::new(0),
+                plan,
+                changes: Mutex::new(Vec::new()),
+            })
+        }
+
+        fn changes(&self) -> Vec<String> {
+            self.changes.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl Deliver for Scripted {
+        fn plan(&self, _act: &Act) -> Plan {
+            self.plan
+        }
+
+        fn held(&self, _act: &Act) -> Option<Held> {
+            (!self.allows.load(Ordering::SeqCst)).then(|| Held::new("Read-only", outbox::ACCESS))
+        }
+
+        async fn send(&self, _act: &Act) -> Delivered {
+            self.sent.fetch_add(1, Ordering::SeqCst);
+            let mut sends = self.sends.lock().unwrap();
+            if sends.is_empty() {
+                Delivered::Unknown {
+                    error: "no answer scripted".to_string(),
+                }
+            } else {
+                sends.remove(0)
+            }
+        }
+
+        async fn confirm(&self, _act: &Act) -> Result<Confirmation, String> {
+            let mut reads = self.reads.lock().unwrap();
+            Ok(if reads.is_empty() {
+                Confirmation::NotYet
+            } else {
+                reads.remove(0)
+            })
+        }
+
+        async fn changed(&self, _tx: &mut JournalTx, act: &Act) -> Result<(), sqlx::Error> {
+            self.changes.lock().unwrap().push(act.state.clone());
+            Ok(())
+        }
+    }
+
+    /// Reads at once, one after the other.
+    const READ_NOW: Plan = Plan {
+        confirm: ConfirmBy::Read {
+            first: Duration::ZERO,
+            every: Duration::ZERO,
+            window: Duration::from_secs(600),
+        },
+        resend: Resend::Never,
+    };
+
+    fn new_act(key: &str, path: &str) -> NewAct {
+        NewAct {
+            integration: "bridge".to_string(),
+            action: "send".to_string(),
+            key: key.to_string(),
+            open_key: Some(format!("send:bridge:{path}:audio")),
+            request: json!({"path": path, "flow": "audio"}),
+            subject: Some(("title".to_string(), "7".to_string())),
+            actor: "user:owner@example.org".to_string(),
+            caused_by: None,
+        }
+    }
+
+    async fn enqueue(
+        pool: &PgPool,
+        journal: &Journal,
+        outbox: &Outbox,
+        act: NewAct,
+    ) -> Result<Enqueued, EnqueueError> {
+        let mut tx = journal.begin(pool).await.unwrap();
+        let enqueued = outbox.enqueue(&mut tx, act).await;
+        tx.commit().await.unwrap();
+        enqueued
+    }
+
+    /// The jobs of the acts queue run as its workers would, at once, their waits skipped, until
+    /// none is queued.
+    async fn run_acts(pool: &PgPool, outbox: &Outbox) {
+        loop {
+            let next: Option<(String, serde_json::Value)> = sqlx::query_as(
+                "UPDATE jobs SET state = 'done', finished_at = now()
+                 WHERE id = (SELECT id FROM jobs WHERE queue = 'acts' AND state = 'queued'
+                             ORDER BY id LIMIT 1)
+                 RETURNING kind, payload",
+            )
+            .fetch_optional(pool)
+            .await
+            .unwrap();
+            let Some((kind, payload)) = next else {
+                return;
+            };
+            let act = payload["act"].as_i64().unwrap();
+            if kind == outbox::SEND_KIND {
+                outbox.send(act).await.unwrap();
+            } else {
+                let send = i32::try_from(payload["send"].as_i64().unwrap()).unwrap();
+                let read = u32::try_from(payload["read"].as_i64().unwrap()).unwrap();
+                outbox.confirm(act, send, read).await.unwrap();
+            }
+        }
+    }
+
+    async fn state_of(pool: &PgPool, id: i64) -> Act {
+        outbox::act(pool, id).await.unwrap().unwrap()
+    }
+
+    /// An act is a row with its send's job before anything is sent. Its key is the act for the
+    /// same request and refused for another. Its open key is the open act. A worker sends it once.
+    /// The answer leaves it sent. Reads confirm it: the first that finds it.
+    #[tokio::test]
+    async fn an_act_is_sent_once_and_confirmed_by_a_read() {
+        let Some(t) = TestDb::new("outbox_send").await else {
+            return;
+        };
+        let journal = Journal::new();
+        let d = Scripted::new(
+            READ_NOW,
+            vec![Delivered::Answered(json!({"job": "j1"}))],
+            vec![
+                Confirmation::NotYet,
+                Confirmation::Done(json!({"run": "bridge:j1"})),
+            ],
+        );
+        let outbox = Outbox::new(t.pool.clone(), journal.clone()).deliver("send", d.clone());
+        let Enqueued::New(act) = enqueue(&t.pool, &journal, &outbox, new_act("api:o:k1", "/a.mkv"))
+            .await
+            .unwrap()
+        else {
+            panic!("a new act")
+        };
+        assert_eq!((act.state.as_str(), act.attempts), ("pending", 0));
+        assert_eq!(kinds(&t.pool, 0).await, vec!["act_requested"]);
+        let job: String = sqlx::query_scalar(
+            "SELECT idempotency_key FROM jobs WHERE kind = 'act.send' AND queue = 'acts'",
+        )
+        .fetch_one(&t.pool)
+        .await
+        .unwrap();
+        assert_eq!(job, format!("act:{}:1", act.id));
+        // The key is that act for the same request. Another request with it is refused.
+        assert!(matches!(
+            enqueue(&t.pool, &journal, &outbox, new_act("api:o:k1", "/a.mkv")).await,
+            Ok(Enqueued::Same(same)) if same.id == act.id
+        ));
+        assert!(matches!(
+            enqueue(&t.pool, &journal, &outbox, new_act("api:o:k1", "/b.mkv")).await,
+            Err(EnqueueError::Mismatch(other)) if other.id == act.id
+        ));
+        // Another key of the same file and flow is the open act.
+        assert!(matches!(
+            enqueue(&t.pool, &journal, &outbox, new_act("api:o:k2", "/a.mkv")).await,
+            Ok(Enqueued::Open(open)) if open.id == act.id
+        ));
+        // The compare and set takes a pending act once.
+        let (a, b) = tokio::join!(
+            outbox::store::take(&t.pool, act.id),
+            outbox::store::take(&t.pool, act.id)
+        );
+        let taken = [a.unwrap().is_some(), b.unwrap().is_some()];
+        assert_eq!(taken.iter().filter(|x| **x).count(), 1);
+        sqlx::query(
+            "UPDATE acts SET state = 'pending', attempts = 0, sent_at = NULL WHERE id = $1",
+        )
+        .bind(act.id)
+        .execute(&t.pool)
+        .await
+        .unwrap();
+        run_acts(&t.pool, &outbox).await;
+        assert_eq!(d.sent.load(Ordering::SeqCst), 1);
+        let done = state_of(&t.pool, act.id).await;
+        assert_eq!(
+            (done.state.as_str(), done.attempts),
+            ("confirmed", 1),
+            "{done:?}"
+        );
+        assert_eq!(
+            done.result,
+            Some(json!({"job": "j1", "confirmed": {"run": "bridge:j1"}}))
+        );
+        assert!(done.sent_at.is_some() && done.settled_at.is_some());
+        assert_eq!(d.changes(), vec!["sent", "confirmed"]);
+        assert_eq!(
+            kinds(&t.pool, 0).await,
+            vec!["act_requested", "act_sent", "act_confirmed"]
+        );
+        // Its events name the act and its state.
+        let confirmed = bodies(&t.pool, "act_confirmed").await;
+        assert_eq!(
+            (&confirmed[0]["act"], &confirmed[0]["state"]),
+            (&json!(act.id), &json!("confirmed"))
+        );
+        // Settled, its job runs again to no effect: an act is sent once.
+        assert_eq!(outbox.send(act.id).await.unwrap(), "Already confirmed");
+        assert_eq!(d.sent.load(Ordering::SeqCst), 1);
+        // Its open key is free once it is settled.
+        assert!(matches!(
+            enqueue(&t.pool, &journal, &outbox, new_act("api:o:k3", "/a.mkv")).await,
+            Ok(Enqueued::New(_))
+        ));
+        // A sent act holds its open key no more: the service has the file. It refuses a second
+        // copy itself.
+        let sent = enqueue(&t.pool, &journal, &outbox, new_act("api:o:k4", "/d.mkv"))
+            .await
+            .unwrap()
+            .into_act();
+        sqlx::query("UPDATE acts SET state = 'sent' WHERE id = $1")
+            .bind(sent.id)
+            .execute(&t.pool)
+            .await
+            .unwrap();
+        assert!(matches!(
+            enqueue(&t.pool, &journal, &outbox, new_act("api:o:k5", "/d.mkv")).await,
+            Ok(Enqueued::New(_))
+        ));
+        t.drop_db().await;
+    }
+
+    /// No clear answer leaves an act unknown. No read that does not find it moves it: it is sent
+    /// once. The owner settles it as not sent. An act its send's job finds sending has no answer
+    /// recorded: it is unknown, never pending.
+    #[tokio::test]
+    async fn an_unclear_or_lost_send_is_unknown_and_never_sent_again() {
+        let Some(t) = TestDb::new("outbox_unknown").await else {
+            return;
+        };
+        let journal = Journal::new();
+        let d = Scripted::new(
+            READ_NOW,
+            vec![Delivered::Unknown {
+                error: "No clear answer".to_string(),
+            }],
+            Vec::new(),
+        );
+        let outbox = Outbox::new(t.pool.clone(), journal.clone()).deliver("send", d.clone());
+        let act = enqueue(&t.pool, &journal, &outbox, new_act("api:o:k1", "/a.mkv"))
+            .await
+            .unwrap()
+            .into_act();
+        run_acts(&t.pool, &outbox).await;
+        let unknown = state_of(&t.pool, act.id).await;
+        assert_eq!(
+            (unknown.state.as_str(), unknown.error_class.as_deref()),
+            ("unknown", Some("unknown"))
+        );
+        let reads: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'act.confirm'")
+            .fetch_one(&t.pool)
+            .await
+            .unwrap();
+        assert_eq!(reads, i64::from(outbox::READS));
+        assert_eq!(d.sent.load(Ordering::SeqCst), 1);
+        // The owner's word: not sent. It fails. Only an unknown act takes that word.
+        let settled = outbox
+            .not_sent(act.id, "user:owner@example.org")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (settled.state.as_str(), settled.error_class.as_deref()),
+            ("failed", Some(outbox::BY_HAND))
+        );
+        assert!(
+            outbox
+                .not_sent(act.id, "user:owner@example.org")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        // A send whose run recorded no answer: its job's next run finds it sending.
+        let lost = enqueue(&t.pool, &journal, &outbox, new_act("api:o:k2", "/b.mkv"))
+            .await
+            .unwrap()
+            .into_act();
+        assert!(
+            outbox::store::take(&t.pool, lost.id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        outbox.send(lost.id).await.unwrap();
+        let after = state_of(&t.pool, lost.id).await;
+        assert_eq!(
+            (after.state.as_str(), after.error_class.as_deref()),
+            ("unknown", Some(outbox::UNRECORDED))
+        );
+        assert_eq!(d.sent.load(Ordering::SeqCst), 1, "never sent again");
+        t.drop_db().await;
+    }
+
+    /// A read that proves an act absent at its last read fails it. An action sent again when
+    /// absent is sent again instead, three sends at most.
+    #[tokio::test]
+    async fn a_read_that_proves_an_act_absent_fails_it_or_sends_it_again() {
+        let Some(t) = TestDb::new("outbox_absent").await else {
+            return;
+        };
+        let journal = Journal::new();
+        let absent = || vec![Confirmation::Absent; outbox::READS as usize];
+        let never = Scripted::new(READ_NOW, vec![Delivered::Answered(json!({}))], absent());
+        let outbox = Outbox::new(t.pool.clone(), journal.clone()).deliver("send", never.clone());
+        let act = enqueue(&t.pool, &journal, &outbox, new_act("api:o:k1", "/a.mkv"))
+            .await
+            .unwrap()
+            .into_act();
+        run_acts(&t.pool, &outbox).await;
+        let failed = state_of(&t.pool, act.id).await;
+        assert_eq!(
+            (failed.state.as_str(), failed.error_class.as_deref()),
+            ("failed", Some(outbox::ABSENT))
+        );
+        let again = Scripted::new(
+            Plan {
+                resend: Resend::WhenAbsent,
+                ..READ_NOW
+            },
+            vec![
+                Delivered::Answered(json!({})),
+                Delivered::Answered(json!({})),
+                Delivered::Answered(json!({})),
+            ],
+            [absent(), absent(), absent()].concat(),
+        );
+        let outbox = Outbox::new(t.pool.clone(), journal.clone()).deliver("send", again.clone());
+        let act = enqueue(&t.pool, &journal, &outbox, new_act("api:o:k2", "/b.mkv"))
+            .await
+            .unwrap()
+            .into_act();
+        run_acts(&t.pool, &outbox).await;
+        let done = state_of(&t.pool, act.id).await;
+        assert_eq!(
+            (done.state.as_str(), done.attempts),
+            ("failed", outbox::SENDS)
+        );
+        assert_eq!(again.sent.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            bodies(&t.pool, "act_resent").await.len(),
+            2,
+            "sent again twice"
+        );
+        t.drop_db().await;
+    }
+
+    /// An act a read proved absent goes back to pending to be sent again. A newer act of its file
+    /// and flow that took the open key while it was sent stands for it: it fails. The job of the
+    /// read ends well. The newer act is left as it was.
+    #[tokio::test]
+    async fn an_absent_act_whose_open_key_a_newer_act_holds_fails_as_superseded() {
+        let Some(t) = TestDb::new("outbox_superseded").await else {
+            return;
+        };
+        let journal = Journal::new();
+        let d = Scripted::new(
+            Plan {
+                resend: Resend::WhenAbsent,
+                ..READ_NOW
+            },
+            vec![Delivered::Answered(json!({}))],
+            vec![Confirmation::Absent; outbox::READS as usize],
+        );
+        let outbox = Outbox::new(t.pool.clone(), journal.clone()).deliver("send", d.clone());
+        let old = enqueue(&t.pool, &journal, &outbox, new_act("api:o:k1", "/a.mkv"))
+            .await
+            .unwrap()
+            .into_act();
+        assert_eq!(outbox.send(old.id).await.unwrap(), "Sent");
+        // A sent act holds its open key no more: a newer act of the file and the flow takes it.
+        let Enqueued::New(newer) =
+            enqueue(&t.pool, &journal, &outbox, new_act("api:o:k2", "/a.mkv"))
+                .await
+                .unwrap()
+        else {
+            panic!("a new act")
+        };
+        // The old act's reads alone run: each proves it absent.
+        let mut last = String::new();
+        loop {
+            let next: Option<(i64, i64)> = sqlx::query_as(
+                "UPDATE jobs SET state = 'done', finished_at = now()
+                 WHERE id = (SELECT id FROM jobs WHERE kind = 'act.confirm' AND state = 'queued'
+                             AND (payload->>'act')::bigint = $1 ORDER BY id LIMIT 1)
+                 RETURNING (payload->>'send')::bigint, (payload->>'read')::bigint",
+            )
+            .bind(old.id)
+            .fetch_optional(&t.pool)
+            .await
+            .unwrap();
+            let Some((send, read)) = next else {
+                break;
+            };
+            last = outbox
+                .confirm(
+                    old.id,
+                    i32::try_from(send).unwrap(),
+                    u32::try_from(read).unwrap(),
+                )
+                .await
+                .expect("the read's job ends well");
+        }
+        assert_eq!(last, "Failed: Superseded");
+        let failed = state_of(&t.pool, old.id).await;
+        assert_eq!(
+            (
+                failed.state.as_str(),
+                failed.error_class.as_deref(),
+                failed.attempts
+            ),
+            ("failed", Some(outbox::SUPERSEDED), 1)
+        );
+        assert_eq!(state_of(&t.pool, newer.id).await.state, "pending");
+        assert_eq!(d.sent.load(Ordering::SeqCst), 1, "sent once");
+        assert!(bodies(&t.pool, "act_resent").await.is_empty());
+        assert_eq!(d.changes(), vec!["sent", "failed"]);
+        t.drop_db().await;
+    }
+
+    /// Two enqueues of one file and one flow under two keys at once make one act: the other finds
+    /// it by its open key. It is sent once.
+    #[tokio::test]
+    async fn two_enqueues_racing_for_one_open_key_make_one_act() {
+        let Some(t) = TestDb::new("outbox_race").await else {
+            return;
+        };
+        let journal = Journal::new();
+        let d = Scripted::new(
+            READ_NOW,
+            vec![Delivered::Answered(json!({}))],
+            vec![Confirmation::Done(json!({}))],
+        );
+        let outbox = Outbox::new(t.pool.clone(), journal.clone()).deliver("send", d.clone());
+        for round in 0..5 {
+            let path = format!("/race-{round}.mkv");
+            let (a, b) = tokio::join!(
+                enqueue(
+                    &t.pool,
+                    &journal,
+                    &outbox,
+                    new_act(&format!("api:o:a{round}"), &path)
+                ),
+                enqueue(
+                    &t.pool,
+                    &journal,
+                    &outbox,
+                    new_act(&format!("api:o:b{round}"), &path)
+                ),
+            );
+            let (a, b) = (a.unwrap(), b.unwrap());
+            let new = [&a, &b]
+                .iter()
+                .filter(|e| matches!(e, Enqueued::New(_)))
+                .count();
+            assert_eq!(new, 1, "{a:?} {b:?}");
+            assert!(
+                [&a, &b]
+                    .iter()
+                    .any(|e| matches!(e, Enqueued::Open(open) if open.id == a.act().id)),
+                "{a:?} {b:?}"
+            );
+            assert_eq!(a.act().id, b.act().id);
+        }
+        let acts: i64 = sqlx::query_scalar("SELECT count(*) FROM acts")
+            .fetch_one(&t.pool)
+            .await
+            .unwrap();
+        assert_eq!(acts, 5);
+        let sends: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'act.send'")
+            .fetch_one(&t.pool)
+            .await
+            .unwrap();
+        assert_eq!(sends, 5, "one send queued for each act");
+        t.drop_db().await;
+    }
+
+    /// An act whose action's access was taken back fails before anything is sent. A pending act
+    /// is cancelled before a worker takes it. An action confirmed by its answer is confirmed at
+    /// once.
+    #[tokio::test]
+    async fn an_act_is_refused_cancelled_or_confirmed_by_its_answer() {
+        let Some(t) = TestDb::new("outbox_hands").await else {
+            return;
+        };
+        let journal = Journal::new();
+        let d = Scripted::new(
+            Plan {
+                confirm: ConfirmBy::Answer,
+                resend: Resend::WhenAbsent,
+            },
+            vec![Delivered::Answered(json!({"done": true}))],
+            Vec::new(),
+        );
+        let outbox = Outbox::new(t.pool.clone(), journal.clone()).deliver("send", d.clone());
+        d.allows.store(false, Ordering::SeqCst);
+        let refused = enqueue(&t.pool, &journal, &outbox, new_act("api:o:k1", "/a.mkv"))
+            .await
+            .unwrap()
+            .into_act();
+        run_acts(&t.pool, &outbox).await;
+        let refused = state_of(&t.pool, refused.id).await;
+        assert_eq!(
+            (
+                refused.state.as_str(),
+                refused.error_class.as_deref(),
+                refused.attempts
+            ),
+            ("failed", Some(outbox::ACCESS), 0)
+        );
+        assert_eq!(d.sent.load(Ordering::SeqCst), 0);
+        d.allows.store(true, Ordering::SeqCst);
+        // Cancelled while pending: its job goes with it. Nothing is sent.
+        let pending = enqueue(&t.pool, &journal, &outbox, new_act("api:o:k2", "/b.mkv"))
+            .await
+            .unwrap()
+            .into_act();
+        let cancelled = outbox
+            .cancel(pending.id, "user:owner@example.org")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(cancelled.state, "cancelled");
+        assert!(
+            outbox
+                .cancel(pending.id, "user:owner@example.org")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        run_acts(&t.pool, &outbox).await;
+        assert_eq!(d.sent.load(Ordering::SeqCst), 0);
+        let job: String = sqlx::query_scalar(
+            "SELECT state FROM jobs WHERE kind = 'act.send' AND (payload->>'act')::bigint = $1",
+        )
+        .bind(pending.id)
+        .fetch_one(&t.pool)
+        .await
+        .unwrap();
+        assert_eq!(job, "cancelled");
+        // Confirmed by its answer.
+        let answered = enqueue(&t.pool, &journal, &outbox, new_act("api:o:k3", "/c.mkv"))
+            .await
+            .unwrap()
+            .into_act();
+        run_acts(&t.pool, &outbox).await;
+        assert_eq!(state_of(&t.pool, answered.id).await.state, "confirmed");
+        assert_eq!(d.changes(), vec!["failed", "cancelled", "confirmed"]);
+        // An act at rest is waited for no longer.
+        let rested = outbox::rested(
+            &t.pool,
+            answered.id,
+            Duration::from_secs(5),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(rested.state, "confirmed");
+        t.drop_db().await;
+    }
+}

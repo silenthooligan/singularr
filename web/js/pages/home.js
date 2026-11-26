@@ -85,11 +85,14 @@
       const q = a.kind === 'queue' ? byQ.get(a.id) : null;
       const integ = a.kind === 'integration' ? (ws.integrations || []).find(i => i.id === a.id) : null;
       const proc = a.kind === 'processing';
+      /* An act leads to its title. An unconfirmed one carries the control that marks it not sent. */
+      const act = a.kind === 'act';
       const href = q ? MQ.to('activity', null, { state: 'attention', kind: kindOf(q), q: a.title })
         : integ ? MQ.to('settings', null, { tab: 'integrations' })
           : proc ? MQ.to('activity', null, { tab: 'processing', state: a.tone === 'bad' ? 'problem' : 'stuck' })
-            : MQ.to('activity', null, { state: 'attention', q: a.title });
-      return { ...a, reason: a.reason || a.detail, q, integ, proc, href, fix: q?.attention?.fix || integ?.detail || '' };
+            : act && a.page ? MQ.link(a.page)
+              : MQ.to('activity', null, { state: 'attention', q: a.title });
+      return { ...a, reason: a.reason || a.detail, q, integ, proc, unconfirmed: act && !!a.act && a.tone === 'warn', href, fix: q?.attention?.fix || integ?.detail || '' };
     }).sort((a, b) => new Date(b.since) - new Date(a.since));
     host.innerHTML = String(panel('Needs attention', rows.length, headLink(MQ.to('activity', null, { state: 'attention' }), 'Open Activity'), html`<div data-t></div>`, 'home-tablepanel'));
     const what = r => {
@@ -100,13 +103,17 @@
       id: 'attention', toolbar: false, sticky: false, pageSize: 0, rows, rowHref: r => r.href,
       columns: [
         { key: 'title', label: 'Item', always: true, sort: false, width: '36%', render: what },
-        { key: 'reason', label: 'Reason', m: 'sub', sort: false, render: r => html`<span class="mq-cell-two home-why">${MQ.stateDot(r.integ ? r.integ.state || 'warn' : r.proc && r.tone !== 'bad' ? 'requested' : 'attention', r.reason || '')}${r.fix && r.fix !== r.reason ? html`<small>${r.fix}</small>` : ''}</span>` },
+        { key: 'reason', label: 'Reason', m: 'sub', sort: false, render: r => html`<span class="mq-cell-two home-why">${MQ.stateDot(r.integ ? r.integ.state || 'warn' : (r.proc || r.kind === 'act') && r.tone !== 'bad' ? 'requested' : 'attention', r.reason || '')}${r.fix && r.fix !== r.reason ? html`<small>${r.fix}</small>` : ''}</span>${r.unconfirmed ? html` <button type="button" class="mq-btn mq-btn--sm" data-notsent="${r.act}">Mark not sent</button>` : ''}` },
         { key: 'since', label: 'Since', m: 'side', sort: false, align: 'end', render: r => (r.since ? html`<span class="c-dim" data-tip="${fmt.datetime(r.since)}">${fmt.rel(r.since)}</span>` : '') },
       ],
       empty: d.real || d.queueKnown
         ? { title: 'Nothing needs attention', icon: 'check' }
         : { title: 'All integrations healthy', icon: 'check' },
     });
+    host.onclick = e => {
+      const b = e.target.closest('[data-notsent]'); if (!b) return;
+      MQ.notSent(b.dataset.notsent, () => location.reload());
+    };
   }
 
   /* ------------------------------------------------------ requests waiting */

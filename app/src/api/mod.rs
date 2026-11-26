@@ -6,6 +6,8 @@ pub mod model;
 #[cfg(feature = "ssr")]
 pub mod acquire;
 #[cfg(feature = "ssr")]
+pub mod acts;
+#[cfg(feature = "ssr")]
 pub mod compress;
 #[cfg(feature = "ssr")]
 pub mod config;

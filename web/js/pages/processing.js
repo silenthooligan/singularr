@@ -204,7 +204,7 @@
           else if (t.dataset.log) log(all.find(r => String(r.id) === t.dataset.log));
           else if (t.dataset.run) {
             const r = await MQ.send('POST', `/processing/rules/${t.dataset.run}/run`);
-            if (r.ok) { MQ.toast(`${fmt.num(r.data.sent)} sent`, 'ok'); rules(); } else failed(r, "Couldn't run rule");
+            if (r.ok) { MQ.toast(`${fmt.num(r.data.sent)} queued`, 'ok'); rules(); } else failed(r, "Couldn't run rule");
           }
         };
       }
@@ -214,9 +214,12 @@
         const page = await MQ.api(`/processing/rules/${rule.id}/log`);
         const entries = page?.entries || [];
         const d = MQ.drawer({ title: rule.name, label: rule.name, wide: true, sub: rule.when === 'request' ? 'On request' : 'On import', body: html`<div id="pr-log"></div>` });
-        /* A send not confirmed: the send dialog sends the file again, a click each time. It opens with the whole
-           title record: its line of the file's last run shows. A title that does not load opens nothing. */
+        /* A send not confirmed holds its file: the row offers Mark not sent alone. Marked, the file is free and the
+           row offers Send: the send dialog, a click each time. It opens with the whole title record: its line of the
+           file's last run shows. A title that does not load opens nothing. */
         d.el.addEventListener('click', async e => {
+          const n = e.target.closest('[data-notsent]');
+          if (n) { MQ.notSent(n.dataset.notsent, () => log(rule)); return; }
           const b = e.target.closest('[data-resend]'); if (!b) return;
           const x = entries.find(y => y.path === b.dataset.resend); if (!x) return;
           const t = x.title?.id ? await MQ.title(x.title.id).catch(() => null) : null;
@@ -228,7 +231,7 @@
           columns: [
             { key: 'at', label: 'Date', type: 'rel', always: true, cls: 'c-dim' },
             { key: 'file', label: 'File', render: x => html`<span class="mq-cell-two"><b>${x.title?.title || x.file}</b><small class="mono">${x.file}</small></span>` },
-            { key: 'outcome', label: 'Status', render: x => html`${outcome(x.attention ? 'unconfirmed' : x.outcome)}${x.detail ? html` <span class="pr-meta">${x.detail}</span>` : ''}${x.attention ? html` <button type="button" class="mq-btn mq-btn--sm" data-resend="${x.path}">Send again</button>` : ''}` },
+            { key: 'outcome', label: 'Status', render: x => html`${outcome(x.attention ? 'unconfirmed' : x.outcome)}${x.detail ? html` <span class="pr-meta">${x.detail}</span>` : ''}${x.attention && x.act ? html` <button type="button" class="mq-btn mq-btn--sm" data-notsent="${x.act}">Mark not sent</button>` : ''}${x.markedNotSent ? html` <button type="button" class="mq-btn mq-btn--sm" data-resend="${x.path}">Send</button>` : ''}` },
             { key: 'serviceDid', label: 'Service run', render: x => (x.serviceDid ? html`<span class="mq-cell-two"><b>${x.serviceDid.flow}</b><small>${MQ.join([P().word({ state: x.serviceDid.state }), x.serviceDid.trigger], ' · ')}</small></span>` : html`<span class="faint">None</span>`) },
             { key: 'evidence', label: 'Why', cls: 'hide-md c-dim' },
           ] });

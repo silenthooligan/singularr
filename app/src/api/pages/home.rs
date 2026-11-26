@@ -184,7 +184,7 @@ pub async fn home(state: &AppState) -> AppResult<Home> {
         &queue,
         &integrations,
         &workspace::down_since(state).await?,
-        workspace::run_attention(state).await?,
+        workspace::more_attention(state).await?,
     );
     let stuck = bell.iter().filter(|a| a.kind == "queue").count();
     stats.push(Stat {
@@ -228,6 +228,9 @@ pub async fn home(state: &AppState) -> AppResult<Home> {
             title: r.title.title.clone(),
             reason: "Pending approval".to_string(),
             since: Some(r.at),
+            tone: None,
+            act: None,
+            page: None,
         })
         .chain(bell.into_iter().map(|a| HomeAttention {
             id: a.id,
@@ -235,6 +238,9 @@ pub async fn home(state: &AppState) -> AppResult<Home> {
             title: a.title,
             reason: a.detail,
             since: a.since,
+            tone: Some(a.tone),
+            act: a.act,
+            page: a.page,
         }))
         .collect();
     attention.sort_by(|a, b| b.since.cmp(&a.since).then_with(|| a.id.cmp(&b.id)));

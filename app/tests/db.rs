@@ -3620,20 +3620,21 @@ async fn the_processing_and_intents_passes_run_as_jobs() {
     t.drop_db().await;
 }
 
-/// A rule claims a file before it sends it: a row in `sending` that commits first. The row names
-/// the job that claims it and has no detail. One claim holds a file, by any rule. A claim counts
-/// as sent: a run after a restart or a lost lease never sends the file again. The rule's log asks
-/// for a look once the claiming job ended (for a rule run from the API: after two minutes). It
-/// asks only while the service shows no run the claim's send could have opened. Such a run is of
-/// the claim's flow, started through the bridge's route by Singularr and made from 60 s before
-/// the claim to a day after it. It settles the claim as sent.
+/// A rule claims a file and enqueues its send's act in one commit: a row in `sending` that names
+/// its act and has no detail. One claim holds a file, by any rule. A claim counts as sent: a run
+/// after a restart or a lost lease never sends the file again. The rule's log asks for a look
+/// while the act is unknown. A run that the claim's send could have opened confirms the act and
+/// settles the claim as sent: a run of the claim's flow, started through the bridge's route by
+/// Singularr and made from 60 s before the act to a day after it.
 #[tokio::test]
 async fn the_processing_rules_claim_a_file_before_they_send_it() {
     let Some(t) = TestDb::new("rules_claims").await else {
         return;
     };
     use singularr::processing::rules::{NewLog, RuleBody, RuleConditions};
-    let st = state_with(&t.pool, Journal::new(), &[("HUSH_URL", HUSH)]);
+    use singularr::processing::sends::{self, RuleSend};
+    let journal = Journal::new();
+    let st = state_with(&t.pool, journal.clone(), &[("HUSH_URL", HUSH)]);
     let mut conn = t.pool.acquire().await.unwrap();
     let rule = processing_store::insert_rule(
         &mut conn,
@@ -3660,7 +3661,7 @@ async fn the_processing_rules_claim_a_file_before_they_send_it() {
         rule_version: rule.version,
         event_id: None,
         title_id: None,
-        copy_id: None,
+        copy_id: Some(1),
         path: path.clone(),
         service: "hush".to_string(),
         flow: "audio".to_string(),
@@ -3669,17 +3670,53 @@ async fn the_processing_rules_claim_a_file_before_they_send_it() {
         evidence: Some("audio is Opus".to_string()),
         run_id: None,
     };
-    let claim = processing_store::claim_send(&t.pool, &entry, None)
+    let title = singularr::catalog::store::TitleRef {
+        id: 1,
+        kind: "movie".to_string(),
+        tmdb_id: None,
+        title: "A Movie".to_string(),
+        year: Some(2020),
+    };
+    let outbox = st.outbox();
+    let mut tx = journal.begin(&t.pool).await.unwrap();
+    let claim = processing_store::claim_send(tx.conn(), &entry)
+        .await
+        .unwrap()
+        .expect("the file is free");
+    let act = outbox
+        .enqueue(
+            &mut tx,
+            sends::by_rule(RuleSend {
+                rule: rule.id,
+                copy: 1,
+                claim,
+                service: "hush",
+                title: &title,
+                path: &path,
+                flow: "audio",
+                event: None,
+            }),
+        )
+        .await
+        .unwrap()
+        .into_act();
+    processing_store::name_act(tx.conn(), claim, act.id)
         .await
         .unwrap();
-    assert!(claim.is_some());
-    // A second claim of the file, by any rule, does not take it.
+    tx.commit().await.unwrap();
     assert_eq!(
-        processing_store::claim_send(&t.pool, &entry, Some(1))
+        (act.state.as_str(), act.idempotency_key.clone()),
+        ("pending", format!("rule:{}:1:{claim}", rule.id))
+    );
+    // A second claim of the file, by any rule, does not take it.
+    let mut tx = journal.begin(&t.pool).await.unwrap();
+    assert_eq!(
+        processing_store::claim_send(tx.conn(), &entry)
             .await
             .unwrap(),
         None
     );
+    drop(tx);
     // The claim counts as sent: a pass after a restart skips the file.
     assert_eq!(
         processing_store::sent_paths(&t.pool, std::slice::from_ref(&path))
@@ -3698,51 +3735,36 @@ async fn the_processing_rules_claim_a_file_before_they_send_it() {
             page["entries"][0].clone()
         }
     };
-    // A claim of a rule run from the API, no detail: no look for two minutes, then a look.
+    // No look while the act is pending.
     let row = newest().await;
     assert_eq!(
-        (&row["outcome"], &row["attention"], &row["detail"]),
+        (
+            &row["outcome"],
+            &row["attention"],
+            &row["detail"],
+            &row["act"]
+        ),
         (
             &serde_json::json!("sending"),
             &serde_json::json!(false),
-            &serde_json::Value::Null
+            &serde_json::Value::Null,
+            &serde_json::json!(act.id)
         ),
         "{row}"
     );
-    sqlx::query("UPDATE processing_rule_log SET at = now() - interval '3 minutes'")
-        .execute(&t.pool)
-        .await
-        .unwrap();
-    assert_eq!(newest().await["attention"], true);
-    // A claim of a job: no look while the job runs. Once it ended, a look.
-    let job: i64 = sqlx::query_scalar(
-        "INSERT INTO jobs (kind, queue, state, locked_by, locked_until, started_at)
-         VALUES ('processing.rules', 'default', 'running', 'test', now() + interval '1 minute',
-                 now())
-         RETURNING id",
-    )
-    .fetch_one(&t.pool)
-    .await
-    .unwrap();
-    sqlx::query("UPDATE processing_rule_log SET job_id = $1")
-        .bind(job)
-        .execute(&t.pool)
-        .await
-        .unwrap();
-    assert_eq!(newest().await["attention"], false);
+    // Unknown, made three minutes ago: a look.
     sqlx::query(
-        "UPDATE jobs SET state = 'done', locked_by = NULL, locked_until = NULL,
-                finished_at = now()
+        "UPDATE acts SET state = 'unknown', created_at = now() - interval '3 minutes'
          WHERE id = $1",
     )
-    .bind(job)
+    .bind(act.id)
     .execute(&t.pool)
     .await
     .unwrap();
     assert_eq!(newest().await["attention"], true);
-    // Runs of the service whose source is the file. Each that the claim's send could not have
-    // opened leaves the claim Unconfirmed: one made long before the claim, one of another flow,
-    // one the bridge started on a tag, one made two days later. The claim was made 180 s ago.
+    // Runs of the service whose source is the file. Each that the act's send could not have
+    // opened leaves it Unconfirmed: one made long before the act, one of another flow, one the
+    // bridge started on a tag, one made two days later.
     let run = |id: &'static str, flow: &'static str, trigger: &'static str, ago: f64| {
         let pool = t.pool.clone();
         let path = path.clone();
@@ -3772,7 +3794,7 @@ async fn the_processing_rules_claim_a_file_before_they_send_it() {
     ] {
         run(id, flow, trigger, ago).await;
         assert_eq!(
-            processing_store::settle_claims_by_runs(&t.pool, "hush")
+            sends::confirm_by_runs(&outbox, &t.pool, "hush")
                 .await
                 .unwrap(),
             0,
@@ -3785,11 +3807,10 @@ async fn the_processing_rules_claim_a_file_before_they_send_it() {
             "{id}: {row}"
         );
     }
-    // A run of the claim's flow that Singularr's send started, 30 s after the claim: the claim's.
+    // A run of the claim's flow that Singularr's send started, 30 s after the act: the act's.
     run("j-after", "audio", "api:singularr", 150.0).await;
-    assert_eq!(newest().await["attention"], false);
     assert_eq!(
-        processing_store::settle_claims_by_runs(&t.pool, "hush")
+        sends::confirm_by_runs(&outbox, &t.pool, "hush")
             .await
             .unwrap(),
         1
@@ -3804,14 +3825,36 @@ async fn the_processing_rules_claim_a_file_before_they_send_it() {
         ),
         "{row}"
     );
+    let confirmed = singularr::core::outbox::act(&t.pool, act.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (confirmed.state.as_str(), sends::confirmed_run(&confirmed)),
+        ("confirmed", Some("hush:j-after"))
+    );
+    // The confirmed send is journaled in the rule's name.
+    let by_rule = core_store::find_events(
+        &t.pool,
+        &["processing_sent".to_string()],
+        &[format!("rule:{}", rule.id)],
+        None,
+        None,
+        10,
+    )
+    .await
+    .unwrap();
+    assert_eq!(by_rule.len(), 1);
+    assert_eq!(by_rule[0].body["run"], "hush:j-after");
     t.drop_db().await;
 }
 
 /// A rule's send that gets no clear answer keeps its claim: a connection that broke after the
 /// call went out, a 502 without the bridge's own words. The file is not sent again. The
-/// processing pass settles the claim as sent once the bridge shows the run the send opened. A
-/// send by hand that the bridge takes settles it too. A refusal in the bridge's own words frees the file.
-/// A pass after one that was cut short writes no second entry for the claim it made.
+/// processing pass confirms the act and settles the claim once the bridge shows the run the send
+/// opened. A send by hand of the file and the flow is that unknown act until the owner marks it
+/// not sent. That frees the file. A refusal in the bridge's own words frees the file too. A pass
+/// after one that was cut short writes no second entry and no second act for the claim it made.
 #[tokio::test]
 async fn a_send_without_a_clear_answer_keeps_its_claim() {
     let Some(t) = TestDb::new("rules_unclear").await else {
@@ -3821,6 +3864,7 @@ async fn a_send_without_a_clear_answer_keeps_its_claim() {
     use singularr::core::journal::event;
     use singularr::core::outbound::Access;
     use singularr::processing::rules::{self, NewLog, RuleBody, RuleConditions};
+    use singularr::processing::sends::{self, RuleSend};
     let journal = Journal::new();
     let recorded = Recorded::new();
     record_processing(&recorded, "hush_health_live.json");
@@ -3830,6 +3874,12 @@ async fn a_send_without_a_clear_answer_keeps_its_claim() {
         &stage,
         201,
         &fixture("hush_stage_staged.json"),
+    );
+    recorded.answer(
+        Method::Get,
+        &format!("{HUSH}/jobs?ids=20261123T160500Z-0a1b2c3d"),
+        200,
+        &fixture("hush_jobs_by_id.json"),
     );
     let out = outbound(recorded.clone());
     let st = state_over(&t.pool, journal.clone(), &[("HUSH_URL", HUSH)], &out);
@@ -3845,6 +3895,8 @@ async fn a_send_without_a_clear_answer_keeps_its_claim() {
         .set(&t.pool, &journal, owner, "hush", Access::Act)
         .await
         .unwrap();
+    let acts = acts_runtime(&st);
+    let outbox = st.outbox();
     let body = |when: &str| RuleBody {
         name: format!("Atmos audio on {when}"),
         enabled: true,
@@ -3861,7 +3913,23 @@ async fn a_send_without_a_clear_answer_keeps_its_claim() {
         .await
         .unwrap();
     drop(conn);
-    let run = || rules::request_run(&t.pool, &journal, &st.engines, &policy, &asked, true);
+    let run = || {
+        let (pool, journal, engines, policy, asked, outbox) = (
+            t.pool.clone(),
+            journal.clone(),
+            st.engines.clone(),
+            policy.clone(),
+            asked.clone(),
+            outbox.clone(),
+        );
+        async move {
+            let ran = rules::request_run(&pool, &journal, &engines, &policy, &asked, true, &outbox)
+                .await
+                .unwrap();
+            acts_rest(&pool).await;
+            ran
+        }
+    };
     let newest = |rule: i64| {
         let pool = t.pool.clone();
         async move {
@@ -3874,33 +3942,36 @@ async fn a_send_without_a_clear_answer_keeps_its_claim() {
     let clear = || {
         let pool = t.pool.clone();
         async move {
-            sqlx::query("DELETE FROM processing_rule_log")
-                .execute(&pool)
-                .await
-                .unwrap();
+            for sql in [
+                "DELETE FROM processing_rule_log",
+                "DELETE FROM jobs WHERE queue = 'acts'",
+                "DELETE FROM acts",
+            ] {
+                sqlx::query(sql).execute(&pool).await.unwrap();
+            }
         }
     };
 
     // The connection breaks after the call went out: no clear answer, the claim stays.
     recorded.fail_once(Method::Post, &stage, "connection reset by peer");
-    let ran = run().await.unwrap();
-    assert_eq!((ran.matched, ran.logged, ran.sent), (1, 1, 0));
+    let ran = run().await;
+    assert_eq!((ran.matched, ran.logged, ran.sent), (1, 1, 1));
     assert_eq!(staged_calls(&recorded), 1);
     let row = newest(asked.id).await;
     assert_eq!(
-        (row.outcome.as_str(), row.detail.as_deref()),
-        ("sending", Some(rules::NO_CLEAR_ANSWER))
+        (row.outcome.as_str(), row.detail.as_deref(), row.attention),
+        ("sending", Some(rules::NO_CLEAR_ANSWER), true)
     );
     // The claim holds the file: the next run sends nothing.
-    let again = run().await.unwrap();
+    let again = run().await;
     assert_eq!((again.matched, again.logged, again.sent), (1, 0, 0));
     assert_eq!(staged_calls(&recorded), 1);
 
     // A 502 without the bridge's own words: the same.
     clear().await;
     recorded.answer_once(Method::Post, &stage, 502, "<html>Bad Gateway</html>", &[]);
-    let ran = run().await.unwrap();
-    assert_eq!((ran.logged, ran.sent), (1, 0));
+    let ran = run().await;
+    assert_eq!((ran.logged, ran.sent), (1, 1));
     assert_eq!(staged_calls(&recorded), 2);
     let claimed = newest(asked.id).await;
     assert_eq!(
@@ -3908,8 +3979,8 @@ async fn a_send_without_a_clear_answer_keeps_its_claim() {
         ("sending", Some(rules::NO_CLEAR_ANSWER))
     );
     let kingdom_path = claimed.path.clone();
-    // The run the send opened, made after the claim: the processing pass settles the claim as
-    // sent.
+    // The run the send opened, made after the act: the processing pass confirms it and settles
+    // the claim as sent.
     sqlx::query(
         "INSERT INTO processing_runs
              (id, integration, job_id, flow, trigger_text, state, created_at, source_path, raw)
@@ -3923,6 +3994,12 @@ async fn a_send_without_a_clear_answer_keeps_its_claim() {
     processing::pass(&t.pool, &bridge, processing::Read::Newest)
         .await
         .unwrap();
+    assert_eq!(
+        sends::confirm_by_runs(&outbox, &t.pool, "hush")
+            .await
+            .unwrap(),
+        1
+    );
     let settled = newest(asked.id).await;
     assert_eq!(
         (
@@ -3937,28 +4014,41 @@ async fn a_send_without_a_clear_answer_keeps_its_claim() {
         .await
         .unwrap();
 
-    // A send by hand that the bridge takes settles the claim of the file too.
+    // A send by hand of the file and the flow while the rule's act is unknown is that act: no
+    // second call. The owner marks it not sent: the claim frees the file. A send by hand then
+    // goes through.
     clear().await;
     recorded.fail_once(Method::Post, &stage, "connection reset by peer");
-    run().await.unwrap();
-    assert_eq!(newest(asked.id).await.outcome, "sending");
+    run().await;
+    let unclear = newest(asked.id).await;
+    assert_eq!(unclear.outcome, "sending");
     let app = routes::router(st.clone());
-    let session: [(&str, &str); 1] = [("x-auth-request-email", "owner@example.com")];
     let by_hand = json!({"title": "movie-1495", "file": KINGDOM_FILE, "flow": "audio"}).to_string();
-    let (status, _, sent) = call(
-        &app,
-        "POST",
-        "/api/v1/processing/runs",
-        &session,
-        Some(&by_hand),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED, "{sent}");
-    let settled = newest(asked.id).await;
+    let (status, _, joined) = send_click(&app, &by_hand).await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{joined}");
+    assert_eq!(joined["act"], json!(unclear.act_id.unwrap()));
+    assert_eq!(staged_calls(&recorded), 3);
+    let session: [(&str, &str); 1] = [("x-auth-request-email", "owner@example.com")];
+    let not_sent = format!("/api/v1/acts/{}/not-sent", unclear.act_id.unwrap());
+    let (status, _, marked) = call(&app, "POST", &not_sent, &session, None).await;
+    assert_eq!(status, StatusCode::OK, "{marked}");
     assert_eq!(
-        (settled.outcome.as_str(), settled.run_id.as_deref()),
-        ("sent", Some("hush:20261123T160500Z-0a1b2c3d"))
+        (&marked["state"], &marked["errorClass"]),
+        (&json!("failed"), &json!("by_hand"))
     );
+    let freed = newest(asked.id).await;
+    assert_eq!(
+        (
+            freed.outcome.as_str(),
+            freed.detail.as_deref(),
+            freed.attention
+        ),
+        ("failed", Some("Not sent"), false)
+    );
+    let (status, _, sent) = send_click(&app, &by_hand).await;
+    assert_eq!(status, StatusCode::CREATED, "{sent}");
+    assert_eq!(sent["run"]["id"], "hush:20261123T160500Z-0a1b2c3d");
+    assert_eq!(staged_calls(&recorded), 4);
 
     // A refusal in the bridge's own words frees the file: the next run sends it.
     clear().await;
@@ -3969,25 +4059,30 @@ async fn a_send_without_a_clear_answer_keeps_its_claim() {
         r#"{"staged": false, "reason": "refused", "detail": "hushq: busy"}"#,
         &[],
     );
-    let ran = run().await.unwrap();
-    assert_eq!((ran.logged, ran.sent), (1, 0));
+    let ran = run().await;
+    assert_eq!((ran.logged, ran.sent), (1, 1));
     let refused = newest(asked.id).await;
     assert_eq!(
         (refused.outcome.as_str(), refused.detail.as_deref()),
         ("refused", Some("hushq: busy"))
     );
-    assert_eq!(run().await.unwrap().sent, 1);
+    assert_eq!(run().await.sent, 1);
+    let resent = newest(asked.id).await;
+    assert_eq!(
+        (resent.outcome.as_str(), resent.run_id.as_deref()),
+        ("sent", Some("hush:20261123T160500Z-0a1b2c3d"))
+    );
     assert_eq!(staged_calls(&recorded), 6);
 
     // A pass after one that was cut short reads the same import again. The claim of the same
-    // rule and import is that pass's entry: no second entry, no second send.
+    // rule and import is that pass's entry: no second entry, no second act. Its act is sent once.
     clear().await;
     let mut conn = t.pool.acquire().await.unwrap();
     let on_import = processing_store::insert_rule(&mut conn, &body("import"), owner)
         .await
         .unwrap();
     drop(conn);
-    let pass = || rules::import_pass(&t.pool, &journal, &st.engines, &policy, true, None);
+    let pass = || rules::import_pass(&t.pool, &journal, &st.engines, &policy, true, &outbox);
     pass().await.unwrap();
     let kingdom: i64 = sqlx::query_scalar("SELECT id FROM copies WHERE relative_path = $1")
         .bind(KINGDOM_FILE)
@@ -4005,7 +4100,7 @@ async fn a_send_without_a_clear_answer_keeps_its_claim() {
     .await
     .unwrap();
     tx.commit().await.unwrap();
-    let imported: i64 = sqlx::query_scalar("SELECT max(id) FROM events")
+    let imported: i64 = sqlx::query_scalar("SELECT max(id) FROM events WHERE kind = 'copy_added'")
         .fetch_one(&t.pool)
         .await
         .unwrap();
@@ -4024,22 +4119,56 @@ async fn a_send_without_a_clear_answer_keeps_its_claim() {
         evidence: None,
         run_id: None,
     };
-    assert!(
-        processing_store::claim_send(&t.pool, &cut_short, Some(1))
+    let title =
+        singularr::catalog::store::title_refs(&t.pool, &[title_with_tmdb(&t.pool, 1495).await])
             .await
             .unwrap()
-            .is_some()
-    );
+            .remove(0);
+    let mut tx = journal.begin(&t.pool).await.unwrap();
+    let claim = processing_store::claim_send(tx.conn(), &cut_short)
+        .await
+        .unwrap()
+        .expect("the file is free");
+    let act = outbox
+        .enqueue(
+            &mut tx,
+            sends::by_rule(RuleSend {
+                rule: on_import.id,
+                copy: kingdom,
+                claim,
+                service: "hush",
+                title: &title,
+                path: &kingdom_path,
+                flow: "audio",
+                event: Some(imported),
+            }),
+        )
+        .await
+        .unwrap()
+        .into_act();
+    processing_store::name_act(tx.conn(), claim, act.id)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
     let passed = pass().await.unwrap();
     assert_eq!((passed.imports, passed.logged, passed.sent), (1, 0, 0));
+    acts_rest(&t.pool).await;
     let log = processing_store::rule_log(&t.pool, on_import.id, 10)
         .await
         .unwrap();
     assert_eq!(
         log.iter().map(|e| e.outcome.as_str()).collect::<Vec<_>>(),
-        vec!["sending"]
+        vec!["sent"]
     );
-    assert_eq!(staged_calls(&recorded), 6);
+    let acts_of_file: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM acts WHERE request->>'path' = $1")
+            .bind(&kingdom_path)
+            .fetch_one(&t.pool)
+            .await
+            .unwrap();
+    assert_eq!(acts_of_file, 1);
+    assert_eq!(staged_calls(&recorded), 7);
+    acts.stop().await;
     t.drop_db().await;
 }
 
@@ -4369,6 +4498,7 @@ async fn start_jobs_with(st: &AppState, sync: Option<Arc<lifecycle_sync::SyncJob
                 &st.config,
                 st.settings.clone(),
             )),
+            engines: st.engines.clone(),
             // The plays jobs have their own tests (`plays_db.rs`): their schedules are left out.
             plays: None,
             locations: None,
@@ -11556,9 +11686,1111 @@ fn staged_calls(recorded: &Recorded) -> usize {
         .count()
 }
 
+/// A runtime of the acts queue alone over the state's outbox, as the owner process runs it. Its
+/// waits are short enough for a test.
+fn acts_runtime(st: &AppState) -> runtime::Running {
+    use singularr::core::outbox;
+    let own = PgPoolOptions::new()
+        .max_connections(8)
+        .connect_lazy_with(st.pool.connect_options().as_ref().clone());
+    let acts = Arc::new(st.outbox());
+    runtime::Runtime::new(
+        own,
+        runtime::Timing {
+            tick: Duration::from_millis(100),
+            poll: Duration::from_millis(200),
+            reap: Duration::from_millis(200),
+            lease: Duration::from_secs(5),
+            grace: Duration::from_secs(1),
+        },
+    )
+    .handle(outbox::SEND_KIND, Arc::new(outbox::SendJob(acts.clone())))
+    .handle(outbox::CONFIRM_KIND, Arc::new(outbox::ConfirmJob(acts)))
+    .workers(outbox::QUEUE, outbox::WORKERS)
+    .start()
+}
+
+/// Wait until no act is pending or sending and no job of the acts queue is due or running.
+async fn acts_rest(pool: &PgPool) {
+    for _ in 0..300 {
+        let busy: i64 = sqlx::query_scalar(
+            "SELECT (SELECT count(*) FROM acts WHERE state IN ('pending', 'sending'))
+                  + (SELECT count(*) FROM jobs WHERE queue = 'acts'
+                     AND (state = 'running' OR (state = 'queued' AND run_at <= now())))",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        if busy == 0 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the acts did not rest within 15 s");
+}
+
+/// The acts of the outbox delivered as the acts queue would, at once: each queued job of a send
+/// or a read runs in turn, its wait skipped, until none is queued.
+async fn deliver_acts(st: &AppState) {
+    use singularr::core::outbox;
+    let acts = st.outbox();
+    loop {
+        let next: Option<(String, serde_json::Value)> = sqlx::query_as(
+            "UPDATE jobs SET state = 'done', finished_at = now()
+             WHERE id = (SELECT id FROM jobs WHERE queue = 'acts' AND state = 'queued'
+                         ORDER BY id LIMIT 1)
+             RETURNING kind, payload",
+        )
+        .fetch_optional(&st.pool)
+        .await
+        .unwrap();
+        let Some((kind, payload)) = next else {
+            return;
+        };
+        let act = payload["act"].as_i64().unwrap();
+        if kind == outbox::SEND_KIND {
+            acts.send(act).await.unwrap();
+        } else {
+            let send = i32::try_from(payload["send"].as_i64().unwrap()).unwrap();
+            let read = u32::try_from(payload["read"].as_i64().unwrap()).unwrap();
+            acts.confirm(act, send, read).await.unwrap();
+        }
+    }
+}
+
+/// The owner's send of a file, one click of the web client: a key of its own.
+async fn send_click(app: &axum::Router, body: &str) -> (StatusCode, String, serde_json::Value) {
+    static CLICKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let key = format!(
+        "click-{}",
+        CLICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    call(
+        app,
+        "POST",
+        "/api/v1/processing/runs",
+        &[
+            ("x-auth-request-email", "owner@example.com"),
+            ("idempotency-key", key.as_str()),
+        ],
+        Some(body),
+    )
+    .await
+}
+
+/// The bridge's ledger in the table. Its stage takes files and names the job it opened. It gives
+/// that job by id. Write access to it. The state over that bridge.
+async fn sending_bridge(t: &TestDb, journal: &Journal, recorded: &Arc<Recorded>) -> AppState {
+    use singularr::core::outbound::Access;
+    ledger_catalog(&t.pool, journal, recorded).await;
+    record_processing(recorded, "hush_health_live.json");
+    recorded.answer(
+        Method::Post,
+        &format!("{HUSH}/stage"),
+        201,
+        &fixture("hush_stage_staged.json"),
+    );
+    recorded.answer(
+        Method::Get,
+        &format!("{HUSH}/jobs?ids=20261123T160500Z-0a1b2c3d"),
+        200,
+        &fixture("hush_jobs_by_id.json"),
+    );
+    let out = outbound(recorded.clone());
+    let st = state_over(&t.pool, journal.clone(), &[("HUSH_URL", HUSH)], &out);
+    let bridge = st.engines.processor("hush").unwrap().clone();
+    processing::pass(&t.pool, &bridge, processing::Read::Whole)
+        .await
+        .unwrap();
+    st.engines
+        .access
+        .set(
+            &t.pool,
+            journal,
+            "user:owner@example.com",
+            "hush",
+            Access::Act,
+        )
+        .await
+        .unwrap();
+    st
+}
+
+/// An act's key is its request: two posts with one key send once. The key with another request
+/// is refused. A double click without a key sends once. `GET /api/v1/acts/{id}` reads the act,
+/// for the owner alone.
+#[tokio::test]
+async fn two_posts_with_one_key_send_once() {
+    let Some(t) = TestDb::new("acts_key").await else {
+        return;
+    };
+    use serde_json::json;
+    let journal = Journal::new();
+    let recorded = Recorded::new();
+    let st = sending_bridge(&t, &journal, &recorded).await;
+    let acts = acts_runtime(&st);
+    let app = routes::router(st.clone());
+    let runs = "/api/v1/processing/runs";
+    let damsel = json!({"title": "movie-763215", "file": DAMSEL_FILE, "flow": "audio"}).to_string();
+    let keyed = |key: &'static str| {
+        [
+            ("x-auth-request-email", "owner@example.com"),
+            ("idempotency-key", key),
+        ]
+    };
+    let (status, _, first) = call(&app, "POST", runs, &keyed("k-1"), Some(&damsel)).await;
+    assert_eq!(status, StatusCode::CREATED, "{first}");
+    let (status, _, second) = call(&app, "POST", runs, &keyed("k-1"), Some(&damsel)).await;
+    assert_eq!(status, StatusCode::CREATED, "{second}");
+    assert_eq!(second["act"], first["act"]);
+    assert_eq!(second["run"]["id"], "hush:20261123T160500Z-0a1b2c3d");
+    assert_eq!(staged_calls(&recorded), 1, "one send");
+    // The key with another request.
+    let strip = json!({"title": "movie-763215", "file": DAMSEL_FILE, "flow": "strip"}).to_string();
+    let (status, _, refused) = call(&app, "POST", runs, &keyed("k-1"), Some(&strip)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    assert_eq!(
+        (&refused["code"], &refused["act"]),
+        (&json!("singularr.idempotency_mismatch"), &first["act"])
+    );
+    assert_eq!(staged_calls(&recorded), 1);
+    // The act as it stands.
+    let act = get_ok(&app, &format!("/api/v1/acts/{}", first["act"])).await;
+    assert_eq!(
+        (
+            &act["state"],
+            &act["integration"],
+            &act["action"],
+            &act["actor"],
+            &act["attempts"]
+        ),
+        (
+            &json!("confirmed"),
+            &json!("hush"),
+            &json!("send"),
+            &json!("user:owner@example.com"),
+            &json!(1)
+        )
+    );
+    assert_eq!(
+        (&act["request"]["path"], &act["request"]["flow"]),
+        (
+            &json!(format!("{DAMSEL_FOLDER}/{DAMSEL_FILE}")),
+            &json!("audio")
+        )
+    );
+    assert_eq!(
+        act["result"]["confirmed"]["run"],
+        "hush:20261123T160500Z-0a1b2c3d"
+    );
+    // A double click without a key: one act, one send.
+    let session: [(&str, &str); 1] = [("x-auth-request-email", "owner@example.com")];
+    let (status, _, x) = call(&app, "POST", runs, &session, Some(&damsel)).await;
+    assert_eq!(status, StatusCode::CREATED, "{x}");
+    let (status, _, y) = call(&app, "POST", runs, &session, Some(&damsel)).await;
+    assert_eq!(status, StatusCode::CREATED, "{y}");
+    assert_ne!(x["act"], first["act"]);
+    assert_eq!(x["act"], y["act"]);
+    assert_eq!(staged_calls(&recorded), 2);
+    // A key that is no key.
+    let (status, _, bad) = call(&app, "POST", runs, &keyed("two words"), Some(&damsel)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+    // An act is the owner's to read.
+    let owner = Caller::Owner {
+        email: "owner@example.com".into(),
+    };
+    let admin = auth::create_key(
+        &t.pool,
+        &journal,
+        &owner,
+        &NewApiKey {
+            name: "admin".into(),
+            scopes: vec![Scope::Admin],
+        },
+    )
+    .await
+    .unwrap();
+    let bearer = format!("Bearer {}", admin.secret);
+    let (status, _, _) = call(
+        &app,
+        "GET",
+        &format!("/api/v1/acts/{}", first["act"]),
+        &[("authorization", bearer.as_str())],
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = call(&app, "GET", "/api/v1/acts/999999", &session, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    acts.stop().await;
+    t.drop_db().await;
+}
+
+/// A send whose answer is lost ends confirmed by its read: the run it opened shows. A send that
+/// timed out is unknown: a second send of the file and the flow is that act. The owner marks it
+/// not sent: it fails. The file is free for a new send.
+#[tokio::test]
+async fn an_unconfirmed_send_ends_confirmed_by_its_read_or_failed_by_the_owner() {
+    let Some(t) = TestDb::new("acts_unknown").await else {
+        return;
+    };
+    use serde_json::json;
+    let journal = Journal::new();
+    let recorded = Recorded::new();
+    let st = sending_bridge(&t, &journal, &recorded).await;
+    let acts = acts_runtime(&st);
+    let app = routes::router(st.clone());
+    let stage = format!("{HUSH}/stage");
+    let damsel_path = format!("{DAMSEL_FOLDER}/{DAMSEL_FILE}");
+    let damsel = json!({"title": "movie-763215", "file": DAMSEL_FILE, "flow": "audio"}).to_string();
+    // The answer is lost: no clear answer.
+    recorded.fail_once(Method::Post, &stage, "connection reset by peer");
+    let (status, _, lost) = send_click(&app, &damsel).await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{lost}");
+    assert_eq!(lost["code"], "singularr.unconfirmed");
+    let act = lost["act"].as_i64().expect("the problem names its act");
+    let read = |id: i64| {
+        let app = app.clone();
+        async move { get_ok(&app, &format!("/api/v1/acts/{id}")).await }
+    };
+    assert_eq!(read(act).await["state"], "unknown");
+    // The run the send opened shows: the next read confirms it. The send is journaled.
+    sqlx::query(
+        "INSERT INTO processing_runs
+             (id, integration, job_id, flow, trigger_text, state, created_at, source_path, raw)
+         VALUES ('hush:j-lost', 'hush', 'j-lost', 'audio', 'api:singularr', 'staged', now(),
+                 $1, '{}')",
+    )
+    .bind(&damsel_path)
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(st.outbox().confirm(act, 1, 2).await.unwrap(), "Confirmed");
+    let confirmed = read(act).await;
+    assert_eq!(
+        (
+            &confirmed["state"],
+            &confirmed["result"]["confirmed"]["run"]
+        ),
+        (&json!("confirmed"), &json!("hush:j-lost"))
+    );
+    let journaled = get_ok(&app, "/api/v1/journal?kind=processing.sent").await;
+    assert_eq!(journaled["events"][0]["body"]["run"], "hush:j-lost");
+    assert_eq!(staged_calls(&recorded), 1);
+
+    // A timeout: unknown. A second send of the file and the flow is that act: no second call.
+    let kingdom = json!({"title": "movie-1495", "file": KINGDOM_FILE, "flow": "hevc"}).to_string();
+    recorded.fail(Method::Post, &stage, singularr::core::outbound::TIMED_OUT);
+    let (status, _, timed_out) = send_click(&app, &kingdom).await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{timed_out}");
+    let (status, _, again) = send_click(&app, &kingdom).await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{again}");
+    assert_eq!(again["act"], timed_out["act"]);
+    assert_eq!(staged_calls(&recorded), 2);
+    // The owner marks it not sent: it fails. Only an unconfirmed act takes that word.
+    let session: [(&str, &str); 1] = [("x-auth-request-email", "owner@example.com")];
+    let not_sent = format!("/api/v1/acts/{}/not-sent", timed_out["act"]);
+    let (status, _, marked) = call(&app, "POST", &not_sent, &session, None).await;
+    assert_eq!(status, StatusCode::OK, "{marked}");
+    assert_eq!(
+        (&marked["state"], &marked["errorClass"], &marked["error"]),
+        (&json!("failed"), &json!("by_hand"), &json!("Not sent"))
+    );
+    let (status, _, twice) = call(&app, "POST", &not_sent, &session, None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{twice}");
+    // The file is free: a new send goes through.
+    recorded.answer_once(
+        Method::Post,
+        &stage,
+        201,
+        &fixture("hush_stage_staged.json"),
+        &[],
+    );
+    let (status, _, sent) = send_click(&app, &kingdom).await;
+    assert_eq!(status, StatusCode::CREATED, "{sent}");
+    assert_ne!(sent["act"], timed_out["act"]);
+    assert_eq!(staged_calls(&recorded), 3);
+    acts.stop().await;
+    t.drop_db().await;
+}
+
+/// An act goes out only while Singularr may still do it: one whose action's access was taken
+/// back while it waited fails before anything is sent. A pending act is cancelled before a worker
+/// takes it. A rule's claim of a cancelled act frees its file.
+#[tokio::test]
+async fn an_act_is_refused_when_its_access_changed_or_cancelled_while_pending() {
+    let Some(t) = TestDb::new("acts_refused").await else {
+        return;
+    };
+    use serde_json::json;
+    use singularr::core::outbound::Access;
+    use singularr::processing::rules::{NewLog, RuleBody, RuleConditions};
+    use singularr::processing::sends::{self, RuleSend};
+    let journal = Journal::new();
+    let recorded = Recorded::new();
+    let st = sending_bridge(&t, &journal, &recorded).await;
+    let outbox = st.outbox();
+    let damsel =
+        singularr::catalog::store::title_refs(&t.pool, &[title_with_tmdb(&t.pool, 763215).await])
+            .await
+            .unwrap()
+            .remove(0);
+    let damsel_path = format!("{DAMSEL_FOLDER}/{DAMSEL_FILE}");
+    let mut tx = journal.begin(&t.pool).await.unwrap();
+    let act = outbox
+        .enqueue(
+            &mut tx,
+            sends::by_hand(
+                "hush",
+                &damsel,
+                &damsel_path,
+                "audio",
+                "user:owner@example.com",
+                "api:user:owner@example.com:c-1".to_string(),
+            ),
+        )
+        .await
+        .unwrap()
+        .into_act();
+    tx.commit().await.unwrap();
+    // The access is taken back before a worker takes the act.
+    st.engines
+        .access
+        .set(
+            &t.pool,
+            &journal,
+            "user:owner@example.com",
+            "hush",
+            Access::Read,
+        )
+        .await
+        .unwrap();
+    deliver_acts(&st).await;
+    let refused = singularr::core::outbox::act(&t.pool, act.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (
+            refused.state.as_str(),
+            refused.error_class.as_deref(),
+            refused.attempts
+        ),
+        ("failed", Some("access"), 0)
+    );
+    assert_eq!(staged_calls(&recorded), 0, "nothing left for the bridge");
+    let app = routes::router(st.clone());
+    let session: [(&str, &str); 1] = [("x-auth-request-email", "owner@example.com")];
+    // A rule's claim and its act, pending: the owner cancels it.
+    st.engines
+        .access
+        .set(
+            &t.pool,
+            &journal,
+            "user:owner@example.com",
+            "hush",
+            Access::Act,
+        )
+        .await
+        .unwrap();
+    let mut conn = t.pool.acquire().await.unwrap();
+    let rule = processing_store::insert_rule(
+        &mut conn,
+        &RuleBody {
+            name: "Opus audio".to_string(),
+            enabled: true,
+            when: "request".to_string(),
+            conditions: RuleConditions {
+                file: serde_json::from_value(json!({"audio_codec": ["Opus"]})).unwrap(),
+                ..RuleConditions::default()
+            },
+            service: "hush".to_string(),
+            flow: "audio".to_string(),
+        },
+        "user:owner@example.com",
+    )
+    .await
+    .unwrap();
+    drop(conn);
+    let entry = NewLog {
+        claimed: false,
+        rule_id: rule.id,
+        rule_version: rule.version,
+        event_id: None,
+        title_id: Some(damsel.id),
+        copy_id: Some(7),
+        path: damsel_path.clone(),
+        service: "hush".to_string(),
+        flow: "audio".to_string(),
+        outcome: "sending",
+        detail: None,
+        evidence: None,
+        run_id: None,
+    };
+    let mut tx = journal.begin(&t.pool).await.unwrap();
+    let claim = processing_store::claim_send(tx.conn(), &entry)
+        .await
+        .unwrap()
+        .unwrap();
+    let pending = outbox
+        .enqueue(
+            &mut tx,
+            sends::by_rule(RuleSend {
+                rule: rule.id,
+                copy: 7,
+                claim,
+                service: "hush",
+                title: &damsel,
+                path: &damsel_path,
+                flow: "audio",
+                event: None,
+            }),
+        )
+        .await
+        .unwrap()
+        .into_act();
+    processing_store::name_act(tx.conn(), claim, pending.id)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let cancel = format!("/api/v1/acts/{}/cancel", pending.id);
+    let (status, _, cancelled) = call(&app, "POST", &cancel, &session, None).await;
+    assert_eq!(status, StatusCode::OK, "{cancelled}");
+    assert_eq!(cancelled["state"], "cancelled");
+    let (status, _, twice) = call(&app, "POST", &cancel, &session, None).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{twice}");
+    let freed = processing_store::rule_log(&t.pool, rule.id, 1)
+        .await
+        .unwrap()
+        .remove(0);
+    assert_eq!(
+        (freed.outcome.as_str(), freed.detail.as_deref()),
+        ("held", Some("Cancelled"))
+    );
+    assert!(
+        processing_store::sent_paths(&t.pool, std::slice::from_ref(&damsel_path))
+            .await
+            .unwrap()
+            .is_empty(),
+        "the file is free"
+    );
+    deliver_acts(&st).await;
+    assert_eq!(staged_calls(&recorded), 0, "a cancelled act is never sent");
+    t.drop_db().await;
+}
+
+/// The processing rules never send one file twice across a restart: a pass read again after one
+/// that was cut short makes no second claim and no second act. A process that stops before the
+/// send leaves the act to the next one. That one sends it once. A job of a settled act sends
+/// nothing.
+/// A send whose lease ran out is unknown, never pending: it is not sent again.
+#[tokio::test]
+async fn the_rules_never_send_one_file_twice_across_a_restart() {
+    let Some(t) = TestDb::new("acts_restart").await else {
+        return;
+    };
+    use serde_json::json;
+    use singularr::core::journal::event;
+    use singularr::processing::rules::{self, RuleBody, RuleConditions};
+    use singularr::processing::sends;
+    let journal = Journal::new();
+    let recorded = Recorded::new();
+    let st = sending_bridge(&t, &journal, &recorded).await;
+    let outbox = st.outbox();
+    let policy = ActivePolicy::builtin().policy;
+    let mut conn = t.pool.acquire().await.unwrap();
+    let rule = processing_store::insert_rule(
+        &mut conn,
+        &RuleBody {
+            name: "Atmos audio".to_string(),
+            enabled: true,
+            when: "import".to_string(),
+            conditions: RuleConditions {
+                file: serde_json::from_value(json!({"audio_codec": ["Eac3"], "atmos": true}))
+                    .unwrap(),
+                ..RuleConditions::default()
+            },
+            service: "hush".to_string(),
+            flow: "audio".to_string(),
+        },
+        "user:owner@example.com",
+    )
+    .await
+    .unwrap();
+    drop(conn);
+    let pass = || rules::import_pass(&t.pool, &journal, &st.engines, &policy, true, &outbox);
+    pass().await.unwrap();
+    let before: i64 = sqlx::query_scalar("SELECT max(id) FROM events")
+        .fetch_one(&t.pool)
+        .await
+        .unwrap();
+    let kingdom: i64 = sqlx::query_scalar("SELECT id FROM copies WHERE relative_path = $1")
+        .bind(KINGDOM_FILE)
+        .fetch_one(&t.pool)
+        .await
+        .unwrap();
+    let mut tx = journal.begin(&t.pool).await.unwrap();
+    tx.append_one(event(
+        "copy_added",
+        "copy",
+        kingdom,
+        "sync:radarr",
+        json!({}),
+    ))
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+    // The pass claims the file and queues its send. No worker of the acts queue runs yet.
+    let first = pass().await.unwrap();
+    assert_eq!((first.imports, first.logged, first.sent), (1, 1, 1));
+    // The pass is read again, as one cut short before its cursor moved leaves it.
+    sqlx::query(
+        "UPDATE markers SET value = jsonb_build_object('id', $1::bigint)
+         WHERE scope = 'singularr' AND name = 'rules.cursor'",
+    )
+    .bind(before)
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    let again = pass().await.unwrap();
+    assert_eq!((again.imports, again.logged, again.sent), (1, 0, 0));
+    let acts_count = || {
+        let pool = t.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM acts")
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        }
+    };
+    assert_eq!(acts_count().await, 1);
+    assert_eq!(staged_calls(&recorded), 0);
+    // The next process sends it, once.
+    let acts = acts_runtime(&st);
+    acts_rest(&t.pool).await;
+    acts.stop().await;
+    assert_eq!(staged_calls(&recorded), 1);
+    let log = processing_store::rule_log(&t.pool, rule.id, 10)
+        .await
+        .unwrap();
+    assert_eq!(
+        log.iter()
+            .map(|e| (e.outcome.as_str(), e.run_id.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![("sent", Some("hush:20261123T160500Z-0a1b2c3d"))]
+    );
+    // Another start finds a job of the settled act: it sends nothing.
+    let settled = log[0].act_id.unwrap();
+    sqlx::query(
+        "INSERT INTO jobs (kind, queue, payload, idempotency_key)
+         VALUES ('act.send', 'acts', jsonb_build_object('act', $1::bigint), 'act:stale')",
+    )
+    .bind(settled)
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    // A send by hand whose run lost its lease while it was sending: its job's lease ran out.
+    let damsel =
+        singularr::catalog::store::title_refs(&t.pool, &[title_with_tmdb(&t.pool, 763215).await])
+            .await
+            .unwrap()
+            .remove(0);
+    let mut tx = journal.begin(&t.pool).await.unwrap();
+    let lost = outbox
+        .enqueue(
+            &mut tx,
+            sends::by_hand(
+                "hush",
+                &damsel,
+                &format!("{DAMSEL_FOLDER}/{DAMSEL_FILE}"),
+                "audio",
+                "user:owner@example.com",
+                "api:user:owner@example.com:lost".to_string(),
+            ),
+        )
+        .await
+        .unwrap()
+        .into_act();
+    tx.commit().await.unwrap();
+    sqlx::query("UPDATE acts SET state = 'sending', attempts = 1, sent_at = now() WHERE id = $1")
+        .bind(lost.id)
+        .execute(&t.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE jobs SET state = 'running', attempts = 1, locked_by = 'gone',
+                locked_until = now() - interval '1 second', started_at = now()
+         WHERE kind = 'act.send' AND (payload->>'act')::bigint = $1",
+    )
+    .bind(lost.id)
+    .execute(&t.pool)
+    .await
+    .unwrap();
+    let acts = acts_runtime(&st);
+    acts_rest(&t.pool).await;
+    acts.stop().await;
+    let after = singularr::core::outbox::act(&t.pool, lost.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (
+            after.state.as_str(),
+            after.error_class.as_deref(),
+            after.attempts
+        ),
+        ("unknown", Some("unrecorded"), 1)
+    );
+    assert_eq!(staged_calls(&recorded), 1, "neither act was sent again");
+    t.drop_db().await;
+}
+
+/// A rule's claim of a file and the act of its send, pending: what the rules pass leaves before a
+/// worker takes the act. The rule, the claim and the act.
+async fn claimed_send(
+    t: &TestDb,
+    journal: &Journal,
+    st: &AppState,
+    path: &str,
+) -> (i64, i64, singularr::core::outbox::Act) {
+    use serde_json::json;
+    use singularr::processing::rules::{NewLog, RuleBody, RuleConditions};
+    use singularr::processing::sends::{self, RuleSend};
+    let damsel =
+        singularr::catalog::store::title_refs(&t.pool, &[title_with_tmdb(&t.pool, 763215).await])
+            .await
+            .unwrap()
+            .remove(0);
+    let mut conn = t.pool.acquire().await.unwrap();
+    let rule = processing_store::insert_rule(
+        &mut conn,
+        &RuleBody {
+            name: "Opus audio".to_string(),
+            enabled: true,
+            when: "import".to_string(),
+            conditions: RuleConditions {
+                file: serde_json::from_value(json!({"audio_codec": ["Opus"]})).unwrap(),
+                ..RuleConditions::default()
+            },
+            service: "hush".to_string(),
+            flow: "audio".to_string(),
+        },
+        "user:owner@example.com",
+    )
+    .await
+    .unwrap();
+    drop(conn);
+    let entry = NewLog {
+        claimed: false,
+        rule_id: rule.id,
+        rule_version: rule.version,
+        event_id: None,
+        title_id: Some(damsel.id),
+        copy_id: Some(7),
+        path: path.to_string(),
+        service: "hush".to_string(),
+        flow: "audio".to_string(),
+        outcome: "sending",
+        detail: None,
+        evidence: None,
+        run_id: None,
+    };
+    let mut tx = journal.begin(&t.pool).await.unwrap();
+    let claim = processing_store::claim_send(tx.conn(), &entry)
+        .await
+        .unwrap()
+        .unwrap();
+    let act = st
+        .outbox()
+        .enqueue(
+            &mut tx,
+            sends::by_rule(RuleSend {
+                rule: rule.id,
+                copy: 7,
+                claim,
+                service: "hush",
+                title: &damsel,
+                path,
+                flow: "audio",
+                event: None,
+            }),
+        )
+        .await
+        .unwrap()
+        .into_act();
+    processing_store::name_act(tx.conn(), claim, act.id)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    (rule.id, claim, act)
+}
+
+/// With the sync off no send goes out. Every start delivers the sends all the same: a rule's act
+/// left pending when the sync was turned off fails before anything is sent. Its claim is held.
+/// The file is free. The job of its send ends well.
+#[tokio::test]
+async fn a_send_pending_when_the_sync_is_turned_off_fails_and_frees_its_file() {
+    let Some(t) = TestDb::new("acts_sync_off").await else {
+        return;
+    };
+    use singularr::processing::sends;
+    let journal = Journal::new();
+    let recorded = Recorded::new();
+    let st = sending_bridge(&t, &journal, &recorded).await;
+    let path = format!("{DAMSEL_FOLDER}/{DAMSEL_FILE}");
+    let (rule, _, act) = claimed_send(&t, &journal, &st, &path).await;
+    // The next start runs without the sync: no processing pass, no rules.
+    let off = state_over(
+        &t.pool,
+        journal.clone(),
+        &[("HUSH_URL", HUSH), ("SINGULARR_SYNC_ENABLED", "false")],
+        &outbound(recorded.clone()),
+    );
+    assert!(!off.config.sync.enabled);
+    off.engines.access.load(&t.pool).await.unwrap();
+    let jobs = start_jobs(&off).await;
+    acts_rest(&t.pool).await;
+    jobs.stop().await;
+    let failed = singularr::core::outbox::act(&t.pool, act.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (
+            failed.state.as_str(),
+            failed.error_class.as_deref(),
+            failed.error.as_deref(),
+            failed.attempts
+        ),
+        (
+            "failed",
+            Some(sends::NO_SYNC),
+            Some("Integration sync is off"),
+            0
+        )
+    );
+    assert_eq!(staged_calls(&recorded), 0, "nothing went out");
+    let log = processing_store::rule_log(&t.pool, rule, 1)
+        .await
+        .unwrap()
+        .remove(0);
+    assert_eq!(
+        (log.outcome.as_str(), log.detail.as_deref(), log.attention),
+        ("held", Some("Integration sync is off"), false)
+    );
+    assert!(
+        processing_store::sent_paths(&t.pool, std::slice::from_ref(&path))
+            .await
+            .unwrap()
+            .is_empty(),
+        "the file is free"
+    );
+    let job: String = sqlx::query_scalar(
+        "SELECT state FROM jobs WHERE kind = 'act.send' AND (payload->>'act')::bigint = $1",
+    )
+    .bind(act.id)
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(job, "done");
+    t.drop_db().await;
+}
+
+/// A read confirms an unconfirmed send only by a run of its own file, flow and trigger. A run of
+/// the file in another flow leaves it unconfirmed. So does one the service started on its own.
+#[tokio::test]
+async fn a_read_that_sees_a_run_of_another_flow_or_trigger_leaves_the_send_unconfirmed() {
+    let Some(t) = TestDb::new("acts_other_run").await else {
+        return;
+    };
+    use serde_json::json;
+    use singularr::processing::sends;
+    let journal = Journal::new();
+    let recorded = Recorded::new();
+    let st = sending_bridge(&t, &journal, &recorded).await;
+    let acts = acts_runtime(&st);
+    let app = routes::router(st.clone());
+    let path = format!("{DAMSEL_FOLDER}/{DAMSEL_FILE}");
+    recorded.fail_once(
+        Method::Post,
+        &format!("{HUSH}/stage"),
+        "connection reset by peer",
+    );
+    let damsel = json!({"title": "movie-763215", "file": DAMSEL_FILE, "flow": "audio"}).to_string();
+    let (status, _, lost) = send_click(&app, &damsel).await;
+    acts.stop().await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{lost}");
+    let act = lost["act"].as_i64().unwrap();
+    let run = |id: &str, flow: &str, trigger: &str| {
+        sqlx::query(
+            "INSERT INTO processing_runs
+                 (id, integration, job_id, flow, trigger_text, state, created_at, source_path, raw)
+             VALUES ($1, 'hush', $1, $2, $3, 'staged', now(), $4, '{}')",
+        )
+        .bind(id.to_string())
+        .bind(flow.to_string())
+        .bind(trigger.to_string())
+        .bind(path.clone())
+        .execute(&t.pool)
+    };
+    run("hush:j-hevc", "hevc", "api:singularr").await.unwrap();
+    run("hush:j-tag", "audio", "tag:hush-audio").await.unwrap();
+    let outbox = st.outbox();
+    assert_eq!(
+        outbox.confirm(act, 1, 2).await.unwrap(),
+        "Not seen yet: read 2 of 6"
+    );
+    assert_eq!(
+        sends::confirm_by_runs(&outbox, &t.pool, "hush")
+            .await
+            .unwrap(),
+        0
+    );
+    let state = |id: i64| {
+        let pool = t.pool.clone();
+        async move {
+            singularr::core::outbox::act(&pool, id)
+                .await
+                .unwrap()
+                .unwrap()
+        }
+    };
+    assert_eq!(state(act).await.state, "unknown");
+    // The run of its own flow and trigger confirms it.
+    run("hush:j-own", "audio", "api:singularr").await.unwrap();
+    assert_eq!(
+        sends::confirm_by_runs(&outbox, &t.pool, "hush")
+            .await
+            .unwrap(),
+        1
+    );
+    let confirmed = state(act).await;
+    assert_eq!(
+        (confirmed.state.as_str(), sends::confirmed_run(&confirmed)),
+        ("confirmed", Some("hush:j-own"))
+    );
+    t.drop_db().await;
+}
+
+/// A send by hand of a file whose rule's act is sent is an act of its own: a sent act holds the
+/// file and the flow no more. The service refuses the second copy itself. The rule's act and its
+/// claim stay as they were until a read confirms the act.
+#[tokio::test]
+async fn a_send_by_hand_while_the_rule_s_act_is_sent_is_an_act_of_its_own() {
+    let Some(t) = TestDb::new("acts_hand_sent").await else {
+        return;
+    };
+    use serde_json::json;
+    let journal = Journal::new();
+    let recorded = Recorded::new();
+    let st = sending_bridge(&t, &journal, &recorded).await;
+    let path = format!("{DAMSEL_FOLDER}/{DAMSEL_FILE}");
+    let (rule, _, ruled) = claimed_send(&t, &journal, &st, &path).await;
+    // The rule's act goes out: the bridge takes the file. Its read waits.
+    assert_eq!(st.outbox().send(ruled.id).await.unwrap(), "Sent");
+    sqlx::query("UPDATE jobs SET run_at = now() + interval '1 hour' WHERE kind = 'act.confirm'")
+        .execute(&t.pool)
+        .await
+        .unwrap();
+    // The owner sends the file to the flow by hand: the bridge has it in a run.
+    recorded.answer(
+        Method::Post,
+        &format!("{HUSH}/stage"),
+        409,
+        &json!({"staged": false, "reason": "already_staged", "job": "20261123T160500Z-0a1b2c3d"})
+            .to_string(),
+    );
+    let acts = acts_runtime(&st);
+    let app = routes::router(st.clone());
+    let damsel = json!({"title": "movie-763215", "file": DAMSEL_FILE, "flow": "audio"}).to_string();
+    let (status, _, refused) = send_click(&app, &damsel).await;
+    acts.stop().await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+    assert_eq!(refused["code"], "singularr.already_staged");
+    assert_ne!(refused["act"], json!(ruled.id), "an act of its own");
+    assert_eq!(staged_calls(&recorded), 2);
+    let act = |id: i64| {
+        let pool = t.pool.clone();
+        async move {
+            singularr::core::outbox::act(&pool, id)
+                .await
+                .unwrap()
+                .unwrap()
+        }
+    };
+    assert_eq!(act(ruled.id).await.state, "sent");
+    let log = || {
+        let pool = t.pool.clone();
+        async move {
+            processing_store::rule_log(&pool, rule, 1)
+                .await
+                .unwrap()
+                .remove(0)
+        }
+    };
+    let claim = log().await;
+    assert_eq!(
+        (claim.outcome.as_str(), claim.attention),
+        ("sending", false)
+    );
+    // Its read confirms it: the claim is sent.
+    deliver_acts(&st).await;
+    assert_eq!(act(ruled.id).await.state, "confirmed");
+    let claim = log().await;
+    assert_eq!(
+        (claim.outcome.as_str(), claim.run_id.as_deref()),
+        ("sent", Some("hush:20261123T160500Z-0a1b2c3d"))
+    );
+    t.drop_db().await;
+}
+
+/// Migration 0029 turns each claim of 0028 in `sending` into an unconfirmed act that holds the
+/// open key of its file and flow. The claim names the act. A settled row names none. The claim's
+/// job and 0028's index of the claims by service are gone.
+#[tokio::test]
+async fn the_outbox_migration_turns_a_sending_claim_into_an_unconfirmed_act() {
+    let Some(t) = TestDb::bare("m0029").await else {
+        return;
+    };
+    use serde_json::json;
+    db::MIGRATOR
+        .run_to(28, &t.pool)
+        .await
+        .expect("the migrations before 0029 apply");
+    let pending = db::pending_migrations(&t.pool).await.unwrap();
+    assert!(pending[0].starts_with("29 "), "{pending:?}");
+    let title: i64 = sqlx::query_scalar(
+        "INSERT INTO titles (ext_key, kind, tmdb_id, title, sort_title, year)
+         VALUES ('tmdb:movie:763215', 'movie', 763215, 'Damsel', 'damsel', 2024) RETURNING id",
+    )
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    let rule: i64 = sqlx::query_scalar(
+        "INSERT INTO processing_rules (name, enabled, run_on, service, flow, created_by, updated_by)
+         VALUES ('Opus audio', true, 'import', 'hush', 'audio', 'user:o', 'user:o') RETURNING id",
+    )
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    let row = |path: &'static str, outcome: &'static str| {
+        sqlx::query_scalar::<_, i64>(
+            "INSERT INTO processing_rule_log
+                 (rule_id, rule_version, at, event_id, title_id, copy_id, path, service, flow,
+                  outcome, detail, job_id)
+             VALUES ($1, 1, '2026-11-24T10:00:00Z', 41, $2, 7, $3, 'hush', 'audio', $4,
+                     CASE WHEN $4 = 'sending' THEN 'No clear answer' END, 12)
+             RETURNING id",
+        )
+        .bind(rule)
+        .bind(title)
+        .bind(path)
+        .bind(outcome)
+        .fetch_one(&t.pool)
+    };
+    let claim = row("/movies/Damsel (2024)/Damsel.mkv", "sending")
+        .await
+        .unwrap();
+    let sent = row("/movies/Damsel (2024)/Damsel.2160p.mkv", "sent")
+        .await
+        .unwrap();
+
+    db::migrate(&t.pool).await.expect("0029 applies");
+    assert!(db::pending_migrations(&t.pool).await.unwrap().is_empty());
+    let named = |id: i64| {
+        let pool = t.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, Option<i64>>(
+                "SELECT act_id FROM processing_rule_log WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    let act_id = named(claim).await.expect("the claim names its act");
+    assert_eq!(named(sent).await, None);
+    let act = singularr::core::outbox::act(&t.pool, act_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (
+            act.integration.as_str(),
+            act.action.as_str(),
+            act.state.as_str(),
+            act.attempts,
+            act.error.as_deref(),
+            act.error_class.as_deref(),
+        ),
+        (
+            "hush",
+            "send",
+            "unknown",
+            1,
+            Some("No clear answer"),
+            Some("unknown")
+        )
+    );
+    assert_eq!(act.idempotency_key, format!("rule:{rule}:7:{claim}"));
+    assert_eq!(
+        act.open_key.as_deref(),
+        Some("send:hush:/movies/Damsel (2024)/Damsel.mkv:audio")
+    );
+    assert_eq!(
+        (act.actor, act.caused_by),
+        (format!("rule:{rule}"), Some(41))
+    );
+    assert_eq!(
+        (act.subject_type.as_deref(), act.subject_id),
+        (Some("title"), Some(title.to_string()))
+    );
+    assert_eq!(
+        act.request,
+        json!({
+            "path": "/movies/Damsel (2024)/Damsel.mkv",
+            "flow": "audio",
+            "title": {"id": title, "kind": "movie", "tmdb_id": 763215, "title": "Damsel",
+                      "year": 2024}
+        })
+    );
+    assert_eq!(act.sent_at, Some(act.created_at));
+    // Its hash is the request's text alone, as the column says of a converted act.
+    let own: bool = sqlx::query_scalar(
+        "SELECT request_hash = encode(sha256(convert_to(request::text, 'UTF8')), 'hex')
+         FROM acts WHERE id = $1",
+    )
+    .bind(act_id)
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    assert!(own);
+    // The act holds the file and the flow: a second act of them is refused by the index.
+    let second = sqlx::query(
+        "INSERT INTO acts (integration, action, idempotency_key, open_key, request_hash, request,
+                           actor)
+         VALUES ('hush', 'send', 'api:x:k', $1, 'h', '{}', 'user:o')",
+    )
+    .bind(act.open_key.as_deref())
+    .execute(&t.pool)
+    .await;
+    assert!(second.is_err(), "the open key holds");
+    let gone: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM information_schema.columns
+                 WHERE table_name = 'processing_rule_log' AND column_name = 'job_id'),
+                (SELECT count(*) FROM pg_indexes WHERE indexname = 'processing_rule_log_sending')",
+    )
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(gone, (0, 0));
+    t.drop_db().await;
+}
+
 /// Sending a file to a flow is the one thing Singularr does to a service: only for the owner,
-/// only while the integration's access is `act`, never for a title its owner protects, and
-/// with the path worked out from the title's own files.
+/// only while the integration's access is `act`, never for a title its owner protects. The path
+/// is worked out from the title's own files.
 #[tokio::test]
 async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
     let Some(t) = TestDb::new("send").await else {
@@ -11583,11 +12815,12 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
     let services = [("HUSH_URL", HUSH), ("TDARR_URL", TDARR)];
     let st = state_over(&t.pool, journal.clone(), &services, &out);
     let app = routes::router(st.clone());
+    let acts = acts_runtime(&st);
     let session: [(&str, &str); 1] = [("x-auth-request-email", "owner@example.com")];
     let bridge = st.engines.processor("hush").unwrap().clone();
     let worker = st.engines.processor("tdarr").unwrap().clone();
-    // One whole pass of each: the ledger is in the table, and the worker's libraries and
-    // flows are in memory.
+    // One whole pass of each: the ledger is in the table. The worker's libraries and flows are
+    // in memory.
     let read = processing::pass(&t.pool, &bridge, processing::Read::Whole)
         .await
         .unwrap();
@@ -11616,7 +12849,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
     let read_only = "Send a file to a flow is read-only on HUSH.";
 
     // The options, while Singularr may only read the bridge. The path is the server's: the
-    // title's folder as its manager names it, and the file's name.
+    // title's folder as its manager names it, then the file's name.
     let options = get_ok(&app, &options_of("movie-763215", DAMSEL_FILE)).await;
     assert_eq!(options["title"], "movie-763215");
     assert_eq!(
@@ -11905,7 +13138,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         200,
         &fixture("hush_jobs_by_id.json"),
     );
-    let (status, _, sent) = call(&app, "POST", runs, &session, Some(&send_damsel)).await;
+    let (status, _, sent) = send_click(&app, &send_damsel).await;
     assert_eq!(status, StatusCode::CREATED, "{sent}");
     assert_eq!(
         (
@@ -12042,7 +13275,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
     );
     let send_strip =
         json!({"title": "movie-763215", "file": DAMSEL_FILE, "flow": "strip"}).to_string();
-    let (status, _, sent) = call(&app, "POST", runs, &session, Some(&send_strip)).await;
+    let (status, _, sent) = send_click(&app, &send_strip).await;
     assert_eq!(status, StatusCode::CREATED, "{sent}");
     assert_eq!(
         (&sent["sent"], &sent["mode"], &sent["run"]),
@@ -12060,7 +13293,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         409,
         &already("20261123T160500Z-0a1b2c3d"),
     );
-    let (status, _, taken) = call(&app, "POST", runs, &session, Some(&send_damsel)).await;
+    let (status, _, taken) = send_click(&app, &send_damsel).await;
     assert_eq!(status, StatusCode::CONFLICT, "{taken}");
     assert_eq!(
         (&taken["code"], &taken["detail"]),
@@ -12075,7 +13308,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         409,
         &already("20261111T150853Z-4cec4841"),
     );
-    let (status, _, taken) = call(&app, "POST", runs, &session, Some(&send_damsel)).await;
+    let (status, _, taken) = send_click(&app, &send_damsel).await;
     assert_eq!(status, StatusCode::CONFLICT, "{taken}");
     assert_eq!(taken["detail"], "HUSH already has this file in a queue.");
     // The options say the same, flow by flow: a file that lies in a queue is taken for no
@@ -12155,7 +13388,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         422,
         r#"{"staged": false, "reason": "refused", "detail": "hushq: no such queue"}"#,
     );
-    let (status, _, refused) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
+    let (status, _, refused) = send_click(&app, &send_kingdom).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
     assert_eq!(
         (&refused["code"], &refused["detail"]),
@@ -12170,7 +13403,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         422,
         r#"{"staged": false, "reason": "outside_roots"}"#,
     );
-    let (status, _, refused) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
+    let (status, _, refused) = send_click(&app, &send_kingdom).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(refused["detail"], "HUSH refused the file: outside_roots");
     recorded.answer(
@@ -12179,7 +13412,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         404,
         r#"{"staged": false, "reason": "not_found"}"#,
     );
-    let (status, _, gone) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
+    let (status, _, gone) = send_click(&app, &send_kingdom).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{gone}");
     recorded.answer(
         Method::Post,
@@ -12187,7 +13420,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         500,
         r#"{"staged": false, "reason": "error", "detail": "ledger locked"}"#,
     );
-    let (status, _, failed) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
+    let (status, _, failed) = send_click(&app, &send_kingdom).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{failed}");
     assert_eq!(failed["code"], "singularr.upstream");
     recorded.answer(
@@ -12196,7 +13429,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         401,
         r#"{"staged": false, "reason": "unauthorized"}"#,
     );
-    let (status, _, unkeyed) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
+    let (status, _, unkeyed) = send_click(&app, &send_kingdom).await;
     assert_eq!(status, StatusCode::BAD_GATEWAY, "{unkeyed}");
     let unclear = "HUSH gave no clear answer and may have taken the file.";
     let before = staged_calls(&recorded);
@@ -12205,7 +13438,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         &format!("{HUSH}/stage"),
         singularr::core::outbound::TIMED_OUT,
     );
-    let (status, _, timed_out) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
+    let (status, _, timed_out) = send_click(&app, &send_kingdom).await;
     assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{timed_out}");
     assert_eq!(
         (
@@ -12220,6 +13453,18 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         )
     );
     assert_eq!(staged_calls(&recorded), before + 1, "asked once, not again");
+    // A send of the file and the flow while that act is unconfirmed is that act: no second call.
+    let (status, _, joined) = send_click(&app, &send_kingdom).await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{joined}");
+    assert_eq!(
+        (&joined["detail"], &joined["act"]),
+        (&json!(unclear), &timed_out["act"])
+    );
+    assert_eq!(staged_calls(&recorded), before + 1);
+    // The owner marks it not sent: the file and the flow are free again.
+    let not_sent = |act: &serde_json::Value| format!("/api/v1/acts/{act}/not-sent");
+    let (status, _, _) = call(&app, "POST", &not_sent(&timed_out["act"]), &session, None).await;
+    assert_eq!(status, StatusCode::OK);
     // The bridge's own word that it gave up waiting reads the same.
     recorded.answer(
         Method::Post,
@@ -12227,9 +13472,11 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         504,
         r#"{"staged": false, "reason": "timeout"}"#,
     );
-    let (status, _, timed_out) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
+    let (status, _, gave_up) = send_click(&app, &send_kingdom).await;
     assert_eq!(status, StatusCode::GATEWAY_TIMEOUT);
-    assert_eq!(timed_out["detail"], unclear);
+    assert_eq!(gave_up["detail"], unclear);
+    let (status, _, _) = call(&app, "POST", &not_sent(&gave_up["act"]), &session, None).await;
+    assert_eq!(status, StatusCode::OK);
     // A connection that broke after the call went out reads the same. So does a 502 without the
     // bridge's own words. Each is asked once.
     let before = staged_calls(&recorded);
@@ -12238,22 +13485,27 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         &format!("{HUSH}/stage"),
         "connection reset by peer",
     );
-    let (status, _, broke) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
+    let (status, _, broke) = send_click(&app, &send_kingdom).await;
     assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{broke}");
     assert_eq!(broke["code"], "singularr.unconfirmed");
+    let (status, _, _) = call(&app, "POST", &not_sent(&broke["act"]), &session, None).await;
+    assert_eq!(status, StatusCode::OK);
     recorded.answer(
         Method::Post,
         &format!("{HUSH}/stage"),
         502,
         "<html>Bad Gateway</html>",
     );
-    let (status, _, gateway) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
+    let (status, _, gateway) = send_click(&app, &send_kingdom).await;
     assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "{gateway}");
     assert_eq!(gateway["detail"], unclear);
+    let (status, _, _) = call(&app, "POST", &not_sent(&gateway["act"]), &session, None).await;
+    assert_eq!(status, StatusCode::OK);
     assert_eq!(staged_calls(&recorded), before + 2);
-    // None of these is a send: the journal still has the two that went through.
+    // None of these is a send: the journal has the one a read confirmed. The send whose bridge
+    // named no job waits for its run.
     let journaled = get_ok(&app, "/api/v1/journal?kind=processing.sent").await;
-    assert_eq!(journaled["events"].as_array().unwrap().len(), 2);
+    assert_eq!(journaled["events"].as_array().unwrap().len(), 1);
 
     // A title its owner protects in its manager is never sent, whatever the bridge would do
     // with the file: the tag is the bridge adapter's to name.
@@ -12295,7 +13547,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         "Movies - HUSH HEVC 1080p"
     );
     let before = recorded.calls_sent().len();
-    let (status, _, kept) = call(&app, "POST", runs, &session, Some(&send_kingdom)).await;
+    let (status, _, kept) = send_click(&app, &send_kingdom).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{kept}");
     assert_eq!(
         (&kept["code"], &kept["detail"]),
@@ -12309,14 +13561,17 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
     let options = get_ok(&app, &options_of("movie-763215", DAMSEL_FILE)).await;
     assert_eq!(options["canSend"], true);
 
-    // A bridge without the routes says so in its health, by saying nothing: it is asked for
-    // nothing new, the options hold what Singularr knows itself, and a send is refused here.
+    // A bridge without the routes tells it in its health, by saying nothing. It is asked for
+    // nothing new. The options hold what Singularr knows itself. A send is refused here. Its acts
+    // are delivered by a process over that bridge.
+    acts.stop().await;
     let old = Recorded::new();
     record_processing(&old, "hush_health.json");
     let old_out = outbound(old.clone());
     let old_st = state_over(&t.pool, journal.clone(), &services, &old_out);
     assert_eq!(old_st.engines.access.load(&t.pool).await.unwrap(), 1);
     let old_app = routes::router(old_st.clone());
+    let old_acts = acts_runtime(&old_st);
     let options = get_ok(&old_app, &options_of("movie-763215", DAMSEL_FILE)).await;
     assert_eq!(
         options["service"],
@@ -12347,7 +13602,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
     );
     // Without the bridge's word, the open run that was staged from the file is the table's.
     assert_eq!(hevc["openRun"], "hush:20261123T160500Z-0a1b2c3d");
-    let (status, _, not_offered) = call(&old_app, "POST", runs, &session, Some(&send_damsel)).await;
+    let (status, _, not_offered) = send_click(&old_app, &send_damsel).await;
     assert_eq!(status, StatusCode::CONFLICT, "{not_offered}");
     assert_eq!(
         (&not_offered["code"], &not_offered["detail"]),
@@ -12379,23 +13634,8 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let title = singularr::catalog::store::title_refs(&t.pool, &[damsel])
-        .await
-        .unwrap()
-        .remove(0);
     let before = recorded.calls_sent().len();
-    let direct = processing::send(
-        &t.pool,
-        &journal,
-        &bridge,
-        processing::Sending {
-            actor: "user:owner@example.com",
-            title: &title,
-            path: &damsel_path,
-            flow: "audio",
-        },
-    )
-    .await;
+    let direct = processing::send(&bridge, &damsel_path, "audio").await;
     assert!(
         matches!(
             direct,
@@ -12406,6 +13646,7 @@ async fn a_file_is_sent_to_a_flow_when_the_owner_allows_it() {
         "{direct:?}"
     );
     assert_eq!(recorded.calls_sent().len(), before, "nothing was sent");
+    old_acts.stop().await;
     t.drop_db().await;
 }
 
@@ -13341,9 +14582,16 @@ async fn processing_rules_watch_imports_and_send_once() {
     );
     let out = outbound(recorded.clone());
     let services = [("HUSH_URL", HUSH), ("TDARR_URL", TDARR)];
+    recorded.answer(
+        Method::Get,
+        &format!("{HUSH}/jobs?ids=20261123T160500Z-0a1b2c3d"),
+        200,
+        &fixture("hush_jobs_by_id.json"),
+    );
     let st = state_over(&t.pool, journal.clone(), &services, &out);
     let policy = ActivePolicy::builtin().policy;
-    let pass = || rules::import_pass(&t.pool, &journal, &st.engines, &policy, true, None);
+    let outbox = st.outbox();
+    let pass = || rules::import_pass(&t.pool, &journal, &st.engines, &policy, true, &outbox);
     // The first pass marks where the journal stands: the rules start with what comes after.
     assert_eq!(pass().await.unwrap(), rules::ImportPassed::default());
 
@@ -13476,6 +14724,7 @@ async fn processing_rules_watch_imports_and_send_once() {
     import(kingdom).await;
     let sent = pass().await.unwrap();
     assert_eq!((sent.imports, sent.sent), (1, 1));
+    deliver_acts(&st).await;
     assert_eq!(staged_calls(&recorded), 1);
     let staged = recorded
         .calls_sent()
@@ -13552,9 +14801,17 @@ async fn processing_rules_watch_imports_and_send_once() {
     .await
     .unwrap();
     drop(conn);
-    let ran = rules::request_run(&t.pool, &journal, &st.engines, &policy, &asked, true)
-        .await
-        .unwrap();
+    let ran = rules::request_run(
+        &t.pool,
+        &journal,
+        &st.engines,
+        &policy,
+        &asked,
+        true,
+        &outbox,
+    )
+    .await
+    .unwrap();
     assert_eq!((ran.matched, ran.logged, ran.sent, ran.left), (2, 2, 0, 0));
     // A rule on request is no import rule: the imports pass it by.
     import(kingdom).await;
@@ -13736,7 +14993,7 @@ async fn the_worker_page_and_the_rules_routes_answer() {
     // An import the rule watches: the log says what it would have sent, next to what the
     // service did on its own for the same file.
     let policy = ActivePolicy::builtin().policy;
-    rules::import_pass(&t.pool, &journal, &st.engines, &policy, true, None)
+    rules::import_pass(&t.pool, &journal, &st.engines, &policy, true, &st.outbox())
         .await
         .unwrap();
     let kingdom: i64 = sqlx::query_scalar("SELECT id FROM copies WHERE relative_path = $1")
@@ -13755,7 +15012,7 @@ async fn the_worker_page_and_the_rules_routes_answer() {
     .await
     .unwrap();
     tx.commit().await.unwrap();
-    rules::import_pass(&t.pool, &journal, &st.engines, &policy, true, None)
+    rules::import_pass(&t.pool, &journal, &st.engines, &policy, true, &st.outbox())
         .await
         .unwrap();
     let log = get_ok(&app, &format!("{one}/log")).await;

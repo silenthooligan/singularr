@@ -123,4 +123,6 @@ pub struct ProblemDoc {
     pub detail: Option<String>,
     /// A stable code, for example `singularr.not_found`.
     pub code: String,
+    /// The act it is about, when there is one: `GET /api/v1/acts/{id}` reads it.
+    pub act: Option<i64>,
 }

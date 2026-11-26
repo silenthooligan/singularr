@@ -79,6 +79,9 @@ pub struct Problem {
     pub detail: Option<String>,
     /// Stable machine-readable code, for example `singularr.not_found`.
     pub code: String,
+    /// The act the problem is about, when there is one (`GET /api/v1/acts/{id}`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub act: Option<i64>,
 }
 
 impl Problem {
@@ -89,7 +92,14 @@ impl Problem {
             status: status.as_u16(),
             detail: None,
             code: code.into(),
+            act: None,
         }
+    }
+
+    /// The problem names the act it is about.
+    pub fn with_act(mut self, act: i64) -> Self {
+        self.act = Some(act);
+        self
     }
 
     pub fn status_code(&self) -> StatusCode {

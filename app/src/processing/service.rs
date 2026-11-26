@@ -16,8 +16,9 @@
 //! runs its read did not carry, so an old open run closes within a pass instead of never; and
 //! a whole read that came back full reads on, page by page, into the older jobs.
 //!
-//! One thing is done to a service: a file is handed to one of its flows ([`send`]), when the
-//! owner asks for it and `core::outbound` lets the call through.
+//! One thing is done to a service: a file is handed to one of its flows ([`send`]), as an act of
+//! the outbox (`super::sends`), when the owner or a rule asks for it and `core::outbound` lets the
+//! call through.
 //!
 //! What is being worked on is never stored. It is asked of the services when a page needs it
 //! ([`live`]) and joined to the stored runs when they are read ([`Reading`]): a staged run a
@@ -32,13 +33,13 @@
 //! ([`placed`]). Where the file of an open run stands in the worker's records is asked with the
 //! live state ([`live_files`]). It is never stored. It says why a stuck run is stuck.
 //!
-//! The processing job looks for runs that went stuck right after a pass ([`ProcessingJob`]). A
-//! pass also settles the claims of the processing rules whose sends got no clear answer: the run
-//! the send opened settles its claim ([`store::settle_claims_by_runs`]).
+//! The processing job looks for runs that went stuck right after a pass ([`ProcessingJob`]). It
+//! then confirms the open sends whose runs the service shows now: the run a send opened confirms
+//! its act ([`super::sends::confirm_by_runs`]).
 
 use super::model::{
     FlowStat, IMPORTED, Link, LiveFile, LiveWorker, Run, STUCK_AFTER, STUCK_AFTER_DEFAULT,
-    file_name, fingerprint, is_stuck, queue_of, run_id, saved, shown_state, stuck_why, took,
+    file_name, fingerprint, is_stuck, queue_of, saved, shown_state, stuck_why, took,
     worker_by_footprint, worker_of,
 };
 use super::store;
@@ -588,21 +589,6 @@ pub async fn pass(
             Err(e) => unread.push(format!("Open runs not read: {e}")),
         }
     }
-    // A claim of a processing rule whose send got no clear answer: the run the send opened
-    // settles it as sent. A database error leaves the claims to the next pass.
-    match store::settle_claims_by_runs(pool, service).await {
-        Ok(0) => {}
-        Ok(settled) => tracing::info!(
-            service,
-            settled,
-            "claims of the processing rules settled by the service's runs"
-        ),
-        Err(e) => tracing::warn!(
-            service,
-            error = %e,
-            "the claims of the processing rules were not settled; the next pass tries again"
-        ),
-    }
     if !unread.is_empty() {
         tracing::warn!(service, unread = %unread.join("; "), "the processing service did not give everything the pass reads");
     }
@@ -662,19 +648,6 @@ pub async fn pass(
     })
 }
 
-/// A file to hand to a flow of a service.
-#[derive(Debug, Clone, Copy)]
-pub struct Sending<'a> {
-    /// Who asks, as the journal names them.
-    pub actor: &'a str,
-    /// The catalog title the file belongs to.
-    pub title: &'a catalog_store::TitleRef,
-    /// The whole path of the file, as its manager names it.
-    pub path: &'a str,
-    /// The flow, by the id a person chooses it under.
-    pub flow: &'a str,
-}
-
 /// A file a service took.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Handed {
@@ -682,20 +655,6 @@ pub struct Handed {
     pub mode: Option<String>,
     /// The service's id of the job it opened, when it says.
     pub job: Option<String>,
-    /// The run as stored: the service was asked for the job and it was written at once.
-    /// `None` when the service named no job or could not be asked for it; the next pass
-    /// finds the job then.
-    pub run: Option<Run>,
-}
-
-impl Handed {
-    /// The id of the run the service opened: the stored run's, else the one its job names.
-    pub fn run_id(&self, service: &str) -> Option<String> {
-        self.run
-            .as_ref()
-            .map(|r| r.id.clone())
-            .or_else(|| self.job.as_ref().map(|job| run_id(service, job)))
-    }
 }
 
 /// How handing a file to a flow ended.
@@ -720,20 +679,18 @@ pub enum SendOutcome {
 }
 
 /// Hand one file to one flow of a service: the one thing Singularr does to a processing
-/// service. The caller decides whether it may be asked for (the owner, a title that is not
-/// protected); `core::outbound` lets the call through only while the integration's access is
-/// `act`. After a good send the service is asked for the job it opened and the run is stored
-/// at once, so it is on every page before the next pass, and a `processing_sent` event says
-/// who sent what. An error says the file surely was not handed over
+/// service, the call of a send's act (`super::sends`). The caller decides whether it may be asked
+/// for (the owner, a title that is not protected). `core::outbound` lets the call through only
+/// while the integration's access is `act`. An error says the file surely was not handed over
 /// ([`EngineError::act_settled_no`]). Any other error of a service's send is no clear answer
-/// ([`SendOutcome::Unanswered`]), whatever the service.
+/// ([`SendOutcome::Unanswered`]), whatever the service. The read that confirms a send stores its
+/// run ([`store_runs`]). The act's confirmation journals it (`processing_sent`).
 pub async fn send(
-    pool: &PgPool,
-    journal: &Journal,
     processor: &Arc<dyn Processor>,
-    what: Sending<'_>,
+    path: &str,
+    flow: &str,
 ) -> Result<SendOutcome, EngineError> {
-    let answer = match processor.send(what.path, what.flow, SENDER).await {
+    let answer = match processor.send(path, flow, SENDER).await {
         Ok(answer) => answer,
         Err(e) if !e.act_settled_no() => {
             tracing::warn!(service = processor.id(), error = %e, "a send got no clear answer");
@@ -741,89 +698,30 @@ pub async fn send(
         }
         Err(e) => return Err(e),
     };
-    let (mode, job) = match answer {
-        Sent::Staged { mode, job, .. } => (mode, job),
-        Sent::NotOffered => return Ok(SendOutcome::NotOffered),
-        Sent::Unanswered => return Ok(SendOutcome::Unanswered),
+    Ok(match answer {
+        Sent::Staged { mode, job, .. } => SendOutcome::Taken(Box::new(Handed { mode, job })),
+        Sent::NotOffered => SendOutcome::NotOffered,
+        Sent::Unanswered => SendOutcome::Unanswered,
         Sent::Refused {
             why,
             reason,
             detail,
             job,
-        } => {
-            return Ok(SendOutcome::Refused {
-                why,
-                reason,
-                detail,
-                job,
-            });
-        }
-    };
-    let service = processor.id();
-    // The job the service opened, into the table now. A service that cannot be asked for it,
-    // or does not give it, costs the answer its run, not the send: the next pass reads it.
-    let mut run = None;
-    if let Some(job) = &job {
-        match processor.jobs_by_id(std::slice::from_ref(job)).await {
-            Ok(Some(found)) => {
-                let mut folders = None;
-                match store_jobs(pool, service, &found.jobs, &mut folders).await {
-                    Ok(_) => match store::one(pool, &run_id(service, job)).await {
-                        Ok(stored) => run = stored,
-                        Err(e) => {
-                            tracing::warn!(service, job = %job, error = %e, "the run of a file that was sent could not be read back");
-                        }
-                    },
-                    Err(e) => {
-                        tracing::warn!(service, job = %job, error = %e, "the run of a file that was sent could not be stored");
-                    }
-                }
-            }
-            Ok(None) => {}
-            Err(e) => {
-                tracing::warn!(service, job = %job, error = %e, "the job of a file that was sent could not be read");
-            }
-        }
-    }
-    let mut body = json!({
-        "title_id": what.title.id,
-        "title": what.title.title,
-        "kind": what.title.kind,
-        "tmdb_id": what.title.tmdb_id,
-        "file": file_name(what.path),
-        "flow": what.flow,
-        "flow_label": processor.flow_label(what.flow),
-        "mode": mode,
-        "service": service,
-        "job": job,
-        "run": run.as_ref().map(|r| r.id.clone()),
-    });
-    if what.title.kind == "show"
-        && let Some((season, episode)) = episode_of(what.path)
-    {
-        body["season"] = json!(season);
-        body["episodes"] = json!([episode]);
-    }
-    // The file is with the service whatever happens here: a journal that cannot be written
-    // is logged, and the send stands.
-    let journaled: Result<(), sqlx::Error> = async {
-        let mut tx = journal.begin(pool).await?;
-        tx.append_one(event(
-            "processing_sent",
-            "title",
-            what.title.id,
-            what.actor,
-            body,
-        ))
-        .await?;
-        tx.commit().await?;
-        Ok(())
-    }
-    .await;
-    if let Err(e) = journaled {
-        tracing::error!(service, error = %e, "a file was sent and the journal could not record it");
-    }
-    Ok(SendOutcome::Taken(Box::new(Handed { mode, job, run })))
+        } => SendOutcome::Refused {
+            why,
+            reason,
+            detail,
+            job,
+        },
+    })
+}
+
+/// Store jobs a service gave, each linked to its title: the job of a send that a read found.
+pub async fn store_runs(pool: &PgPool, service: &str, jobs: &[ProcessorRun]) -> Result<(), String> {
+    let mut folders = None;
+    store_jobs(pool, service, jobs, &mut folders)
+        .await
+        .map(|_| ())
 }
 
 /// Passes over one processing service at the times a caller gives. It keeps in memory when the
@@ -1100,6 +998,20 @@ impl Handler for ProcessingJob {
         let started = Instant::now();
         let mut passed = pass(&deps.pool, &processor, read).await;
         let mut markers = Vec::new();
+        if passed.is_ok() {
+            // The open sends this service's runs answer for: each confirmed by the run it opened.
+            // A database error leaves them to the next pass. The pass runs with the sync alone.
+            let outbox = super::sends::outbox(&deps.pool, &deps.journal, &deps.engines, true);
+            match super::sends::confirm_by_runs(&outbox, &deps.pool, &id).await {
+                Ok(0) => {}
+                Ok(n) => {
+                    tracing::info!(service = %id, confirmed = n, "sends confirmed by the service's runs")
+                }
+                Err(e) => {
+                    tracing::warn!(service = %id, error = %e, "the sends were not confirmed: the next pass tries again")
+                }
+            }
+        }
         if let Ok(p) = &mut passed {
             // What closed is news for the journal. The notification channels read it there.
             if let Err(e) = journal_closed(&deps.pool, &fenced.journal, &processor, &p.closed).await
@@ -1150,8 +1062,8 @@ impl Handler for ProcessingJob {
 
 /// `processing.rules`: the processing rules against every import since the last pass
 /// ([`super::rules::import_pass`]). The policy in force at its start holds for it. A rule
-/// claims a file before it sends it: a file goes at most once, across a restart or a lost
-/// lease. A claim carries the job's id. Its journal is fenced by the run's lease.
+/// claims a file and enqueues its send in one commit: a file goes at most once, across a
+/// restart, a lost lease or a lost answer. Its journal is fenced by the run's lease.
 pub struct RulesJob(pub ProcessingDeps);
 
 #[async_trait]
@@ -1161,18 +1073,20 @@ impl Handler for RulesJob {
         let journal = deps.journal.fenced(Arc::new(cx.lease.clone()));
         // A saved profile takes effect at the next pass.
         let active = deps.policy.current();
+        // The rules run with the sync alone.
+        let outbox = super::sends::outbox(&deps.pool, &deps.journal, &deps.engines, true);
         match super::rules::import_pass(
             &deps.pool,
             &journal,
             &deps.engines,
             &active.policy,
             true,
-            Some(cx.job.id),
+            &outbox,
         )
         .await
         {
             Ok(p) => Ok(Done::from(format!(
-                "{}, {}, {} sent",
+                "{}, {}, {} queued",
                 units::counted(p.imports as i64, "import", "imports"),
                 units::counted(p.logged as i64, "match", "matches"),
                 units::count(p.sent as i64)

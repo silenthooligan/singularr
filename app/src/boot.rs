@@ -375,6 +375,7 @@ async fn serve_owner() -> Result<(), String> {
                 &config,
                 settings.clone(),
             )),
+            engines: engines.clone(),
             sync: sync.as_ref().map(|s| s.jobs()),
             processing: processing_deps,
             plays: plays_deps,

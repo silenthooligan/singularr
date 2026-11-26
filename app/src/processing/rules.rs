@@ -12,14 +12,17 @@
 //! trusted. A rule that is on sends only while its service's access is `act` and the
 //! integrations are read; a file is sent once, by any rule, and never when its title carries
 //! the tag the service's adapter names as protecting, or when processing made it. Every entry
-//! is kept in the rule's log; a send is also a `processing_sent` event in the rule's name.
+//! is kept in the rule's log. A send is an act of the outbox (`super::sends`): the claim of the
+//! file and the act commit together. The act's changes settle the claim. A confirmed send is also
+//! a `processing_sent` event in the rule's name.
 
 use super::model::{IMPORTED, file_name};
-use super::service::{SendOutcome, Sending, send};
+use super::sends::{self, RuleSend};
 use super::store;
 use crate::catalog::store::{self as catalog_store, RuleFileRow, TitleRef};
 use crate::core::journal::Journal;
 use crate::core::outbound::Access;
+use crate::core::outbox::{EnqueueError, Enqueued, Outbox};
 use crate::core::store as core_store;
 use crate::engines::Processor;
 use crate::engines::service::EngineSet;
@@ -136,15 +139,19 @@ pub struct LogRow {
     pub detail: Option<String>,
     pub evidence: Option<String>,
     pub run_id: Option<String>,
-    /// A claim that needs a look ([`store::rule_log`]): its send was never seen answered and the
-    /// service shows no run the send opened.
+    /// The act of a claim's send.
+    pub act_id: Option<i64>,
+    /// A claim that needs a look ([`store::rule_log`]): its act is unknown.
     pub attention: bool,
+    /// A claim whose act the owner marked not sent: its file can be sent again.
+    pub marked_not_sent: bool,
 }
 
 /// An entry to write.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NewLog {
-    /// Its row was written as a claim before the send ([`store::claim_send`]) and settled after.
+    /// Its row was written as a claim with its send's act ([`store::claim_send`]). The act's
+    /// changes settle it.
     pub claimed: bool,
     pub rule_id: i64,
     pub rule_version: i32,
@@ -161,7 +168,7 @@ pub struct NewLog {
 }
 
 /// The detail of a claim whose send got no clear answer: the service may have taken the file.
-pub const NO_CLEAR_ANSWER: &str = "No clear answer";
+pub use super::sends::NO_CLEAR_ANSWER;
 
 /// A file of the library, read for the rules.
 #[derive(Debug, Clone, PartialEq)]
@@ -339,16 +346,16 @@ async fn processed_names(
         .collect())
 }
 
-/// The rules and the files they matched, as entries to write: each decided, and the files an
-/// on rule may send sent now. `sent` holds the paths sent so far, by this call and before it.
-/// `job` is the job that runs the rules: a claim carries it.
+/// The rules and the files they matched, as entries to write: each decided. The sends of the
+/// files an on rule may send are enqueued now. `sent` holds the paths claimed or sent so far, by
+/// this call and before it.
 #[allow(clippy::too_many_arguments)]
 async fn apply(
     pool: &PgPool,
     journal: &Journal,
     engines: &EngineSet,
     sync: bool,
-    job: Option<i64>,
+    outbox: &Outbox,
     matched: Vec<(&RuleRow, &RuleFile, String, Option<i64>)>,
     sent: &mut HashSet<String>,
 ) -> Result<Vec<NewLog>, String> {
@@ -396,65 +403,49 @@ async fn apply(
                 entry.detail = Some(why);
             }
             Decision::Send => {
-                let Some(processor) = processor else {
+                // The claim and the send's act commit together. A run cut short before the commit
+                // leaves neither. After it the act is sent once. The file is never sent again on its
+                // own. A file another claim holds is not sent. Neither is one whose file and flow an
+                // open act of a send by hand holds.
+                let db = |e: sqlx::Error| e.to_string();
+                let mut tx = journal.begin(pool).await.map_err(db)?;
+                let Some(claim) = store::claim_send(tx.conn(), &entry).await.map_err(db)? else {
+                    entry.outcome = "skipped";
+                    entry.detail = Some("Sent before".to_string());
+                    out.push(entry);
                     continue;
                 };
-                // The claim commits before the call. A run cut short leaves it in `sending`: the
-                // file is never sent again on its own. A file another claim holds is not sent.
-                let claim = match store::claim_send(pool, &entry, job).await {
-                    Ok(Some(id)) => id,
-                    Ok(None) => {
-                        entry.outcome = "skipped";
-                        entry.detail = Some("Sent before".to_string());
-                        out.push(entry);
-                        continue;
-                    }
-                    Err(e) => return Err(e.to_string()),
-                };
-                entry.claimed = true;
-                sent.insert(path.clone());
-                let actor = format!("rule:{}", rule.id);
-                let what = Sending {
-                    actor: &actor,
+                let act = sends::by_rule(RuleSend {
+                    rule: rule.id,
+                    copy: file.copy,
+                    claim,
+                    service: &rule.service,
                     title: &file.title,
                     path: &path,
                     flow: &rule.flow,
-                };
-                match send(pool, journal, processor, what).await {
-                    Ok(SendOutcome::Taken(handed)) => {
-                        let handed = *handed;
-                        entry.outcome = "sent";
-                        entry.run_id = handed.run.map(|r| r.id).or_else(|| {
-                            handed
-                                .job
-                                .map(|job| super::model::run_id(processor.id(), &job))
-                        });
+                    event,
+                });
+                match outbox.enqueue(&mut tx, act).await {
+                    Ok(Enqueued::New(act) | Enqueued::Same(act)) => {
+                        store::name_act(tx.conn(), claim, act.id)
+                            .await
+                            .map_err(db)?;
+                        tx.commit().await.map_err(db)?;
+                        entry.claimed = true;
+                        entry.outcome = "sending";
                         sent.insert(path.clone());
                     }
-                    Ok(SendOutcome::NotOffered) => {
-                        entry.outcome = "held";
-                        entry.detail = Some("Sending not supported".to_string());
+                    Ok(Enqueued::Open(_)) => {
+                        entry.outcome = "skipped";
+                        entry.detail = Some("Sending".to_string());
                     }
-                    Ok(SendOutcome::Unanswered) => {
-                        // It may have taken the file: the claim stays. The run the send opened
-                        // settles it once the service shows it ([`store::settle_claims_by_runs`]).
-                        entry.outcome = "sending";
-                        entry.detail = Some(NO_CLEAR_ANSWER.to_string());
+                    Err(EnqueueError::Mismatch(act)) => {
+                        return Err(format!(
+                            "the key of a rule's send names act {} of another request",
+                            act.id
+                        ));
                     }
-                    // The service said no in its own words or by its status.
-                    Ok(SendOutcome::Refused { reason, detail, .. }) => {
-                        entry.outcome = "refused";
-                        entry.detail = detail.or(reason);
-                    }
-                    // `send` errs only when the file surely was not handed over
-                    // (`EngineError::act_settled_no`): the claim goes.
-                    Err(e) => {
-                        entry.outcome = "failed";
-                        entry.detail = Some(e.to_string());
-                    }
-                }
-                if let Err(e) = store::settle_send(pool, claim, &entry).await {
-                    tracing::warn!(path = %path, error = %e, "the answer of a send was not written: its row stays in sending");
+                    Err(EnqueueError::Db(e)) => return Err(e.to_string()),
                 }
             }
         }
@@ -470,20 +461,20 @@ pub struct ImportPassed {
     pub imports: usize,
     /// Entries written: a rule and a file it matched.
     pub logged: usize,
+    /// Files claimed with their send's act queued.
     pub sent: usize,
 }
 
 /// One pass over the imports since the last: every import rule, on or off, against every file
 /// imported, each match decided and logged. A first pass only marks where the journal stands:
-/// the rules start with the imports that come after them. `job` is the job that runs the pass:
-/// a claim carries it.
+/// the rules start with the imports that come after them. The sends go to `outbox`.
 pub async fn import_pass(
     pool: &PgPool,
     journal: &Journal,
     engines: &EngineSet,
     policy: &Policy,
     sync: bool,
-    job: Option<i64>,
+    outbox: &Outbox,
 ) -> Result<ImportPassed, String> {
     let db = |e: sqlx::Error| e.to_string();
     let Some(after) = store::rules_cursor(pool).await.map_err(db)? else {
@@ -546,10 +537,10 @@ pub async fn import_pass(
                 .is_none_or(|p| !own.contains(&(p.clone(), rule.id, *event)))
         });
         let mut sent: HashSet<String> = claims.iter().map(|(path, ..)| path.clone()).collect();
-        entries = apply(pool, journal, engines, sync, job, matched, &mut sent).await?;
+        entries = apply(pool, journal, engines, sync, outbox, matched, &mut sent).await?;
     }
     passed.logged = entries.len();
-    passed.sent = entries.iter().filter(|e| e.outcome == "sent").count();
+    passed.sent = entries.iter().filter(|e| e.claimed).count();
     let mut tx = pool.begin().await.map_err(db)?;
     store::insert_log(&mut tx, &entries).await.map_err(db)?;
     store::move_rules_cursor(&mut tx, last).await.map_err(db)?;
@@ -582,13 +573,15 @@ pub struct RequestRun {
     pub matched: usize,
     /// Of those, the ones taken in this run (at most [`REQUEST_MAX`]): each is an entry.
     pub logged: usize,
+    /// Of those, the ones claimed with their send's act queued.
     pub sent: usize,
     /// Matching files not sent before that this run did not take.
     pub left: usize,
 }
 
 /// Run a rule now for the files it matches: the ones not sent before, at most [`REQUEST_MAX`],
-/// each decided and logged like an import. The caller checks that the rule is on.
+/// each decided and logged like an import. The caller checks that the rule is on. The sends go to
+/// `outbox`.
 pub async fn request_run(
     pool: &PgPool,
     journal: &Journal,
@@ -596,6 +589,7 @@ pub async fn request_run(
     policy: &Policy,
     rule: &RuleRow,
     sync: bool,
+    outbox: &Outbox,
 ) -> Result<RequestRun, String> {
     let db = |e: sqlx::Error| e.to_string();
     let found = matching(pool, &rule.conditions, policy).await.map_err(db)?;
@@ -614,14 +608,14 @@ pub async fn request_run(
         .take(REQUEST_MAX)
         .map(|(f, why)| (rule, f, why.clone(), None))
         .collect();
-    let entries = apply(pool, journal, engines, sync, None, taken, &mut sent).await?;
+    let entries = apply(pool, journal, engines, sync, outbox, taken, &mut sent).await?;
     let mut tx = pool.begin().await.map_err(db)?;
     store::insert_log(&mut tx, &entries).await.map_err(db)?;
     tx.commit().await.map_err(db)?;
     Ok(RequestRun {
         matched: found.len(),
         logged: entries.len(),
-        sent: entries.iter().filter(|e| e.outcome == "sent").count(),
+        sent: entries.iter().filter(|e| e.claimed).count(),
         left: fresh.len().saturating_sub(REQUEST_MAX),
     })
 }

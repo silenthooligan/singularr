@@ -488,6 +488,7 @@ pub fn openapi() -> utoipa::openapi::OpenApi {
         .merge_from(super::profiles::openapi())
         .merge_from(super::naming::openapi())
         .merge_from(super::acquire::openapi())
+        .merge_from(super::acts::openapi())
 }
 
 /// The reference page. One self-contained document: it draws `/api/v1/openapi.json` with
@@ -537,6 +538,7 @@ pub fn router(state: AppState) -> Router {
         .merge(super::profiles::router())
         .merge(super::naming::router())
         .merge(super::acquire::router())
+        .merge(super::acts::router())
         .fallback(|| async { AppError::not_found("Unknown route.") })
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

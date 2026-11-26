@@ -1069,7 +1069,18 @@
     "kind": "queue",
     "reason": "Import waiting: the profile does not take this quality",
     "since": "2026-11-23T17:48:49Z",
-    "title": "Cool Runnings"
+    "title": "Cool Runnings",
+    "tone": "bad"
+   },
+   {
+    "act": 412,
+    "id": "act-412",
+    "kind": "act",
+    "page": "movie-763215",
+    "reason": "Unconfirmed: Convert to HEVC",
+    "since": "2026-11-23T15:10:00Z",
+    "title": "Damsel",
+    "tone": "warn"
    }
   ],
   "nowPlaying": [

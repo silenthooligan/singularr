@@ -2,8 +2,8 @@
 //! a draft would match now, what each rule sent or would have sent, and a rule run on request.
 //!
 //! Reading needs a caller with `read`. Saving, removing and running a rule are the owner's
-//! alone, each journaled (`processing_rule_saved`, `processing_rule_removed`; a send is a
-//! `processing_sent` event in the rule's name). A rule is checked when it is saved: its service
+//! alone, each journaled (`processing_rule_saved`, `processing_rule_removed`; a confirmed send is
+//! a `processing_sent` event in the rule's name). A rule is checked when it is saved: its service
 //! is a configured processing service and its flow one that service offers, its conditions ask
 //! something of the file, and the traits it names are the policy's.
 
@@ -36,8 +36,7 @@ const PREVIEW_SHOWN: usize = 100;
 /// Entries of a log on one page by default, and at most.
 const LOG_DEFAULT: i64 = 100;
 const LOG_MAX: i64 = 500;
-/// The seven outcomes of a rule's entry: a claim stays `sending` until an answer or a run of the
-/// service settles it.
+/// The seven outcomes of a rule's entry: a claim stays `sending` until its act settles it.
 const OUTCOMES: [&str; 7] = [
     "shadow", "held", "skipped", "sending", "sent", "refused", "failed",
 ];
@@ -170,10 +169,14 @@ pub struct LogView {
     pub at: DateTime<Utc>,
     /// `shadow`, `held`, `skipped`, `sending`, `sent`, `refused` or `failed`.
     pub outcome: String,
-    /// A send not confirmed: its row is in `sending`, the job that claimed the file ended (for a
-    /// rule run from the API: two minutes passed) and the service shows no run the send opened.
-    /// The page offers to send the file again.
+    /// A send not confirmed: its row is in `sending` and its act is unknown. The page offers to
+    /// mark it not sent (`POST /api/v1/acts/{id}/not-sent`). The act holds the file until then.
     pub attention: bool,
+    /// A send the owner marked not sent: its row is `failed`. The page offers to send the file
+    /// again.
+    pub marked_not_sent: bool,
+    /// The act of a claim's send (`GET /api/v1/acts/{id}`).
+    pub act: Option<i64>,
     /// Why it was held, skipped, refused or failed, in a few words. A claim's says why it stays
     /// in `sending`.
     pub detail: Option<String>,
@@ -214,6 +217,7 @@ pub struct RunAnswer {
     pub matched: usize,
     /// The ones this run took: each is an entry of the log.
     pub logged: usize,
+    /// Of those, the files claimed with their send queued: each an act of the outbox.
     pub sent: usize,
     /// Matching files not sent before that this run did not take.
     pub left: usize,
@@ -578,6 +582,8 @@ async fn rules_log(
                         .cloned(),
                     title: r.title_id.and_then(|t| cards.get(&t).cloned()),
                     attention: r.attention,
+                    marked_not_sent: r.marked_not_sent,
+                    act: r.act_id,
                     at: r.at,
                     outcome: r.outcome,
                     detail: r.detail,
@@ -634,6 +640,7 @@ async fn rules_run(
         &active.policy,
         &rule,
         state.config.sync.enabled,
+        &state.outbox(),
     )
     .await
     .map_err(AppError::Internal)?;

@@ -165,12 +165,22 @@ pub async fn run_attention(state: &AppState) -> AppResult<Vec<Attention>> {
             detail: r.detail,
             tone: r.tone.to_string(),
             since: r.since,
+            act: None,
+            page: None,
         })
         .collect())
 }
 
-/// What needs attention: downloads that are stuck or that no manager owns, integrations whose
-/// last call failed, and the processing runs of [`run_attention`], newest first.
+/// What else needs the owner's look: the processing runs of [`run_attention`] and the acts of
+/// [`crate::api::acts::attention`].
+pub async fn more_attention(state: &AppState) -> AppResult<Vec<Attention>> {
+    let mut out = run_attention(state).await?;
+    out.extend(crate::api::acts::attention(state).await?);
+    Ok(out)
+}
+
+/// What needs attention, newest first: downloads that are stuck or that no manager owns,
+/// integrations whose last call failed, the processing runs and the acts of [`more_attention`].
 pub fn attention(
     queue: &[Queued],
     integrations: &[IntegrationView],
@@ -193,6 +203,8 @@ pub fn attention(
                 }
                 .to_string(),
                 since: a.since,
+                act: None,
+                page: None,
             })
         })
         .collect();
@@ -207,6 +219,8 @@ pub fn attention(
                 .iter()
                 .find(|(id, _)| *id == i.id)
                 .and_then(|(_, at)| *at),
+            act: None,
+            page: None,
         }
     }));
     out.extend(runs);
@@ -266,7 +280,7 @@ pub async fn workspace(state: &AppState, caller: &Caller) -> AppResult<Workspace
         &queue,
         &integrations,
         &down_since(state).await?,
-        run_attention(state).await?,
+        more_attention(state).await?,
     );
     // Names and addresses are settings: the value in force may come from the environment, the
     // instance file, or what was saved in the interface.

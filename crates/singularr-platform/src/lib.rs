@@ -12,6 +12,8 @@
 //! - `runtime`: the durable jobs. Schedules, a tick, workers with leases and a heartbeat, the
 //!   reaper, wake-ups, a supervisor. A run proves its lease where it writes. `markers`: what a
 //!   pass knows across starts.
+//! - `outbox`: the acts. An act is a row before it is sent. It is sent once by compare and set.
+//!   Its answer or a read confirms it. The domains deliver their actions' acts.
 //! - `media`: ffmpeg and ffprobe runs. `model`: pages, scopes, events and keys as the API
 //!   answers them.
 //! - `settings`: the settings mechanism over the fields the app describes (the sources of a
@@ -41,6 +43,7 @@ pub mod media;
 pub mod model;
 pub mod observe;
 pub mod outbound;
+pub mod outbox;
 pub mod runtime;
 pub mod settings;
 pub mod smtp;

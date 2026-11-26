@@ -270,6 +270,13 @@ pub const KINDS: &[(&str, &str)] = &[
     ("integration_access_changed", "integration.access"),
     ("integrations_pruned", "integration.pruned"),
     ("processing_sent", "processing.sent"),
+    ("act_requested", "act.queued"),
+    ("act_sent", "act.sent"),
+    ("act_unknown", "act.unconfirmed"),
+    ("act_confirmed", "act.confirmed"),
+    ("act_failed", "act.failed"),
+    ("act_cancelled", "act.cancelled"),
+    ("act_resent", "act.resent"),
     ("processing_finished", "processing.finished"),
     ("processing_failed", "processing.failed"),
     ("processing_stuck", "processing.stuck"),
@@ -498,6 +505,12 @@ fn subject(e: &Event, names: &Names) -> JournalSubject {
             e.subject_id.clone(),
             text(b, "name").unwrap_or("A channel").to_string(),
         ),
+        // An act of no subject, named by its action.
+        "act" => make(
+            "act",
+            e.subject_id.clone(),
+            text(b, "action").unwrap_or("An act").to_string(),
+        ),
         // A run no title holds, named by its file.
         "processing_run" => make(
             "run",
@@ -509,6 +522,16 @@ fn subject(e: &Event, names: &Names) -> JournalSubject {
 }
 
 // Summaries --------------------------------------------------------------------------------------
+
+/// What an act asked, in a few words: `Convert to HEVC for <file>`, else its action.
+fn act_words(b: &Value) -> String {
+    let flow = text(b, "flow_label").or_else(|| text(b, "flow"));
+    match (flow, text(b, "file")) {
+        (Some(flow), Some(file)) => format!("{flow} for {file}"),
+        (None, Some(file)) => file.to_string(),
+        _ => text(b, "action").unwrap_or("an act").to_string(),
+    }
+}
 
 fn status_words(status: &str) -> &'static str {
     match status {
@@ -768,6 +791,24 @@ pub fn summary(e: &Event, names: &Names) -> String {
             match text(b, "file") {
                 Some(file) => format!("{line}: {file}"),
                 None => line,
+            }
+        }
+        // An act of the outbox: queued, delivered, confirmed or not, by its integration.
+        "act_requested" | "act_sent" | "act_unknown" | "act_confirmed" | "act_failed"
+        | "act_cancelled" | "act_resent" => {
+            let what = act_words(b);
+            let who = integration("integration");
+            match e.kind.as_str() {
+                "act_requested" => format!("Queued for {who}: {what}"),
+                "act_sent" => format!("Delivered to {who}: {what}"),
+                "act_unknown" => format!("No clear answer from {who}: {what}"),
+                "act_confirmed" => format!("Confirmed by {who}: {what}"),
+                "act_failed" => format!(
+                    "Failed on {who}: {}",
+                    text(b, "error").map(str::to_string).unwrap_or(what)
+                ),
+                "act_cancelled" => format!("Cancelled: {what}"),
+                _ => format!("Queued again for {who}: {what}"),
             }
         }
         // What the processing pass saw of a run: it closed, or it is stuck.

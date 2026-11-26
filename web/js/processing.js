@@ -185,6 +185,31 @@
   }
 
   /* ------------------------------------------------------------- the hand-off */
+  /** A send's act read every 2 s until it rests: confirmed, unconfirmed, failed or cancelled. A sent act is read
+      three more times for the read that stores its run. Null once `el` leaves the page. */
+  async function follow(id, el) {
+    if (id == null) return null;
+    let sent = 0;
+    for (;;) {
+      await new Promise(go => setTimeout(go, 2000));
+      if (!el.isConnected) return null;
+      const act = await MQ.api(`/acts/${encodeURIComponent(id)}`);
+      if (!act || act.state === 'pending' || act.state === 'sending') continue;
+      if (act.state === 'sent' && sent++ < 3) continue;
+      return act;
+    }
+  }
+
+  /** What the send route answers for an act at rest, in its shape ({ok, status, data}): the answer the dialog
+      shows. A file the service took brings its run once a read stored it. */
+  async function answerOf(act, service) {
+    const run = act.result?.confirmed?.run;
+    if (act.state === 'confirmed' || act.state === 'sent') return { ok: true, status: 201, data: { act: act.id, run: run ? await MQ.api('/processing/runs/' + encodeURIComponent(run)) : null } };
+    if (act.state === 'unknown') return { ok: false, status: 504, data: { code: 'singularr.unconfirmed', act: act.id, detail: `${service} gave no clear answer and may have taken the file.` } };
+    const status = { access: 403, refused: 422, already_staged: 409, not_offered: 409, sync_off: 409, by_hand: 409 }[act.errorClass] || (act.state === 'cancelled' ? 409 : 502);
+    return { ok: false, status, data: { code: act.errorClass === 'already_staged' ? 'singularr.already_staged' : '', act: act.id, detail: act.error || '' } };
+  }
+
   /** The hand-off of one file to a processing service: the flows the service runs, what each has done to
       files so far, and the tag that starts a flow. Sending is a change in another service: without write
       access the Send button is a control that cannot act. */
@@ -278,7 +303,17 @@
       if (!f || !open(f)) { MQ.toast('Select a flow', 'warn'); return; }
       const btn = e.currentTarget; const label = btn.innerHTML;
       btn.disabled = true; btn.innerHTML = String(html`${icon('refresh', 'mq-icon--sm')}Sending`);
-      const r = await MQ.send('POST', '/processing/runs', { title: title.id, file: file.fileName, flow: f.id, service: opt.service?.id });
+      let r = await MQ.send('POST', '/processing/runs', { title: title.id, file: file.fileName, flow: f.id, service: opt.service?.id });
+      /* The service did not answer within the wait: the dialog follows the act until it rests, then shows what the
+         route answers at rest. A closed dialog follows it no more. */
+      if (r.status === 202) {
+        cached = null;
+        $('#proc-error', dlg.el).innerHTML = String(MQ.callout('Sending', '', 'info'));
+        const act = await follow(r.data?.id, dlg.el);
+        if (!act) return;
+        $('#proc-error', dlg.el).innerHTML = '';
+        r = await answerOf(act, svcName);
+      }
       if (r.ok) {
         cached = null;
         dlg.close();
@@ -289,9 +324,12 @@
       }
       btn.innerHTML = label;
       const code = String(r.data?.code || '');
-      /* No clear answer: the service may have taken the file. The button stays off: a second send is no retry. */
+      /* No clear answer: the service may have taken the file. The button stays off: a second send is no retry. The
+         owner may mark it not sent. That frees the file for a new send. */
       if (code === 'singularr.unconfirmed') {
-        $('#proc-error', dlg.el).innerHTML = String(MQ.callout('Unconfirmed', r.data?.detail || '', 'warn'));
+        const act = r.data?.act;
+        $('#proc-error', dlg.el).innerHTML = String(html`${MQ.callout('Unconfirmed', r.data?.detail || '', 'warn')}${act ? html`<button type="button" class="mq-btn mq-btn--sm" data-notsent="${act}">Mark not sent</button>` : ''}`);
+        $('[data-notsent]', dlg.el)?.addEventListener('click', () => MQ.notSent(act, () => { $('#proc-error', dlg.el).innerHTML = ''; btn.disabled = false; }));
         return;
       }
       btn.disabled = false;

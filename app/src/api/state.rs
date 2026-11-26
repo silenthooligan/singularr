@@ -55,6 +55,16 @@ impl AppState {
         AppState(Arc::new(inner))
     }
 
+    /// The outbox of this process: the deliveries of the actions it sends acts of.
+    pub fn outbox(&self) -> crate::core::outbox::Outbox {
+        crate::lifecycle::jobs::outbox(
+            &self.pool,
+            &self.journal,
+            &self.engines,
+            self.config.sync.enabled,
+        )
+    }
+
     /// Who sent these headers. Call only behind `strip_untrusted_identity`.
     pub async fn caller(&self, headers: &HeaderMap) -> AppResult<Caller> {
         auth::identify(headers, &self.pool, &self.owners).await

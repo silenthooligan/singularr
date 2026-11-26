@@ -410,6 +410,13 @@ pub const EVENTS: &[EventSpec] = &[
         Tone::Ok,
     ),
     ev("integration.access", "system", "Access changed", Tone::Warn),
+    ev(
+        "act.unconfirmed",
+        "system",
+        "Action unconfirmed",
+        Tone::Warn,
+    ),
+    ev("act.failed", "system", "Action failed", Tone::Bad),
 ];
 
 /// The event of a test message: no channel subscribes to it.
@@ -477,6 +484,9 @@ pub fn event_of(kind: &str, body: &Value) -> Option<&'static str> {
         // An integration that answers for the first time was never away.
         "engine_up" if flag("first_contact") != Some(true) => "integration.up",
         "integration_access_changed" => "integration.access",
+        "act_unknown" => "act.unconfirmed",
+        // The owner who marks an act not sent knows it.
+        "act_failed" if text("error_class") != Some(crate::core::outbox::BY_HAND) => "act.failed",
         _ => return None,
     })
 }
@@ -580,7 +590,7 @@ fn and_list(items: &[String]) -> String {
 
 /// The facts a message names for a journal event, from its body, most telling first: the
 /// episode, what a file is and its size, who asked, why a download needs attention, what a
-/// run did, why an integration is offline.
+/// run did, why an act failed, why an integration is offline.
 pub fn facts(kind: &str, body: &Value) -> Vec<Fact> {
     let text = |b: &Value, key: &str| {
         b.get(key)
@@ -683,6 +693,17 @@ pub fn facts(kind: &str, body: &Value) -> Vec<Fact> {
             }
             if let Some(open) = int(body, "open_for") {
                 out.push(Fact::new("Open for", span(open)));
+            }
+        }
+        "act_unknown" | "act_failed" => {
+            if let Some(flow) = text(body, "flow_label").or_else(|| text(body, "flow")) {
+                out.push(Fact::new("Flow", flow));
+            }
+            if let Some(file) = text(body, "file") {
+                out.push(Fact::new("File", file));
+            }
+            if let Some(error) = text(body, "error") {
+                out.push(Fact::new("Reason", error));
             }
         }
         "engine_down" => {

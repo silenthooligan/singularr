@@ -29,15 +29,16 @@ use super::state::AppState;
 use crate::catalog::store::{self as catalog_store, TitleFile, TitleRef};
 use crate::core::auth::Caller;
 use crate::core::error::{AppError, AppResult};
-use crate::core::outbound::{Access, OutboundError};
+use crate::core::outbound::Access;
+use crate::core::outbox::{self, Act, EnqueueError};
 use crate::core::schema::ProblemDoc;
 use crate::core::units;
 use crate::engines::access::read_only_words;
 use crate::engines::service::{integration_view, processing_role};
 use crate::engines::store as engine_store;
 use crate::engines::{
-    EngineError, Processor, ProcessorNode, QueuedFile, Refusal, WorkerCounts, WorkerFlow,
-    WorkerLibrary, WorkerQueue, WorkerReport, WorkerSetup, WorkerTotals,
+    EngineError, Processor, ProcessorNode, QueuedFile, WorkerCounts, WorkerFlow, WorkerLibrary,
+    WorkerQueue, WorkerReport, WorkerSetup, WorkerTotals,
 };
 use crate::metadata::record::{
     FileProcessing, ProcessingRun, RunFlow, RunLibrary, RunWorker, TitleProcessing,
@@ -45,13 +46,14 @@ use crate::metadata::record::{
 use crate::processing::model::{
     IMPORTED, Moment, Run, RunFilter, StateFilter, VERIFYING, file_name, queue_of, run_id, unfit,
 };
+use crate::processing::sends;
 use crate::processing::service::{
-    self as processing, FlowSummary, Live, LiveService, Reading, RunReports, SendOutcome, Sending,
-    flow_modes, flow_summaries, run_of, run_worker, stuck_after,
+    self as processing, FlowSummary, Live, LiveService, Reading, RunReports, flow_modes,
+    flow_summaries, run_of, run_worker, stuck_after,
 };
 use crate::processing::store;
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Extension, Json, Router};
@@ -1016,7 +1018,7 @@ async fn report_text(state: &AppState, id: &str, report: &str) -> AppResult<Repo
 // Sending a file to a flow --------------------------------------------------------------------------
 
 /// What a hand-off is told while the integrations are not read.
-pub(super) const SYNC_OFF: &str = "Integration sync is off";
+pub(super) const SYNC_OFF: &str = sends::SYNC_IS_OFF;
 /// Why a file cannot be sent while the access is `read`, in the options.
 const READ_ONLY: &str = "Read-only";
 
@@ -1150,6 +1152,25 @@ pub struct SendAnswer {
     /// The run, stored before this answer. Null when the service named no job, or could not
     /// be asked for it: the next pass reads it then.
     pub run: Option<RunView>,
+    /// The act that sent it (`GET /api/v1/acts/{id}`).
+    pub act: i64,
+}
+
+/// How long a send waits for its act to rest before it answers `202 Accepted`.
+pub const SEND_WAIT: Duration = Duration::from_secs(30);
+/// How long a send the service took waits for the read that stores its run.
+pub const READ_WAIT: Duration = Duration::from_secs(5);
+
+/// A problem document with a code of its own, to name an act on.
+fn titled(
+    status: StatusCode,
+    code: &str,
+    title: &str,
+    detail: impl Into<String>,
+) -> crate::core::http::Problem {
+    let mut p = crate::core::http::Problem::new(status, code, title);
+    p.detail = Some(detail.into());
+    p
 }
 
 /// A problem document with a code of its own.
@@ -1159,9 +1180,7 @@ pub(super) fn problem(
     title: &str,
     detail: impl Into<String>,
 ) -> Response {
-    let mut p = crate::core::http::Problem::new(status, code, title);
-    p.detail = Some(detail.into());
-    p.into_response()
+    titled(status, code, title, detail).into_response()
 }
 
 /// Singularr holds the line itself: the access is `read`, or the title is protected.
@@ -1449,63 +1468,48 @@ async fn options(state: &AppState, q: &OptionsQuery) -> AppResult<SendOptions> {
     })
 }
 
-/// A send the service did not take, as a problem.
+/// A send's act that failed, as a problem naming the act: the service's own words where it said
+/// some, else its reason.
 async fn not_taken(
     state: &AppState,
     service: &str,
     name: &str,
-    outcome: SendOutcome,
+    access_label: &str,
+    act: &Act,
 ) -> AppResult<Response> {
-    let (why, reason, detail, job) = match outcome {
-        SendOutcome::Taken(_) => {
-            return Err(AppError::Internal(
-                "a file that was taken is no refusal".to_string(),
-            ));
-        }
-        SendOutcome::NotOffered => {
-            return Ok(problem(
-                StatusCode::CONFLICT,
-                "singularr.not_offered",
-                "Not offered",
-                format!("{}.", not_offered_words(name)),
-            ));
-        }
-        // The service may have taken the file: the words invite no second send.
-        SendOutcome::Unanswered => {
-            return Ok(problem(
-                StatusCode::GATEWAY_TIMEOUT,
-                "singularr.unconfirmed",
-                "Unconfirmed",
-                unconfirmed_words(name),
-            ));
-        }
-        SendOutcome::Refused {
-            why,
-            reason,
-            detail,
-            job,
-        } => (why, reason, detail, job),
+    let said = |key: &str| {
+        act.result
+            .as_ref()
+            .and_then(|r| r.get(key))
+            .and_then(Value::as_str)
+            .map(str::to_string)
     };
-    // The service's own words: what it says, else its reason.
-    let words = detail.or(reason);
-    Ok(match why {
-        Refusal::NotFound => AppError::not_found(format!(
+    let words = said("detail").or_else(|| said("reason"));
+    let error = act.error.clone().unwrap_or_default();
+    let p = match act.error_class.as_deref().unwrap_or_default() {
+        sends::NOT_OFFERED => titled(
+            StatusCode::CONFLICT,
+            "singularr.not_offered",
+            "Not offered",
+            format!("{}.", not_offered_words(name)),
+        ),
+        "not_found" => AppError::not_found(format!(
             "{name} cannot find the file at its manager's path."
         ))
-        .into_response(),
-        Refusal::AlreadyStaged => {
-            let detail = match open_run_of(state, service, job.as_deref()).await? {
+        .problem(),
+        "already_staged" => {
+            let detail = match open_run_of(state, service, said("job").as_deref()).await? {
                 Some(run) => format!("{name} already has this file in run {run}."),
                 None => format!("{name} already has this file in a queue."),
             };
-            problem(
+            titled(
                 StatusCode::CONFLICT,
                 "singularr.already_staged",
                 "Already queued",
                 detail,
             )
         }
-        Refusal::Refused => problem(
+        "refused" => titled(
             StatusCode::UNPROCESSABLE_ENTITY,
             "singularr.refused",
             "File refused",
@@ -1514,18 +1518,74 @@ async fn not_taken(
                 None => format!("{name} refused the file."),
             },
         ),
-        Refusal::Unauthorized => {
-            AppError::Upstream(format!("{name} did not accept the API key.")).into_response()
+        "unauthorized" => {
+            AppError::Upstream(format!("{name} did not accept the API key.")).problem()
         }
-        Refusal::Failed => AppError::Upstream(match words {
+        "failed" => AppError::Upstream(match words {
             Some(words) => format!("{name} failed to take the file: {words}"),
             None => format!("{name} failed to take the file."),
         })
-        .into_response(),
-    })
+        .problem(),
+        // The access was taken back while the act waited.
+        outbox::ACCESS => titled(
+            StatusCode::FORBIDDEN,
+            "singularr.not_allowed",
+            "Not allowed",
+            read_only_words(access_label, name),
+        ),
+        outbox::BY_HAND => titled(
+            StatusCode::CONFLICT,
+            "singularr.conflict",
+            "Not sent",
+            "Marked not sent.",
+        ),
+        // The sync was turned off while the act waited.
+        sends::NO_SYNC => titled(
+            StatusCode::CONFLICT,
+            "singularr.conflict",
+            "Not sent",
+            format!("{SYNC_OFF}."),
+        ),
+        _ => AppError::Upstream(format!("{name} did not take the file: {error}")).problem(),
+    };
+    Ok(p.with_act(act.id).into_response())
 }
 
-async fn send(state: &AppState, caller: &Caller, body: &SendRequest) -> AppResult<Response> {
+/// A send's act the service took: 201 with the run as the lists show it, once a read stored it.
+async fn taken(state: &AppState, act: &Act) -> AppResult<Response> {
+    let run = match sends::confirmed_run(act) {
+        Some(id) => store::one(&state.pool, id).await?,
+        None => None,
+    };
+    // The workers are not asked for this answer: the file was staged a moment ago.
+    let run = match &run {
+        Some(run) => {
+            let quiet = Live::default();
+            let reading = reading(state, &quiet);
+            Some(Titles::of(state, &[run]).await?.view(&reading, run))
+        }
+        None => None,
+    };
+    Ok((
+        StatusCode::CREATED,
+        Json(SendAnswer {
+            sent: true,
+            service: act.integration.clone(),
+            flow: act.asked("flow").unwrap_or_default().to_string(),
+            mode: act.answered("mode").map(str::to_string),
+            run,
+            act: act.id,
+        }),
+    )
+        .into_response())
+}
+
+async fn send(
+    state: &AppState,
+    caller: &Caller,
+    headers: &HeaderMap,
+    body: &SendRequest,
+) -> AppResult<Response> {
     if !matches!(caller, Caller::Owner { .. }) {
         return Err(AppError::Forbidden(
             "Only the owner can send files.".to_string(),
@@ -1565,59 +1625,49 @@ async fn send(state: &AppState, caller: &Caller, body: &SendRequest) -> AppResul
             format!("{SYNC_OFF}."),
         ));
     }
+    // The send is an act of the outbox: its row and its job commit here, a worker of the acts
+    // queue sends it once. Its key is the caller's `Idempotency-Key`, else the request's hash
+    // and its 5 min bucket. An open act of the file and the flow is that act.
     let actor = caller.actor();
-    let what = Sending {
-        actor: &actor,
-        title: &title_ref,
-        path: &path,
-        flow: &flow.id,
+    let request = sends::request(&title_ref, &path, &flow.id);
+    let hash = outbox::request_hash(&service, sends::ACTION, &request);
+    let key = super::acts::key_of(headers, &actor, &hash)?;
+    let asked = sends::by_hand(&service, &title_ref, &path, &flow.id, &actor, key);
+    let mut tx = state.journal.begin(&state.pool).await?;
+    let enqueued = match state.outbox().enqueue(&mut tx, asked).await {
+        Ok(enqueued) => enqueued,
+        Err(EnqueueError::Mismatch(act)) => return Ok(super::acts::mismatch(&act)),
+        Err(EnqueueError::Db(e)) => return Err(e.into()),
     };
-    let handed = match processing::send(&state.pool, &state.journal, &processor, what).await {
-        Ok(SendOutcome::Taken(handed)) => *handed,
-        Ok(other) => return not_taken(state, &service, &name, other).await,
-        // The way out refused the act: the access was taken back while this was on its way.
-        Err(EngineError::Outbound(OutboundError::NotAllowed { .. })) => {
-            return Ok(not_allowed(read_only_words(access.label("send"), &name)));
-        }
-        // An error is a send that surely did not take place (`processing::send`).
-        Err(e) => {
-            return Err(AppError::Upstream(format!(
-                "{name} did not take the file: {e}"
-            )));
-        }
-    };
-    // A claim of a processing rule on this file is settled: the service took the file.
-    if let Err(e) = store::settle_claim_of_path(
-        &state.pool,
-        &path,
-        &service,
-        handed.run_id(&service).as_deref(),
-    )
-    .await
-    {
-        tracing::warn!(service = %service, error = %e, "a claim of the file was not settled");
+    tx.commit().await?;
+    let id = enqueued.act().id;
+    // The answer waits for the act to rest, as long as a slow service takes at most. An act
+    // still pending or sending then goes on: 202 with the act.
+    let act = outbox::rested(&state.pool, id, READ_WAIT, SEND_WAIT)
+        .await?
+        .ok_or_else(|| AppError::Internal(format!("act {id} is gone")))?;
+    match act.state.as_str() {
+        outbox::CONFIRMED | outbox::SENT => taken(state, &act).await,
+        // The service may have taken the file: the words invite no second send.
+        outbox::UNKNOWN => Ok(titled(
+            StatusCode::GATEWAY_TIMEOUT,
+            "singularr.unconfirmed",
+            "Unconfirmed",
+            unconfirmed_words(&name),
+        )
+        .with_act(act.id)
+        .into_response()),
+        outbox::FAILED => not_taken(state, &service, &name, access.label("send"), &act).await,
+        outbox::CANCELLED => Ok(titled(
+            StatusCode::CONFLICT,
+            "singularr.conflict",
+            "Cancelled",
+            "The send was cancelled.",
+        )
+        .with_act(act.id)
+        .into_response()),
+        _ => Ok((StatusCode::ACCEPTED, Json(super::acts::ActView::of(&act))).into_response()),
     }
-    // The run as the lists show it. The workers are not asked for this answer: the file was
-    // staged a moment ago.
-    let run = match &handed.run {
-        Some(run) => {
-            let quiet = Live::default();
-            let reading = reading(state, &quiet);
-            Some(Titles::of(state, &[run]).await?.view(&reading, run))
-        }
-        None => None,
-    };
-    Ok((
-        StatusCode::CREATED,
-        Json(SendAnswer {
-            sent: true,
-            service,
-            flow: flow.id.clone(),
-            mode: handed.mode,
-            run,
-        }),
-    )
-        .into_response())
 }
 
 // For the title record ------------------------------------------------------------------------------
@@ -1920,24 +1970,29 @@ async fn processing_options(
 }
 
 /// Send one file of a title to a flow: `{"title": "movie-603", "file": "<its name>", "flow":
-/// "hevc"}`. The owner alone may, while the service's `send` has write access. The run is
-/// stored before the answer when the service names its job. Each send is a `processing_sent`
-/// event.
+/// "hevc"}`. The owner alone may, while the service's `send` has write access. The send is an act
+/// of the outbox, sent once, its key the caller's `Idempotency-Key` header (else the request's
+/// hash and its 5 min bucket). The run is stored before the answer when the service names its
+/// job. Each confirmed send is a `processing_sent` event. Every answer names its act.
 #[utoipa::path(post, path = "/api/v1/processing/runs", tag = "processing", request_body = SendRequest,
-    responses((status = 201, body = SendAnswer), (status = 400, body = ProblemDoc),
+    params(("Idempotency-Key" = Option<String>, Header, description = "The act's key: the same key is the same send. 1 to 255 visible ASCII characters")),
+    responses((status = 201, body = SendAnswer),
+        (status = 202, description = "The service has not answered within 30 s: the act goes on (`GET /api/v1/acts/{id}`)", body = super::acts::ActView),
+        (status = 400, body = ProblemDoc),
         (status = 403, description = "Not the owner; or `singularr.not_allowed`: Singularr may only read the service, or the title is protected in its manager", body = ProblemDoc),
         (status = 404, description = "No such title or file", body = ProblemDoc),
         (status = 409, description = "`singularr.already_staged`: the service has the file already; `singularr.not_offered`: it takes no file on demand", body = ProblemDoc),
-        (status = 422, description = "`singularr.refused`: the service refused, in its own words", body = ProblemDoc),
+        (status = 422, description = "`singularr.refused`: the service refused, in its own words; `singularr.idempotency_mismatch`: the key was sent with another request", body = ProblemDoc),
         (status = 502, description = "The service failed", body = ProblemDoc),
         (status = 504, description = "`singularr.unconfirmed`: no clear answer; the service may have taken the file", body = ProblemDoc),
         (status = 401, body = ProblemDoc)))]
 async fn processing_send(
     State(state): State<AppState>,
     Extension(caller): Extension<Caller>,
+    headers: HeaderMap,
     ApiJson(body): ApiJson<SendRequest>,
 ) -> Result<Response, AppError> {
-    send(&state, &caller, &body).await
+    send(&state, &caller, &headers, &body).await
 }
 
 /// The processing routes, relative to `/api/v1`.
@@ -1988,7 +2043,7 @@ mod tests {
                 "GET {path} is missing from the OpenAPI document"
             );
         }
-        // The one route that sends something, with every way it can end.
+        // The one route that sends something lists every way it can end: 202 while its act goes on.
         let send = &paths["/api/v1/processing/runs"]["post"];
         let ends: Vec<&str> = send["responses"]
             .as_object()
@@ -1999,7 +2054,7 @@ mod tests {
         assert_eq!(
             ends,
             vec![
-                "201", "400", "401", "403", "404", "409", "422", "502", "504"
+                "201", "202", "400", "401", "403", "404", "409", "422", "502", "504"
             ]
         );
         let asked: Vec<&str> = doc["paths"]["/api/v1/processing/options"]["get"]["parameters"]

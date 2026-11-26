@@ -172,19 +172,27 @@ pub struct Portal {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct Attention {
     /// `q-<hash>` for a download, the integration's id for an integration, the run's id for a
-    /// processing run.
+    /// processing run, `act-<id>` for an act.
     pub id: String,
-    /// `queue`, `integration` or `processing`.
+    /// `queue`, `integration`, `processing` or `act`.
     pub kind: String,
-    /// A processing run: its title's name (with the episode, `S01 E03`), or its source's file
-    /// name when no title holds it.
+    /// A processing run or an act: its title's name with the episode (`S01 E03`). Its file's name
+    /// when no title holds it.
     pub title: String,
     pub detail: String,
     /// `bad` or `warn`. A processing run that is stuck is `warn`; one that failed or was
-    /// refused in the last seven days is `bad`.
+    /// refused in the last seven days is `bad`. An unconfirmed act is `warn`; a send that failed
+    /// after its dialog closed is `bad`.
     pub tone: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub since: Option<DateTime<Utc>>,
+    /// The act of an act's item (`GET /api/v1/acts/{id}`). An unconfirmed one can be marked not
+    /// sent (`POST /api/v1/acts/{id}/not-sent`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub act: Option<i64>,
+    /// The page of the title an act is about: `movie-603`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<String>,
 }
 
 /// A profile of the policy (a lane in the code).
@@ -522,11 +530,20 @@ pub struct Stat {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct HomeAttention {
     pub id: String,
-    /// `request`, `queue`, `integration` or `processing`.
+    /// `request`, `queue`, `integration`, `processing` or `act`.
     pub kind: String,
     pub title: String,
     pub reason: String,
     pub since: Option<DateTime<Utc>>,
+    /// `bad` or `warn`, as the list of the workspace gives it. Null for a request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tone: Option<String>,
+    /// The act of an act's item. An unconfirmed one can be marked not sent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub act: Option<i64>,
+    /// The page of the title an act is about: `movie-603`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]

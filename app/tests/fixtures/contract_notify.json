@@ -96,7 +96,9 @@
   {"id": "processing.stuck", "group": "processing", "label": "Run stuck"},
   {"id": "integration.down", "group": "system", "label": "Integration offline"},
   {"id": "integration.up", "group": "system", "label": "Integration back online"},
-  {"id": "integration.access", "group": "system", "label": "Access changed"}
+  {"id": "integration.access", "group": "system", "label": "Access changed"},
+  {"id": "act.unconfirmed", "group": "system", "label": "Action unconfirmed"},
+  {"id": "act.failed", "group": "system", "label": "Action failed"}
  ],
  "kinds": [
   {"id": "movie", "label": "Movies"},

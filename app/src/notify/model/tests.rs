@@ -137,6 +137,14 @@ fn journal_kinds_map_to_events() {
             none.clone(),
             Some("integration.access"),
         ),
+        ("act_unknown", none.clone(), Some("act.unconfirmed")),
+        (
+            "act_failed",
+            json!({"error_class": "refused"}),
+            Some("act.failed"),
+        ),
+        ("act_failed", json!({"error_class": "by_hand"}), None),
+        ("act_sent", none.clone(), None),
         ("setting_changed", none.clone(), None),
         ("notification_channel_added", none.clone(), None),
     ] {
@@ -522,6 +530,17 @@ fn facts_name_what_matters_of_each_event() {
             json!({"action": "grab", "label": "Grab a release", "to": "read"})
         ),
         pairs(&[("Action", "Grab a release"), ("Access", "Read-only")])
+    );
+    assert_eq!(
+        facts_of(
+            "act_failed",
+            json!({"flow_label": "Convert to HEVC", "file": "a.mkv", "error": "Read-only"})
+        ),
+        pairs(&[
+            ("Flow", "Convert to HEVC"),
+            ("File", "a.mkv"),
+            ("Reason", "Read-only")
+        ])
     );
     assert!(facts_of("title_added", json!({"title": "x"})).is_empty());
     assert_eq!(span(691_200), "8 d");

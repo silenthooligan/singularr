@@ -658,30 +658,22 @@ pub async fn insert_log(conn: &mut PgConnection, entries: &[NewLog]) -> Result<u
     Ok(written)
 }
 
-/// A rule's log, the newest first, at most `limit` entries. A claim needs a look once its job
-/// ended: the job's row is gone or neither queued nor running. A claim of a rule run from the API
-/// needs one [`CLAIM_WITHOUT_JOB_SECS`] after it was made. Either needs it only while the service
-/// shows no run the claim's send opened (`CLAIM_RUN`).
+/// A rule's log, the newest first, at most `limit` entries. A claim needs a look while its act is
+/// unknown: its send got no clear answer. No read found the run it opened. A claim whose act the
+/// owner marked not sent is failed: its file can be sent again.
 pub async fn rule_log(pool: &PgPool, rule: i64, limit: i64) -> Result<Vec<LogRow>, sqlx::Error> {
-    sqlx::query_as::<_, LogRow>(sqlx::AssertSqlSafe(format!(
+    sqlx::query_as::<_, LogRow>(
         "SELECT l.id, l.rule_id, l.rule_version, l.at, l.event_id, l.title_id, l.copy_id, l.path,
-                l.service, l.flow, l.outcome, l.detail, l.evidence, l.run_id,
-                (l.outcome = 'sending'
-                 AND CASE WHEN l.job_id IS NULL
-                          THEN l.at < now() - make_interval(secs => $6::float8)
-                          ELSE NOT EXISTS (SELECT 1 FROM jobs j WHERE j.id = l.job_id
-                                           AND j.state IN ('queued', 'running')) END
-                 AND NOT EXISTS (SELECT 1 FROM processing_runs r WHERE {CLAIM_RUN})
-                ) AS attention
-         FROM processing_rule_log l WHERE l.rule_id = $1
-         ORDER BY l.at DESC, l.id DESC LIMIT $5"
-    )))
+                l.service, l.flow, l.outcome, l.detail, l.evidence, l.run_id, l.act_id,
+                COALESCE(l.outcome = 'sending' AND a.state = 'unknown', false) AS attention,
+                COALESCE(a.state = 'failed' AND a.error_class = $3, false) AS marked_not_sent
+         FROM processing_rule_log l LEFT JOIN acts a ON a.id = l.act_id
+         WHERE l.rule_id = $1
+         ORDER BY l.at DESC, l.id DESC LIMIT $2",
+    )
     .bind(rule)
-    .bind(CLAIM_CLOCK_ALLOWANCE_SECS)
-    .bind(CLAIM_RUN_WITHIN_SECS)
-    .bind(crate::engines::hush::sent_trigger())
     .bind(limit)
-    .bind(CLAIM_WITHOUT_JOB_SECS)
+    .bind(crate::core::outbox::BY_HAND)
     .fetch_all(pool)
     .await
 }
@@ -721,41 +713,74 @@ pub async fn sent_paths(pool: &PgPool, paths: &[String]) -> Result<Vec<String>, 
 pub const RULES_CURSOR: &str = "rules.cursor";
 
 /// How far a service's clock may run behind the database's for one of its runs to answer for a
-/// claim: a run that the service says it created up to this long before the claim counts.
+/// send: a run that the service says it created up to this long before the act counts.
 pub const CLAIM_CLOCK_ALLOWANCE_SECS: f64 = 60.0;
 
-/// The longest after a claim that a run of the service still answers for it: a day. A later run
-/// is another send's.
+/// The longest after a send's act that a run of the service still answers for it: a day. A later
+/// run is another send's.
 pub const CLAIM_RUN_WITHIN_SECS: f64 = 86_400.0;
 
-/// The run that answers for a claim, as SQL over the claim's row `l` and a run `r`: the run the
-/// claim's send could have opened. It is a run of the claim's service and flow whose source is
-/// the claim's file. Singularr's send started it through the bridge's route
+/// The run that answers for a send, as SQL over the send's act `a` and a run `r`: the run the
+/// send could have opened. It is a run of the act's service and flow whose source is the act's
+/// file. Singularr's send started it through the bridge's route
 /// ([`crate::engines::hush::sent_trigger`]). The service made it from
-/// [`CLAIM_CLOCK_ALLOWANCE_SECS`] before the claim to [`CLAIM_RUN_WITHIN_SECS`] after it. `$2`,
-/// `$3` and `$4` bind the allowance, the window and the trigger.
-const CLAIM_RUN: &str = "r.integration = l.service AND r.source_path = l.path AND r.flow = l.flow
-     AND r.trigger_text = $4
-     AND r.created_at >= l.at - make_interval(secs => $2::float8)
-     AND r.created_at < l.at + make_interval(secs => $3::float8)";
+/// [`CLAIM_CLOCK_ALLOWANCE_SECS`] before the act to [`CLAIM_RUN_WITHIN_SECS`] after it. `$2`, `$3`
+/// and `$4` bind the trigger, the allowance and the window.
+const SEND_RUN: &str = "r.integration = a.integration AND r.source_path = a.request->>'path'
+     AND r.flow = a.request->>'flow' AND r.trigger_text = $2
+     AND r.created_at >= a.created_at - make_interval(secs => $3::float8)
+     AND r.created_at < a.created_at + make_interval(secs => $4::float8)";
 
-/// A claim of a rule run from the API has no job to wait for. It needs a look this long after it
-/// was made.
-pub const CLAIM_WITHOUT_JOB_SECS: f64 = 120.0;
-
-/// Claim a file before a rule sends it: its log row in `sending`, without a detail, in a commit
-/// of its own. `job` is the job that claims it: `None` for a rule run from the API. `None` back
-/// when another claim or a send holds the file (`processing_rule_log_sent_once`).
-pub async fn claim_send(
+/// The first run that answers for a send's act ([`SEND_RUN`]).
+pub async fn run_of_send(
     pool: &PgPool,
+    act: &crate::core::outbox::Act,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(format!(
+        "SELECT r.id FROM acts a JOIN processing_runs r ON {SEND_RUN}
+         WHERE a.id = $1 ORDER BY r.created_at, r.id LIMIT 1"
+    )))
+    .bind(act.id)
+    .bind(crate::engines::hush::sent_trigger())
+    .bind(CLAIM_CLOCK_ALLOWANCE_SECS)
+    .bind(CLAIM_RUN_WITHIN_SECS)
+    .fetch_optional(pool)
+    .await
+}
+
+/// The open sends of a service (sent or unknown) that a run answers for now, each with the first
+/// such run ([`SEND_RUN`]).
+pub async fn sends_with_runs(
+    pool: &PgPool,
+    service: &str,
+) -> Result<Vec<(i64, String)>, sqlx::Error> {
+    sqlx::query_as::<_, (i64, String)>(sqlx::AssertSqlSafe(format!(
+        "SELECT a.id, found.id FROM acts a
+         CROSS JOIN LATERAL (SELECT r.id FROM processing_runs r WHERE {SEND_RUN}
+                             ORDER BY r.created_at, r.id LIMIT 1) found
+         WHERE a.integration = $1 AND a.action = 'send' AND a.state IN ('sent', 'unknown')
+         ORDER BY a.id"
+    )))
+    .bind(service)
+    .bind(crate::engines::hush::sent_trigger())
+    .bind(CLAIM_CLOCK_ALLOWANCE_SECS)
+    .bind(CLAIM_RUN_WITHIN_SECS)
+    .fetch_all(pool)
+    .await
+}
+
+/// Claim a file before a rule sends it: its log row in `sending`, without a detail, in the
+/// caller's transaction. The send's act is enqueued in it too ([`name_act`]). `None` back when
+/// another claim or a send holds the file (`processing_rule_log_sent_once`).
+pub async fn claim_send(
+    conn: &mut PgConnection,
     e: &crate::processing::rules::NewLog,
-    job: Option<i64>,
 ) -> Result<Option<i64>, sqlx::Error> {
     sqlx::query_scalar::<_, i64>(
         "INSERT INTO processing_rule_log
              (rule_id, rule_version, event_id, title_id, copy_id, path, service, flow,
-              outcome, evidence, job_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'sending', $9, $10)
+              outcome, evidence)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'sending', $9)
          ON CONFLICT DO NOTHING
          RETURNING id",
     )
@@ -768,9 +793,71 @@ pub async fn claim_send(
     .bind(&e.service)
     .bind(&e.flow)
     .bind(&e.evidence)
-    .bind(job)
-    .fetch_optional(pool)
+    .fetch_optional(conn)
     .await
+}
+
+/// A claim names the act of its send.
+pub async fn name_act(conn: &mut PgConnection, claim: i64, act: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE processing_rule_log SET act_id = $2 WHERE id = $1")
+        .bind(claim)
+        .bind(act)
+        .execute(conn)
+        .await
+        .map(|_| ())
+}
+
+/// The claims of a confirmed act: sent. Each names the run a read found.
+pub async fn claim_sent(
+    conn: &mut PgConnection,
+    act: i64,
+    run: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE processing_rule_log SET outcome = 'sent', detail = NULL,
+                                        run_id = COALESCE($2, run_id)
+         WHERE act_id = $1 AND outcome = 'sending'",
+    )
+    .bind(act)
+    .bind(run)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+/// The claims of an act that failed or was cancelled: the outcome and why. The file is free.
+pub async fn claim_settled(
+    conn: &mut PgConnection,
+    act: i64,
+    outcome: &str,
+    detail: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE processing_rule_log SET outcome = $2, detail = $3
+         WHERE act_id = $1 AND outcome = 'sending'",
+    )
+    .bind(act)
+    .bind(outcome)
+    .bind(detail)
+    .execute(conn)
+    .await
+    .map(|_| ())
+}
+
+/// The claims of an unknown act: they stay in `sending`. `detail` says why.
+pub async fn claim_unclear(
+    conn: &mut PgConnection,
+    act: i64,
+    detail: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE processing_rule_log SET detail = $2 WHERE act_id = $1 AND outcome = 'sending'",
+    )
+    .bind(act)
+    .bind(detail)
+    .execute(conn)
+    .await
+    .map(|_| ())
 }
 
 /// The claims and sends that hold these files: each file with the rule and the import of its row.
@@ -788,65 +875,6 @@ pub async fn claims_of(
     .bind(paths.to_vec())
     .fetch_all(pool)
     .await
-}
-
-/// Settle the claims of a service whose run the service shows (`CLAIM_RUN`). Each becomes sent
-/// and takes the first such run the service made. Returns how many were settled.
-pub async fn settle_claims_by_runs(pool: &PgPool, service: &str) -> Result<u64, sqlx::Error> {
-    sqlx::query(sqlx::AssertSqlSafe(format!(
-        "UPDATE processing_rule_log l SET outcome = 'sent', detail = NULL,
-             run_id = (SELECT r.id FROM processing_runs r WHERE {CLAIM_RUN}
-                       ORDER BY r.created_at, r.id LIMIT 1)
-         WHERE l.outcome = 'sending' AND l.service = $1
-           AND EXISTS (SELECT 1 FROM processing_runs r WHERE {CLAIM_RUN})"
-    )))
-    .bind(service)
-    .bind(CLAIM_CLOCK_ALLOWANCE_SECS)
-    .bind(CLAIM_RUN_WITHIN_SECS)
-    .bind(crate::engines::hush::sent_trigger())
-    .execute(pool)
-    .await
-    .map(|r| r.rows_affected())
-}
-
-/// Settle a service's claim of a file as sent: a send by hand handed the file over. The row takes
-/// the run that send opened. Returns how many were settled, one at most.
-pub async fn settle_claim_of_path(
-    pool: &PgPool,
-    path: &str,
-    service: &str,
-    run_id: Option<&str>,
-) -> Result<u64, sqlx::Error> {
-    sqlx::query(
-        "UPDATE processing_rule_log SET outcome = 'sent', detail = NULL, run_id = $3
-         WHERE path = $1 AND service = $2 AND outcome = 'sending'",
-    )
-    .bind(path)
-    .bind(service)
-    .bind(run_id)
-    .execute(pool)
-    .await
-    .map(|r| r.rows_affected())
-}
-
-/// Settle a claimed row with the send's answer. A row a run of the service settled first stays
-/// sent.
-pub async fn settle_send(
-    pool: &PgPool,
-    id: i64,
-    e: &crate::processing::rules::NewLog,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "UPDATE processing_rule_log SET outcome = $2, detail = $3, run_id = $4
-         WHERE id = $1 AND outcome = 'sending'",
-    )
-    .bind(id)
-    .bind(e.outcome)
-    .bind(&e.detail)
-    .bind(&e.run_id)
-    .execute(pool)
-    .await
-    .map(|_| ())
 }
 
 /// Where the rules pass stands in the journal (the marker `rules.cursor`). `None` before its

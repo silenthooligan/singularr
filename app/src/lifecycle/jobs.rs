@@ -4,7 +4,8 @@
 //! clients (B9b), the passes of the media servers, the Seerr sites and the processing services
 //! (B9c), the processing rules (B9c), the plays (B9d). Their keys, queues and intervals are those
 //! of platform design section 4.8. No loop of the sync or of the plays runs outside the runtime. A
-//! schedule is written only when this start has its handler.
+//! schedule is written only when this start has its handler. The acts of the outbox (B10) are jobs
+//! of no schedule on the `acts` queue: each act's send and each read that confirms it.
 //!
 //! The runtime runs on a pool of its own ([`connections`]). The handlers write on the app's pool.
 //! The folder scans, the sync's passes, the processing rules and the intents write through a
@@ -16,6 +17,7 @@
 
 use crate::core::config::Config;
 use crate::core::journal::Journal;
+use crate::core::outbox::{self, Outbox};
 use crate::core::runtime::{self, Running, Runtime, Schedule, Source, Timing};
 use crate::engines::service::EngineSet;
 use crate::homemovies::service::{self as homemovies, HomeMovies};
@@ -41,9 +43,28 @@ pub const LEASE: Duration = Duration::from_secs(120);
 
 /// The workers of each queue but the sync's. The scan queue has one for each folder scan: a scan
 /// asked for from the API never waits behind another folder's scan. The default queue has three:
-/// the intents, the processing rules and the location database. The others are the design's
-/// defaults (section 4.2).
-pub const WORKERS: [(&str, usize); 4] = [("scan", 3), ("index", 1), ("notify", 2), ("default", 3)];
+/// the intents, the processing rules and the location database. The acts queue has two: the
+/// sends and the reads of the outbox. The others are the design's defaults (section 4.2).
+pub const WORKERS: [(&str, usize); 5] = [
+    ("scan", 3),
+    ("index", 1),
+    ("notify", 2),
+    ("default", 3),
+    (outbox::QUEUE, outbox::WORKERS),
+];
+
+/// The outbox of a process: the deliveries of the actions it sends acts of. Every process
+/// delivers the processing sends. Without the sync (`sync` false) each is held back: it fails
+/// before anything is sent. Its claim is settled then.
+pub fn outbox(pool: &PgPool, journal: &Journal, engines: &Arc<EngineSet>, sync: bool) -> Outbox {
+    crate::processing::sends::with(
+        Outbox::new(pool.clone(), journal.clone()),
+        pool,
+        journal,
+        engines,
+        sync,
+    )
+}
 
 /// Where a schedule's interval comes from: its setting's source.
 fn source_of(settings: &Settings, setting: &str) -> Source {
@@ -469,6 +490,8 @@ pub struct JobsDeps {
     pub metadata: Arc<ProviderSet>,
     pub notify: Notifier,
     pub describe: Arc<dyn Describe>,
+    /// The integrations' engines. The outbox delivers through them whether or not the sync runs.
+    pub engines: Arc<EngineSet>,
     /// The sync's passes, when the sync runs (`SINGULARR_SYNC_ENABLED`).
     pub sync: Option<Arc<SyncJobs>>,
     /// The processing services' passes and the processing rules, when the sync runs.
@@ -618,6 +641,18 @@ pub async fn start_with(
             rules: deps.intents.clone(),
         }),
     );
+    // The acts of the outbox, whatever this start runs. Without the sync its sends are held back:
+    // each fails before anything is sent. An act of an action no process delivers fails the same
+    // way.
+    let acts = Arc::new(outbox(
+        &deps.pool,
+        &deps.journal,
+        &deps.engines,
+        config.sync.enabled,
+    ));
+    runtime = runtime
+        .handle(outbox::SEND_KIND, Arc::new(outbox::SendJob(acts.clone())))
+        .handle(outbox::CONFIRM_KIND, Arc::new(outbox::ConfirmJob(acts)));
     // A schedule whose handler this start lacks is not written: a part a start leaves out leaves
     // no job behind that no worker could run. The log names each.
     let (written, unrun): (Vec<Schedule>, Vec<Schedule>) =
@@ -713,7 +748,7 @@ mod tests {
             (listed("seerr:accounts"), listed("seerr:discover")),
             (None, None)
         );
-        assert_eq!(connections(None), 21);
+        assert_eq!(connections(None), 25);
 
         let without_roots = Config::from(&BTreeMap::from([(
             "DATABASE_URL",

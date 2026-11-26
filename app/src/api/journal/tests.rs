@@ -43,6 +43,18 @@ fn copy(quality: &str, group: &str, score: i64) -> Value {
            "edition": null, "score": score})
 }
 
+/// The body the outbox gives an event of a processing send's act: the act, then the send's words.
+fn act_body(state: &str, error: Option<&str>) -> Value {
+    let mut b = json!({"act": 9, "integration": "bridge", "action": "send", "state": state,
+                       "title_id": 7, "title": "Breaking Bad", "kind": "show", "tmdb_id": 1396,
+                       "file": "Breaking Bad - S01E03.mkv", "flow": "convert",
+                       "flow_label": "Convert to HEVC", "service": "bridge"});
+    if let Some(error) = error {
+        b["error"] = json!(error);
+    }
+    b
+}
+
 /// One event of every kind the server writes, with the body its writer gives it.
 fn every_kind() -> Vec<Event> {
     let subject = json!({"title_id": 7, "title": "Breaking Bad", "library": "sonarr", "engine": "sonarr", "season": 1, "episodes": [3]});
@@ -195,6 +207,55 @@ fn every_kind() -> Vec<Event> {
             "7",
             "user:owner@example.org",
             json!({"title_id": 7, "title": "Breaking Bad", "kind": "show", "tmdb_id": 1396, "file": "Breaking Bad - S01E03 - And the Bag's in the River.mkv", "flow": "convert", "flow_label": "Convert to HEVC", "mode": "convert-hd", "service": "bridge", "job": "j-17", "run": "bridge:j-17", "season": 1, "episodes": [3]}),
+        ),
+        ev(
+            "act_requested",
+            "title",
+            "7",
+            "user:owner@example.org",
+            act_body("pending", None),
+        ),
+        ev(
+            "act_sent",
+            "title",
+            "7",
+            "user:owner@example.org",
+            act_body("sent", None),
+        ),
+        ev(
+            "act_unknown",
+            "title",
+            "7",
+            "user:owner@example.org",
+            act_body("unknown", Some("No clear answer")),
+        ),
+        ev(
+            "act_confirmed",
+            "title",
+            "7",
+            "user:owner@example.org",
+            act_body("confirmed", None),
+        ),
+        ev(
+            "act_failed",
+            "title",
+            "7",
+            "user:owner@example.org",
+            act_body("failed", Some("Not sent")),
+        ),
+        ev(
+            "act_cancelled",
+            "title",
+            "7",
+            "user:owner@example.org",
+            act_body("cancelled", Some("Cancelled")),
+        ),
+        ev(
+            "act_resent",
+            "title",
+            "7",
+            "rule:4",
+            act_body("pending", None),
         ),
         ev(
             "processing_rule_saved",
@@ -581,6 +642,18 @@ fn lines_name_what_happened() {
         ("user", "owner@example.org")
     );
     // A file the owner sent to a flow: about the title, by the person, naming the file.
+    // An act of the outbox: about its subject, in its integration's name, naming what it asked.
+    assert_eq!(
+        by("act_requested").summary,
+        "Queued for The Bridge: Convert to HEVC for Breaking Bad - S01E03.mkv"
+    );
+    assert_eq!(by("act_unknown").kind, "act.unconfirmed");
+    assert_eq!(
+        by("act_unknown").summary,
+        "No clear answer from The Bridge: Convert to HEVC for Breaking Bad - S01E03.mkv"
+    );
+    assert_eq!(by("act_failed").summary, "Failed on The Bridge: Not sent");
+    assert_eq!(by("act_confirmed").subject.kind, "title");
     let sent = by("processing_sent");
     assert_eq!(sent.kind, "processing.sent");
     assert_eq!(

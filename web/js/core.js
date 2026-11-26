@@ -249,10 +249,12 @@
   doc.addEventListener('click', e => { if (e.target.closest('[data-signin]')) { e.preventDefault(); e.stopPropagation(); location.reload(); } }, true);
   /** GET under /api/v1 when a server is there. Null in the demo, and when the route fails. */
   const api = (MQ.api = path => (MQ.live ? getJson('/api/v1' + path).catch(() => null) : Promise.resolve(null)));
-  /** POST, PUT, PATCH or DELETE under /api/v1. Resolves to {ok, status, data}; never rejects. */
+  /** A fresh key for one call: an act asked for twice under one key is sent once. */
+  const freshKey = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+  /** POST, PUT, PATCH or DELETE under /api/v1, each call with a fresh Idempotency-Key. Resolves to {ok, status, data}; never rejects. */
   MQ.send = async (method, path, body) => {
     try {
-      const r = await fetch('/api/v1' + path, { method, headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) });
+      const r = await fetch('/api/v1' + path, { method, headers: { Accept: 'application/json', 'Idempotency-Key': freshKey(), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) });
       let data = null; try { data = await r.json(); } catch { /* no body */ }
       return { ok: r.ok, status: r.status, data };
     } catch (e) { return { ok: false, status: 0, data: { detail: String(e.message || e) } }; }
@@ -590,6 +592,17 @@
     let box = $('.mq-toasts'); if (!box) { box = MQ.el('<div class="mq-toasts" role="status"></div>'); doc.body.append(box); }
     const t = MQ.el(html`<div class="mq-toast" data-tone="${tone}"><span>${text}</span></div>`); box.append(t); setTimeout(() => t.remove(), 4200);
   };
+  /** The owner's word that an unconfirmed send never reached the service: its file is free again, for the
+      rules and for a new send. `done` runs once it is marked. */
+  MQ.notSent = (act, done) => {
+    const ask = MQ.dialog({ title: 'Mark as not sent?', body: html`<p>Rules can send this file again.</p>`,
+      foot: html`<span class="mq-spacer"></span><button type="button" class="mq-btn" data-close>Cancel</button><button type="button" class="mq-btn mq-btn--primary" data-yes>Mark not sent</button>` });
+    $('[data-yes]', ask.el).addEventListener('click', async () => {
+      const r = await MQ.send('POST', `/acts/${encodeURIComponent(act)}/not-sent`);
+      ask.close();
+      if (r.ok) { MQ.toast('Marked not sent', 'ok'); done?.(); } else MQ.toast(r.data?.detail || "Couldn't mark not sent", 'bad');
+    });
+  };
   /* Tooltips: any element with data-tip. A control that cannot act carries aria-disabled, never the disabled
      attribute (a disabled button gets no pointer events in some browsers), so its tooltip shows under the pointer
      and on keyboard focus like any other. */
@@ -847,8 +860,15 @@
     $('#mq-bell')?.addEventListener('click', async e => {
       const a = e.currentTarget; const list = ws.attention || (MQ.live ? [] : (await MQ.maybe('home.json'))?.attention || []);
       const all = MQ.to('activity', null, { state: 'attention' });
-      MQ.menu(a, list.length ? html`<div class="mq-menu-label">Needs attention</div>${list.slice(0, 8).map(x => html`<a class="mq-menu-item" href="${x.href || all}" style="align-items:flex-start"><span class="mq-dot" data-tone="${x.tone || 'bad'}" style="margin-top:6px"></span><span style="display:grid;white-space:normal"><b style="font-weight:550">${x.title}</b><span class="muted" style="font-size:12px">${x.detail || x.reason || ''}</span></span></a>`)}<div class="mq-menu-sep"></div><a class="mq-menu-item" href="${all}">Open Activity</a>`
+      /* An act's item leads to its title. An unconfirmed one carries the control that marks it not sent. */
+      const item = x => html`<a class="mq-menu-item" href="${x.href || (x.page ? MQ.link(x.page) : all)}" style="align-items:flex-start;flex:1"><span class="mq-dot" data-tone="${x.tone || 'bad'}" style="margin-top:6px"></span><span style="display:grid;white-space:normal"><b style="font-weight:550">${x.title}</b><span class="muted" style="font-size:12px">${x.detail || x.reason || ''}</span></span></a>`;
+      const row = x => (x.kind === 'act' && x.act && x.tone === 'warn' ? html`<div style="display:flex;align-items:flex-start">${item(x)}<button type="button" class="mq-btn mq-btn--sm" data-notsent="${x.act}" style="margin:6px 8px 0 0">Mark not sent</button></div>` : item(x));
+      const m = MQ.menu(a, list.length ? html`<div class="mq-menu-label">Needs attention</div>${list.slice(0, 8).map(row)}<div class="mq-menu-sep"></div><a class="mq-menu-item" href="${all}">Open Activity</a>`
         : html`<div class="mq-search-empty">${ws.counts?.attention ? html`<a class="mq-link" href="${all}">${MQ.plural(ws.counts.attention, 'item')} in Activity</a>` : 'Nothing needs attention'}</div>`, { align: 'end', wide: true });
+      m?.el.addEventListener('click', ev => {
+        const b = ev.target.closest('[data-notsent]'); if (!b) return;
+        m.close(); MQ.notSent(b.dataset.notsent, () => location.reload());
+      });
     });
     $('#mq-help')?.addEventListener('click', () => MQ.dialog({ title: 'Keyboard shortcuts', body: MQ.kv([['Search', raw('<kbd>Ctrl</kbd> <kbd>K</kbd> or <kbd>/</kbd>')], ['Move between rows', raw('<kbd>J</kbd> <kbd>K</kbd> or arrow keys')], ['Open row', raw('<kbd>Enter</kbd>')], ['Select row', raw('<kbd>X</kbd>')], ['Close drawer or menu', raw('<kbd>Esc</kbd>')]]) }));
     search(ws);
