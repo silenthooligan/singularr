@@ -7,6 +7,7 @@ use crate::model::{ArrParse, DiscoverList, EngineRef, FileFacts, TitleFacts, Tit
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -58,6 +59,34 @@ pub struct GrabPage {
     pub download_ids: Vec<String>,
     pub records: usize,
     pub total_records: i64,
+}
+
+/// What a manager said of one file's custom formats (Radarr's `/moviefile`), kept between titles
+/// reads: the facts of the file it was said about (`key`), the formats and their score.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KnownFormats {
+    pub key: String,
+    pub formats: Vec<String>,
+    pub score: Option<i32>,
+}
+
+/// The custom formats Singularr keeps of one manager's files, by the manager's file id, with the
+/// time every file was last asked about. A manager that reads them apart asks only about the
+/// files the book does not know or whose facts changed ([`LibraryEngine::titles_with`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FormatBook {
+    pub files: BTreeMap<i64, KnownFormats>,
+    /// `None`: never.
+    pub refreshed_at: Option<DateTime<Utc>>,
+}
+
+/// What one titles read changed in a [`FormatBook`]: the entries it wrote or replaced, the files
+/// whose entries go, the new time of a read that asked about every file.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FormatChanges {
+    pub put: BTreeMap<i64, KnownFormats>,
+    pub gone: Vec<i64>,
+    pub refreshed_at: Option<DateTime<Utc>>,
 }
 
 /// An episode as a manager names it.
@@ -335,6 +364,16 @@ pub trait LibraryEngine: Send + Sync {
     /// Every title, with tags and profiles resolved to names and the lane mapped.
     /// Movies carry their file; shows do not (see [`LibraryEngine::files`]).
     async fn titles(&self) -> Result<Vec<TitleFacts>, EngineError>;
+    /// [`LibraryEngine::titles`] with the formats Singularr keeps of the manager's files (`book`).
+    /// A manager that reads its files' custom formats apart asks only about the files the book
+    /// does not know or whose facts changed. It returns what changed in the book. The default
+    /// reads the titles and changes nothing.
+    async fn titles_with(
+        &self,
+        _book: &FormatBook,
+    ) -> Result<(Vec<TitleFacts>, FormatChanges), EngineError> {
+        Ok((self.titles().await?, FormatChanges::default()))
+    }
     /// The files of one title. Used for shows.
     async fn files(&self, engine_title_id: i64) -> Result<Vec<FileFacts>, EngineError>;
     async fn queue(&self) -> Result<Vec<QueueItem>, EngineError>;

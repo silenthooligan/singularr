@@ -4,7 +4,11 @@
 pub mod model;
 
 #[cfg(feature = "ssr")]
+pub mod claims;
+#[cfg(feature = "ssr")]
 pub mod downloads;
+#[cfg(feature = "ssr")]
+pub mod formats;
 #[cfg(feature = "ssr")]
 pub mod jobs;
 #[cfg(feature = "ssr")]

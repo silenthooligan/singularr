@@ -36,10 +36,11 @@ use singularr::engines::service::{EngineSet, EngineSlot, PassOk, statuses};
 use singularr::engines::{ClientDownload, DownloadClient, LibraryEngine};
 use singularr::homemovies::model::{InboxQuery, TapePatch, TapeQuery};
 use singularr::homemovies::service::{self as homemovies, HomeMovies};
+use singularr::lifecycle::claims;
 use singularr::lifecycle::downloads::{Claims, reconcile};
 use singularr::lifecycle::jobs::{self as runtime_jobs, Jobs, JobsDeps};
 use singularr::lifecycle::model::DownloadQuery;
-use singularr::lifecycle::sync::{SyncDeps, titles_pass};
+use singularr::lifecycle::sync::{self as lifecycle_sync, SyncDeps, SyncHandle, titles_pass};
 use singularr::lifecycle::{service as downloads, store as downloads_store};
 use singularr::metadata::service::ProviderSet;
 use singularr::music::model::{AlbumQuery, ArtistQuery};
@@ -2644,7 +2645,7 @@ async fn the_runtimes_jobs_leave_the_pass_rows_alone() {
     );
     let passes = st.engines.passes(true);
 
-    let schedules = runtime_jobs::schedules(&st.config, &st.settings);
+    let schedules = runtime_jobs::schedules(&st.config, &st.settings, None);
     assert!(
         schedules.iter().all(|s| s.integration.is_none()),
         "{schedules:?}"
@@ -2711,6 +2712,586 @@ async fn the_runtimes_jobs_leave_the_pass_rows_alone() {
         0
     );
     assert_eq!(pass_rows(&t.pool).await, before);
+    t.drop_db().await;
+}
+
+/// The grab history of one Radarr in three pages of 250, 250 and 100 records: 600 ids.
+fn record_history_pages(recorded: &Recorded) {
+    for (page, records) in [(1, 250), (2, 250), (3, 100)] {
+        let ids: Vec<serde_json::Value> = (0..records)
+            .map(|i| serde_json::json!({ "downloadId": format!("{:040X}", page * 1000 + i) }))
+            .collect();
+        recorded.answer(
+            Method::Get,
+            &format!("{RADARR}/api/v3/history?page={page}&pageSize=250"),
+            200,
+            &serde_json::json!({
+                "page": page, "pageSize": 250, "totalRecords": 600, "records": ids
+            })
+            .to_string(),
+        );
+    }
+}
+
+/// The calls of one page of a grab history.
+fn page_calls(recorded: &Recorded, page: u32) -> usize {
+    let part = format!("/history?page={page}&pageSize=250");
+    recorded
+        .urls_seen()
+        .iter()
+        .filter(|u| u.contains(&part))
+        .count()
+}
+
+/// The passes of the managers and the download clients are jobs of the runtime (B9b). Each run
+/// writes its pass row, the claims and its markers. It ends its job in the same commit. The
+/// downloads job judges each download by the claims of its id. A download nobody claims is an
+/// orphan once every arr was heard. `GET /api/v1/jobs` lists the passes with the ids and the
+/// intervals of their loops. A pass runs now from the Jobs page and from its integration.
+/// `forget_other_passes` knows every pass the runtime runs.
+#[tokio::test]
+async fn the_manager_and_download_passes_run_as_jobs() {
+    let Some(t) = TestDb::new("sync_jobs").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    record_radarr(
+        &recorded,
+        RADARR,
+        &fixture("radarr_movie.json"),
+        &fixture("radarr_moviefile.json"),
+    );
+    record_sonarr(&recorded, &fixture("sonarr_episodefile.json"));
+    recorded.answer(
+        Method::Get,
+        &format!("{SONARR}/api/v3/history"),
+        200,
+        r#"{"page": 1, "pageSize": 250, "totalRecords": 0, "records": []}"#,
+    );
+    recorded.answer_with(
+        Method::Post,
+        "/api/v2/auth/login",
+        200,
+        "Ok.",
+        &[("set-cookie", "SID=test; path=/")],
+    );
+    recorded.answer(
+        Method::Get,
+        "/api/v2/torrents/info",
+        200,
+        &fixture("qbit_torrents.json"),
+    );
+    let journal = Journal::new();
+    let st = state_on(
+        &t.pool,
+        journal.clone(),
+        &[
+            ("RADARR_API_KEY", "test-key"),
+            ("SONARR_API_KEY", "test-key"),
+            ("QBIT_URL", QBIT),
+            ("QBIT_PASS", "p"),
+            ("SINGULARR_SYNC_JITTER_SECS", "0"),
+        ],
+        recorded.clone(),
+    );
+
+    // Every pass the runtime runs is one `forget_other_passes` keeps. Every pass it keeps of a
+    // manager or a download client has a schedule.
+    let schedules = runtime_jobs::schedules(&st.config, &st.settings, Some(&st.engines));
+    let run: Vec<(String, &str)> = schedules
+        .iter()
+        .filter_map(|s| Some((s.integration.clone()?, runtime_jobs::listed(&s.key)?)))
+        .collect();
+    let passes = st.engines.passes(true);
+    for pass in &run {
+        assert!(passes.contains(pass), "{pass:?} is not in {passes:?}");
+    }
+    for pass in passes
+        .iter()
+        .filter(|(_, p)| ["titles", "queue", "history", "downloads"].contains(p))
+    {
+        assert!(run.contains(pass), "{pass:?} has no schedule");
+    }
+    assert_eq!(run.len(), 7);
+
+    let (jobs, sync) = start_sync_jobs(&st).await;
+    for key in [
+        "radarr:titles",
+        "sonarr:titles",
+        "radarr:queue",
+        "sonarr:queue",
+        "radarr:history",
+        "sonarr:history",
+        // After every arr was heard: the orphans are settled.
+        "qbittorrent:downloads",
+    ] {
+        let ended = runtime::run_and_wait(&t.pool, key, serde_json::json!({}))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(ended.ok(), "{key}: {ended:?}");
+    }
+
+    // The claims: Radarr's queue and history, Sonarr's queue.
+    let claimed: Vec<(String, String, i64)> = sqlx::query_as(
+        "SELECT manager, source, count(*) FROM download_claims GROUP BY 1, 2 ORDER BY 1, 2",
+    )
+    .fetch_all(&t.pool)
+    .await
+    .unwrap();
+    assert!(
+        claimed.contains(&("radarr".into(), "queue".into(), 3))
+            && claimed.contains(&("radarr".into(), "history".into(), 2)),
+        "{claimed:?}"
+    );
+    for (arr, name) in [
+        ("radarr", claims::HISTORY_LOADED),
+        ("sonarr", claims::HISTORY_LOADED),
+        ("radarr", claims::FILES_FULL_AT),
+        ("sonarr", claims::FILES_FULL_AT),
+    ] {
+        assert!(
+            claims::marked_at(&t.pool, arr, name)
+                .await
+                .unwrap()
+                .is_some(),
+            "{arr} {name}"
+        );
+    }
+    // Radarr's titles pass kept the custom formats of its two files, with the time it asked.
+    let formats: Vec<(String, i64)> =
+        sqlx::query_as("SELECT manager, count(*) FROM manager_file_formats GROUP BY 1 ORDER BY 1")
+            .fetch_all(&t.pool)
+            .await
+            .unwrap();
+    assert_eq!(formats, vec![("radarr".to_string(), 2)]);
+    assert!(
+        claims::marked_at(&t.pool, "radarr", "formats.refreshed_at")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    // Each pass wrote its row. Every one went well.
+    let rows = pass_rows(&t.pool).await;
+    assert_eq!(rows.len(), 7, "{rows:?}");
+    assert!(rows.iter().all(|(_, _, ok)| *ok), "{rows:?}");
+    // A torrent of Radarr's queue is Radarr's. The one nobody claims is an orphan: every arr was
+    // heard.
+    let owners: Vec<(String, Option<String>, bool)> =
+        sqlx::query_as("SELECT hash, owner, orphan FROM downloads ORDER BY hash")
+            .fetch_all(&t.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        (owners.len(), owners[0].1.as_deref(), owners[3].2),
+        (4, Some("radarr"), true),
+        "{owners:?}"
+    );
+    let settled: Option<String> = sqlx::query_scalar(
+        "SELECT counts->>'ownership_settled' FROM engine_state WHERE engine = 'qbittorrent'",
+    )
+    .fetch_one(&t.pool)
+    .await
+    .unwrap();
+    assert_eq!(settled.as_deref(), Some("true"));
+    // Each run is a check of its integration.
+    let checks = singularr::core::jobs::registry().checks("radarr");
+    for via in ["titles", "queue", "history"] {
+        assert!(checks.iter().any(|c| c.via == via && c.ok), "{via}");
+    }
+
+    let app = routes::router(st.clone());
+    let owner: [(&str, &str); 1] = [("x-auth-request-email", "owner@example.com")];
+    let (status, _, panel) = call(&app, "GET", "/api/v1/jobs", &owner, None).await;
+    assert_eq!(status, StatusCode::OK, "{panel}");
+    let listed: Vec<(String, u64, String, String)> = panel["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|j| j["integration"].is_string())
+        .map(|j| {
+            (
+                j["id"].as_str().unwrap().to_string(),
+                j["every"].as_u64().unwrap(),
+                j["integration"].as_str().unwrap().to_string(),
+                j["lastResult"].as_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect();
+    let ok =
+        |id: &str, every: u64, of: &str| (id.to_string(), every, of.to_string(), "ok".to_string());
+    assert_eq!(
+        listed,
+        vec![
+            ok("qbittorrent:downloads", 30, "qbittorrent"),
+            ok("radarr:history", 900, "radarr"),
+            ok("radarr:queue", 60, "radarr"),
+            ok("radarr:titles", 900, "radarr"),
+            ok("sonarr:history", 900, "sonarr"),
+            ok("sonarr:queue", 60, "sonarr"),
+            ok("sonarr:titles", 900, "sonarr"),
+        ]
+    );
+    let queue = panel["jobs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|j| j["id"] == "radarr:queue")
+        .unwrap();
+    assert!(
+        queue["label"].as_str().unwrap().ends_with("download queue"),
+        "{queue}"
+    );
+    assert_eq!(queue["lastDetail"], "3 in queue", "{queue}");
+    // The integration's panel names its jobs as it did with the loops.
+    let (status, _, panels) = call(&app, "GET", "/api/v1/integrations", &owner, None).await;
+    assert_eq!(status, StatusCode::OK, "{panels}");
+    let radarr = panels["integrations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["id"] == "radarr")
+        .unwrap();
+    assert_eq!(
+        radarr["jobs"],
+        serde_json::json!(["radarr:history", "radarr:queue", "radarr:titles"]),
+        "{radarr}"
+    );
+    let (status, _, _) = call(
+        &app,
+        "POST",
+        "/api/v1/jobs/qbittorrent:downloads/run",
+        &owner,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let (status, _, started) = call(
+        &app,
+        "POST",
+        "/api/v1/integrations/radarr/sync",
+        &owner,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+    assert_eq!(
+        started["jobs"],
+        serde_json::json!(["radarr:titles", "radarr:queue", "radarr:history"])
+    );
+    jobs.stop().await;
+    sync.stop();
+
+    // The rows the runtime wrote are the rows of the passes it runs.
+    assert_eq!(
+        st.engines.forget_other_passes(&t.pool, true).await.unwrap(),
+        0
+    );
+    t.drop_db().await;
+}
+
+/// A history read takes pages newest first until a page holds a grab a complete read stored. A
+/// start reads the first page alone when nothing came since. A bulk search of 500 grabs is read to
+/// the grabs it had. A read cut short (here a page that fails, as a lost lease would) keeps its
+/// pages and moves no marker: the next read goes on to the same grabs. A start whose last full
+/// file pass is recent makes no full file pass. Radarr's format book outlives a start.
+#[tokio::test]
+async fn a_history_read_stops_at_the_grabs_it_has() {
+    let Some(t) = TestDb::new("sync_markers").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    record_radarr(
+        &recorded,
+        RADARR,
+        &fixture("radarr_movie.json"),
+        &fixture("radarr_moviefile.json"),
+    );
+    record_history_pages(&recorded);
+    let st = state_on(
+        &t.pool,
+        Journal::new(),
+        &[
+            ("RADARR_API_KEY", "test-key"),
+            ("SINGULARR_SYNC_JITTER_SECS", "0"),
+        ],
+        recorded.clone(),
+    );
+    let run = |key: &'static str| {
+        let pool = t.pool.clone();
+        async move {
+            let ended = runtime::run_and_wait(&pool, key, serde_json::json!({}))
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(ended.ok(), "{key}: {ended:?}");
+        }
+    };
+    let history: i64 = 600;
+    let count = || async { claims::history_count(&t.pool, "radarr").await.unwrap() };
+
+    let moviefile_calls = || {
+        recorded
+            .urls_seen()
+            .iter()
+            .filter(|u| u.contains("/moviefile"))
+            .count()
+    };
+
+    // The first start reads the whole history. Its titles pass asks about the files' formats.
+    let (jobs, sync) = start_sync_jobs(&st).await;
+    run("radarr:history").await;
+    run("radarr:titles").await;
+    assert_eq!((page_calls(&recorded, 2), page_calls(&recorded, 3)), (1, 1));
+    assert_eq!(moviefile_calls(), 1);
+    assert_eq!(count().await, history);
+    let full_at = claims::marked_at(&t.pool, "radarr", claims::FILES_FULL_AT)
+        .await
+        .unwrap();
+    assert!(full_at.is_some());
+    jobs.stop().await;
+    sync.stop();
+
+    // A start inside its interval: the first page of the history, no full file pass. The format
+    // book from the first start answers for the files: no file is asked about again.
+    let (jobs, sync) = start_sync_jobs(&st).await;
+    run("radarr:history").await;
+    run("radarr:titles").await;
+    assert!(page_calls(&recorded, 1) >= 2);
+    assert_eq!((page_calls(&recorded, 2), page_calls(&recorded, 3)), (1, 1));
+    assert_eq!(moviefile_calls(), 1);
+    assert_eq!(
+        claims::marked_at(&t.pool, "radarr", claims::FILES_FULL_AT)
+            .await
+            .unwrap(),
+        full_at
+    );
+
+    // A bulk search: 500 new grabs, then the newest page of the first read.
+    let page = |ids: Vec<String>| {
+        let records: Vec<serde_json::Value> = ids
+            .into_iter()
+            .map(|id| serde_json::json!({ "downloadId": id }))
+            .collect();
+        serde_json::json!({ "page": 1, "pageSize": 250, "totalRecords": 1100, "records": records })
+            .to_string()
+    };
+    let ids = |from: i32, n: i32| -> Vec<String> {
+        (from..from + n).map(|i| format!("{:040X}", i)).collect()
+    };
+    for (n, body) in [
+        (1, page(ids(10_000, 250))),
+        (2, page(ids(20_000, 250))),
+        (3, page(ids(1000, 250))),
+    ] {
+        recorded.answer(
+            Method::Get,
+            &format!("{RADARR}/api/v3/history?page={n}&pageSize=250"),
+            200,
+            &body,
+        );
+    }
+    let loaded = || async {
+        claims::marked_at(&t.pool, "radarr", claims::HISTORY_LOADED)
+            .await
+            .unwrap()
+    };
+    let before = loaded().await;
+    let calls = |n| page_calls(&recorded, n);
+    let (one, two, three) = (calls(1), calls(2), calls(3));
+    // A read cut short at its second page: the first page stays, the marker stays.
+    recorded.answer_once(
+        Method::Get,
+        "/api/v3/history?page=2&pageSize=250",
+        400,
+        "{}",
+        &[],
+    );
+    let cut = runtime::run_and_wait(&t.pool, "radarr:history", serde_json::json!({}))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!cut.ok(), "{cut:?}");
+    assert_eq!(count().await, history + 250);
+    assert_eq!(loaded().await, before);
+    // The next read goes past the pages the cut read stored, to the grabs the first read had.
+    run("radarr:history").await;
+    assert_eq!(
+        (calls(1), calls(2), calls(3)),
+        (one + 2, two + 2, three + 1)
+    );
+    assert_eq!(count().await, history + 500);
+    assert!(loaded().await > before);
+    jobs.stop().await;
+    sync.stop();
+    t.drop_db().await;
+}
+
+/// The recorded answers of the sync's set: a Radarr, a Sonarr without grabs and a qBittorrent.
+fn record_sync_set(recorded: &Recorded) {
+    record_radarr(
+        recorded,
+        RADARR,
+        &fixture("radarr_movie.json"),
+        &fixture("radarr_moviefile.json"),
+    );
+    record_sonarr(recorded, &fixture("sonarr_episodefile.json"));
+    recorded.answer(
+        Method::Get,
+        &format!("{SONARR}/api/v3/history"),
+        200,
+        r#"{"page": 1, "pageSize": 250, "totalRecords": 0, "records": []}"#,
+    );
+    recorded.answer_with(
+        Method::Post,
+        "/api/v2/auth/login",
+        200,
+        "Ok.",
+        &[("set-cookie", "SID=test; path=/")],
+    );
+    recorded.answer(
+        Method::Get,
+        "/api/v2/torrents/info",
+        200,
+        &fixture("qbit_torrents.json"),
+    );
+}
+
+/// After a restart the claims are the ones the last start stored. A download nobody claims is no
+/// orphan until every arr was heard again: a downloads pass before that leaves the question open.
+#[tokio::test]
+async fn a_restart_calls_no_new_orphan_before_every_arr_is_heard() {
+    let Some(t) = TestDb::new("sync_unsettled").await else {
+        return;
+    };
+    let recorded = Recorded::new();
+    record_sync_set(&recorded);
+    let st = state_on(
+        &t.pool,
+        Journal::new(),
+        &[
+            ("RADARR_API_KEY", "test-key"),
+            ("SONARR_API_KEY", "test-key"),
+            ("QBIT_URL", QBIT),
+            ("QBIT_PASS", "p"),
+            ("SINGULARR_SYNC_JITTER_SECS", "0"),
+        ],
+        recorded.clone(),
+    );
+    let run = |key: &'static str| {
+        let pool = t.pool.clone();
+        async move {
+            let ended = runtime::run_and_wait(&pool, key, serde_json::json!({}))
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(ended.ok(), "{key}: {ended:?}");
+        }
+    };
+    let (jobs, sync) = start_sync_jobs(&st).await;
+    for key in [
+        "radarr:queue",
+        "sonarr:queue",
+        "radarr:history",
+        "sonarr:history",
+        "qbittorrent:downloads",
+    ] {
+        run(key).await;
+    }
+    jobs.stop().await;
+    sync.stop();
+    let orphans = || async {
+        sqlx::query_as::<_, (String, bool)>("SELECT hash, orphan FROM downloads ORDER BY hash")
+            .fetch_all(&t.pool)
+            .await
+            .unwrap()
+    };
+    let settled = || async {
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT counts->>'ownership_settled' FROM engine_state WHERE engine = 'qbittorrent'",
+        )
+        .fetch_one(&t.pool)
+        .await
+        .unwrap()
+    };
+    assert_eq!(settled().await.as_deref(), Some("true"));
+    assert!(orphans().await.iter().any(|(_, orphan)| *orphan));
+
+    // A torrent nobody claims comes while Singularr is down.
+    let mut torrents: serde_json::Value =
+        serde_json::from_str(&fixture("qbit_torrents.json")).unwrap();
+    torrents.as_array_mut().unwrap().push(serde_json::json!({
+        "hash": "ffffffffffffffffffffffffffffffffffffff06",
+        "name": "Some.Other.Download.2026.1080p-GRP",
+        "category": "radarr", "state": "downloading", "progress": 0.2, "size": 1000000000,
+        "added_on": 1763800000, "completion_on": -1, "seeding_time": 0,
+        "save_path": "/downloads/radarr", "ratio": 0, "tags": "",
+        "dlspeed": 1000000, "eta": 800, "num_seeds": 3, "num_leechs": 1
+    }));
+    recorded.answer(
+        Method::Get,
+        "/api/v2/torrents/info",
+        200,
+        &torrents.to_string(),
+    );
+    // The arrs' passes wait: only the downloads run after the restart.
+    sqlx::query("UPDATE job_schedules SET enabled = false WHERE key LIKE '%arr:%'")
+        .execute(&t.pool)
+        .await
+        .unwrap();
+    let (jobs, sync) = start_sync_jobs(&st).await;
+    run("qbittorrent:downloads").await;
+    assert_eq!(settled().await.as_deref(), Some("false"));
+    let now = orphans().await;
+    let new = now
+        .iter()
+        .find(|(hash, _)| hash.starts_with("FFFF"))
+        .unwrap();
+    assert!(!new.1, "no orphan before every arr is heard: {now:?}");
+    jobs.stop().await;
+    sync.stop();
+    t.drop_db().await;
+}
+
+/// A queue read replaces the arr's queue rows: an item that left the queue claims nothing more.
+#[tokio::test]
+async fn a_download_that_leaves_the_queue_loses_its_claim() {
+    let Some(t) = TestDb::new("claims_queue").await else {
+        return;
+    };
+    let item = |id: &str, queue_id: i64| singularr::engines::QueueItem {
+        queue_id,
+        engine_title_id: Some(7),
+        title: "A Movie".to_string(),
+        download_id: Some(id.to_string()),
+        status: Some("downloading".to_string()),
+        tracked_state: Some("downloading".to_string()),
+        tracked_status: Some("ok".to_string()),
+        messages: vec!["One".to_string(), "Two".to_string()],
+        indexer: Some("An Indexer".to_string()),
+    };
+    let ids = ["AAAA".to_string(), "BBBB".to_string()];
+    let mut conn = t.pool.acquire().await.unwrap();
+    claims::put_queue(&mut conn, "radarr", &[item("AAAA", 1), item("BBBB", 2)])
+        .await
+        .unwrap();
+    let both = claims::of_ids(&t.pool, &["radarr".to_string()], &ids)
+        .await
+        .unwrap();
+    assert_eq!(both.queues["radarr"].len(), 2);
+    assert_eq!(both.queues["radarr"][0].messages, vec!["One", "Two"]);
+    claims::put_queue(&mut conn, "radarr", &[item("BBBB", 2)])
+        .await
+        .unwrap();
+    let left = claims::of_ids(&t.pool, &["radarr".to_string()], &ids)
+        .await
+        .unwrap();
+    let held: Vec<&str> = left.queues["radarr"]
+        .iter()
+        .filter_map(|i| i.download_id.as_deref())
+        .collect();
+    assert_eq!(held, vec!["BBBB"]);
+    drop(conn);
     t.drop_db().await;
 }
 
@@ -2918,8 +3499,32 @@ fn state(pool: &PgPool, journal: Journal) -> AppState {
 /// The jobs of the runtime over a test's state, started: the folder scans, the index and the
 /// dispatcher. The runtime has a pool of its own, as at boot.
 async fn start_jobs(st: &AppState) -> Jobs {
+    start_jobs_with(st, None).await
+}
+
+/// The jobs of the runtime over a test's state with the sync's passes: those of its managers and
+/// download clients. The stored copies are assessed under the built-in policy.
+async fn start_sync_jobs(st: &AppState) -> (Jobs, SyncHandle) {
+    let handle = lifecycle_sync::spawn(SyncDeps {
+        config: st.config.sync.clone(),
+        pool: st.pool.clone(),
+        journal: st.journal.clone(),
+        engines: st.engines.clone(),
+        assess: Arc::new(Assessor::new(
+            Arc::new(ActivePolicy::builtin()),
+            "test-build",
+        )),
+        policy_event: None,
+    });
+    let jobs = start_jobs_with(st, Some(handle.jobs())).await;
+    (jobs, handle)
+}
+
+/// [`start_jobs`] with the sync's passes when `sync` gives them.
+async fn start_jobs_with(st: &AppState, sync: Option<Arc<lifecycle_sync::SyncJobs>>) -> Jobs {
+    let engines = sync.as_ref().map(|s| s.deps.engines.clone());
     let runtime = PgPoolOptions::new()
-        .max_connections(runtime_jobs::connections())
+        .max_connections(runtime_jobs::connections(engines.as_deref()))
         .connect_lazy_with(st.pool.connect_options().as_ref().clone());
     runtime_jobs::start(
         &st.config,
@@ -2939,6 +3544,7 @@ async fn start_jobs(st: &AppState) -> Jobs {
                 &st.config,
                 st.settings.clone(),
             )),
+            sync,
         },
     )
     .await
@@ -7241,34 +7847,32 @@ async fn the_pages_answer_in_the_shapes_of_their_samples() {
         SONARR,
         &out,
     )));
-    let mut claims = Claims::default();
-    claims
-        .queues
-        .insert("radarr".into(), radarr.queue().await.unwrap());
-    claims
-        .queues
-        .insert("sonarr".into(), sonarr.queue().await.unwrap());
-    claims.history.insert(
-        "radarr".into(),
-        radarr
-            .grabs(1, 250)
-            .await
-            .unwrap()
-            .download_ids
-            .into_iter()
-            .collect(),
-    );
-    claims.history.insert("sonarr".into(), HashSet::new());
+    // What the managers claim goes through its table, as the queue and history jobs write it and
+    // the downloads job reads it.
+    let mut conn = t.pool.acquire().await.unwrap();
+    claims::put_queue(&mut conn, "radarr", &radarr.queue().await.unwrap())
+        .await
+        .unwrap();
+    claims::put_queue(&mut conn, "sonarr", &sonarr.queue().await.unwrap())
+        .await
+        .unwrap();
+    let grabs = radarr.grabs(1, 250).await.unwrap().download_ids;
+    claims::add_history(&mut conn, "radarr", &grabs)
+        .await
+        .unwrap();
+    drop(conn);
+    let listing = qbit.listing().await.unwrap();
+    let ids: Vec<String> = listing
+        .downloads
+        .iter()
+        .map(|d| d.download_id.clone())
+        .collect();
+    let managers = ["radarr".to_string(), "sonarr".to_string()];
+    let mut claims = claims::of_ids(&t.pool, &managers, &ids).await.unwrap();
     claims.complete = true;
-    reconcile(
-        &t.pool,
-        &journal,
-        "qbittorrent",
-        qbit.downloads().await.unwrap(),
-        &claims,
-    )
-    .await
-    .unwrap();
+    reconcile(&t.pool, &journal, "qbittorrent", listing, &claims)
+        .await
+        .unwrap();
 
     // The requests of the Seerr site.
     let requests: serde_json::Value =

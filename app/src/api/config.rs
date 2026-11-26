@@ -13,7 +13,7 @@ use super::panels::{
     self, CacheView, CheckEntry, IntegrationDetail, IntegrationPanel, IntegrationPanels,
     IntegrationPatch, IntegrationTest, JobsPanel, LibraryFacts, LibraryPanels, PeoplePanel,
     PersonView, ServiceView, Started, SystemLinks, SystemPaths, SystemView, check,
-    integration_panel, job_view, libraries_panel, provider_panel, schedule_view,
+    integration_name, integration_panel, job_view, libraries_panel, provider_panel, schedule_view,
 };
 use super::routes::{ApiJson, ApiPath};
 use super::state::AppState;
@@ -155,7 +155,14 @@ fn conflict(why: &str) -> Response {
 /// metadata providers.
 async fn integration_panels(state: &AppState) -> AppResult<Vec<IntegrationPanel>> {
     let rows = engine_store::list(&state.pool).await?;
-    let ids = panels::job_ids(&jobs::registry().list());
+    // An integration's jobs: its loops' and its schedules' in the job runtime, by id.
+    let mut ids = panels::job_ids(&jobs::registry().list());
+    for (of, key) in crate::lifecycle::jobs::integration_keys(&state.config, &state.engines) {
+        ids.entry(of).or_default().push(key);
+    }
+    for keys in ids.values_mut() {
+        keys.sort();
+    }
     let mut out: Vec<IntegrationPanel> = state
         .config
         .integrations
@@ -720,18 +727,30 @@ async fn integration_sync(
         )));
     }
     let jobs = jobs::registry().of_integration(&id);
-    if jobs.is_empty() {
+    // The passes of a manager or a download client are schedules of the job runtime.
+    let scheduled: Vec<String> =
+        crate::lifecycle::jobs::integration_keys(&state.config, &state.engines)
+            .into_iter()
+            .filter(|(of, _)| *of == id)
+            .map(|(_, key)| key)
+            .collect();
+    if jobs.is_empty() && scheduled.is_empty() {
         return Ok(conflict(if state.config.sync.enabled {
             "No job reads this integration."
         } else {
             "Integration sync is off (SINGULARR_SYNC_ENABLED)."
         }));
     }
-    let started: Vec<String> = jobs
+    let mut started: Vec<String> = jobs
         .iter()
         .filter(|j| j.run_now() == RunNow::Started)
         .map(|j| j.spec.id.clone())
         .collect();
+    for key in scheduled {
+        if runtime::run_now(&state.pool, &key).await? == runtime::RunNow::Started {
+            started.push(key);
+        }
+    }
     if started.is_empty() {
         return Ok(conflict(
             "The jobs of this integration are already running.",
@@ -922,11 +941,18 @@ async fn jobs_list(State(state): State<AppState>) -> ApiResult<JobsPanel> {
         .iter()
         .map(|j| job_view(j, &state.config))
         .collect();
-    // The folder scans run in the job runtime: their views come from their schedules.
-    let listed = crate::lifecycle::jobs::listed_keys();
-    for s in runtime::states(&state.pool, state.settings.started(), &listed).await? {
+    // The folder scans and the passes of the managers and download clients run in the job
+    // runtime: their views come from their schedules.
+    let listed = crate::lifecycle::jobs::listed_keys(&state.config, &state.engines);
+    let keys: Vec<&str> = listed.iter().map(String::as_str).collect();
+    for s in runtime::states(&state.pool, state.settings.started(), &keys).await? {
         if let Some(pass) = crate::lifecycle::jobs::listed(&s.key) {
-            views.push(schedule_view(&s, pass));
+            let of = s
+                .integration
+                .as_deref()
+                .map(|id| integration_name(&state.config, id))
+                .unwrap_or_default();
+            views.push(schedule_view(&s, pass, &of));
         }
     }
     views.sort_by(|a, b| a.id.cmp(&b.id));

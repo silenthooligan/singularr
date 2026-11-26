@@ -549,8 +549,9 @@ impl Runtime {
         self
     }
 
-    /// How many workers a queue runs. The design's defaults are sync 4, scan 1, index 1,
-    /// notify 2, default 2.
+    /// How many workers a queue runs. The app gives the sync queue one per schedule and the scan
+    /// queue one per folder scan. The design's defaults for the others are index 1, notify 2,
+    /// default 2.
     pub fn workers(mut self, queue: &str, n: usize) -> Runtime {
         self.queues.insert(queue.to_string(), n.max(1));
         self
@@ -1041,13 +1042,14 @@ async fn heartbeat(pool: PgPool, lease: Lease, edge: watch::Sender<Option<Instan
 }
 
 /// The delay before a periodic schedule runs again after `failures` failed runs in a row:
-/// `min(max(every, 30 min), every x 2^(failures - 1))`, with 10 percent jitter. Its interval
-/// while none failed.
+/// `min(cap, every x 2^(failures - 1))`. The cap is `max(every, min(30 min, 5 x every))`: a 60 s
+/// pass waits 300 s at most, a 900 s pass 1,800 s, a 3,600 s pass its interval. A jitter of 10
+/// percent moves it. Its interval while none failed.
 pub fn backoff(every: Duration, failures: i32, jitter: f64) -> Duration {
     if failures <= 0 {
         return every;
     }
-    let cap = every.max(Duration::from_secs(1800));
+    let cap = every.max(Duration::from_secs(1800).min(every.saturating_mul(5)));
     let grown = every.saturating_mul(1u32 << (failures - 1).clamp(0, 20) as u32);
     let base = grown.min(cap);
     base.mul_f64(0.9 + 0.2 * jitter.clamp(0.0, 1.0))
@@ -1065,12 +1067,19 @@ mod tests {
                 .round() as u64
         };
         assert_eq!(at(30, 0), 30);
+        // Five intervals at most below 30 min: a 30 s pass stops at 150 s, a 60 s pass at 300 s.
         assert_eq!(
-            (1..=8).map(|n| at(30, n)).collect::<Vec<_>>(),
-            vec![30, 60, 120, 240, 480, 960, 1800, 1800]
+            (1..=6).map(|n| at(30, n)).collect::<Vec<_>>(),
+            vec![30, 60, 120, 150, 150, 150]
+        );
+        assert_eq!(
+            (1..=6).map(|n| at(60, n)).collect::<Vec<_>>(),
+            vec![60, 120, 240, 300, 300, 300]
         );
         assert_eq!((at(900, 1), at(900, 2), at(900, 3)), (900, 1800, 1800));
+        // Never below the interval: a 3,600 s pass keeps its interval.
         assert_eq!((at(3600, 1), at(3600, 4)), (3600, 3600));
+        assert_eq!((at(21_600, 1), at(21_600, 3)), (21_600, 21_600));
         // The jitter moves it 10 percent each way.
         let secs = |j: f64| {
             backoff(Duration::from_secs(100), 1, j)

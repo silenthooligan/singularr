@@ -1,18 +1,22 @@
-//! The jobs of the job runtime (`core::runtime`): the three folder scans, the search index and the
-//! notification dispatcher. Their keys, queues and intervals are those of platform design section
-//! 4.8. The integrations' loops keep running on their own until they move (B9b, B9c).
+//! The jobs of the job runtime (`core::runtime`): the three folder scans, the search index, the
+//! notification dispatcher (B9a) and, with the sync, the passes of the managers and the download
+//! clients (B9b). Their keys, queues and intervals are those of platform design section 4.8. The
+//! other integrations' loops keep running on their own until they move (B9c, B9d).
 //!
 //! The runtime runs on a pool of its own ([`connections`]). The handlers write on the app's pool.
-//! The folder scans write through a journal fenced by their run's lease: a scan whose lease is
-//! lost commits nothing. The index and the dispatcher write what their next run writes again:
-//! the whole index, deliveries keyed by channel and event. None of these jobs reads an
-//! integration. They write no pass row (`integration_health`).
+//! The folder scans and the sync's passes write through a journal fenced by their run's lease: a
+//! run whose lease is lost commits nothing. A sync pass ends its job in the transaction that
+//! writes its pass row (`integration_health`). The index and the dispatcher write what their next
+//! run writes again: the whole index, deliveries keyed by channel and event. They read no
+//! integration and write no pass row.
 
 use crate::core::config::Config;
 use crate::core::journal::Journal;
 use crate::core::runtime::{self, Running, Runtime, Schedule, Source, Timing};
+use crate::engines::service::EngineSet;
 use crate::homemovies::service::{self as homemovies, HomeMovies};
-use crate::lifecycle::sync;
+use crate::lifecycle::claims;
+use crate::lifecycle::sync::{self, SyncJobs};
 use crate::metadata::service::ProviderSet;
 use crate::music::service::{self as music, MusicLibrary};
 use crate::notify::service::{self as notify, Describe, Notifier};
@@ -27,41 +31,104 @@ use tokio::task::JoinHandle;
 /// The lease of each of these jobs. The heartbeat renews it every third of it.
 const LEASE: Duration = Duration::from_secs(120);
 
-/// The workers of each queue. The scan queue has one for each folder scan: a scan asked for from
-/// the API never waits behind another folder's scan. The others are the design's defaults
-/// (section 4.2).
+/// The workers of each queue but the sync's. The scan queue has one for each folder scan: a scan
+/// asked for from the API never waits behind another folder's scan. The others are the design's
+/// defaults (section 4.2).
 pub const WORKERS: [(&str, usize); 3] = [("scan", 3), ("index", 1), ("notify", 2)];
 
-/// The size of the runtime's own pool for these workers.
-pub fn connections() -> u32 {
-    runtime::connections(WORKERS.iter().map(|(_, n)| n).sum())
+/// The passes of the sync, by the names their loops had: what each reads, its job's kind, the
+/// setting of its interval.
+const SYNC_PASSES: [(&str, &str, &str); 4] = [
+    ("titles", sync::TITLES, "jobs.titles"),
+    ("queue", sync::QUEUE, "jobs.queue"),
+    ("history", sync::HISTORY, "jobs.history"),
+    ("downloads", sync::DOWNLOADS, "jobs.downloads"),
+];
+
+/// The workers of every queue. The sync queue has one for each of its schedules, as each pass had a
+/// loop of its own: a download client's pass never waits behind a manager's titles.
+pub fn workers(sync: Option<&EngineSet>) -> Vec<(&'static str, usize)> {
+    let mut out = WORKERS.to_vec();
+    let passes = sync.map(|e| 3 * e.arrs.len() + e.download_clients.len());
+    if let Some(n) = passes.filter(|n| *n > 0) {
+        out.push(("sync", n));
+    }
+    out
 }
 
-/// The schedules the Jobs page lists, each with the pass its loop was named by: the folder scans.
-/// The search index and the dispatcher are not listed: `GET /api/v1/jobs` keeps its ids.
+/// The size of the runtime's own pool for these workers.
+pub fn connections(sync: Option<&EngineSet>) -> u32 {
+    runtime::connections(workers(sync).iter().map(|(_, n)| n).sum())
+}
+
+/// The folder scans the Jobs page lists, each with the pass its loop was named by.
 const LISTED: [(&str, &str); 3] = [
     (sync::MOVIE_FOLDERS_JOB, "movie-folders"),
     (music::JOB, "music"),
     (homemovies::JOB, "home-movies"),
 ];
 
-/// The keys of the schedules the Jobs page lists.
-pub fn listed_keys() -> Vec<&'static str> {
-    LISTED.iter().map(|(key, _)| *key).collect()
+/// The keys of the schedules the Jobs page lists: the folder scans and, with the sync on, the
+/// passes of each manager and download client. The search index and the dispatcher are not
+/// listed: `GET /api/v1/jobs` keeps the ids of the loops.
+pub fn listed_keys(config: &Config, engines: &EngineSet) -> Vec<String> {
+    let mut keys: Vec<String> = LISTED.iter().map(|(key, _)| key.to_string()).collect();
+    keys.extend(
+        integration_keys(config, engines)
+            .into_iter()
+            .map(|(_, key)| key),
+    );
+    keys
 }
 
-/// The pass a listed schedule is named by: `music` for `folder:music`. `None` for a schedule the
-/// Jobs page does not list.
+/// The keys of the schedules that read an integration, each with that integration: the passes of
+/// the managers and the download clients while the sync is on.
+pub fn integration_keys(config: &Config, engines: &EngineSet) -> Vec<(String, String)> {
+    if !config.sync.enabled {
+        return Vec::new();
+    }
+    sync_keys(engines)
+        .into_iter()
+        .map(|(key, integration, _)| (integration, key))
+        .collect()
+}
+
+/// The pass a listed schedule is named by: `music` for `folder:music`, `queue` for
+/// `radarr:queue`. `None` for a schedule the Jobs page does not list.
 pub fn listed(key: &str) -> Option<&'static str> {
-    LISTED
+    if let Some((_, pass)) = LISTED.iter().find(|(listed, _)| *listed == key) {
+        return Some(*pass);
+    }
+    let (integration, pass) = key.rsplit_once(':')?;
+    if integration.is_empty() || integration == "folder" || integration == "singularr" {
+        return None;
+    }
+    SYNC_PASSES
         .iter()
-        .find(|(listed, _)| *listed == key)
-        .map(|(_, pass)| *pass)
+        .find(|(name, ..)| *name == pass)
+        .map(|(name, ..)| *name)
 }
 
-/// The schedules of this configuration. The movie folders have none without roots. An interval's
-/// source is its setting's: the variable when one is set.
-pub fn schedules(config: &Config, settings: &Settings) -> Vec<Schedule> {
+/// The sync's schedule keys of these engines, each with its integration and its pass.
+fn sync_keys(engines: &EngineSet) -> Vec<(String, String, &'static str)> {
+    let mut out = Vec::new();
+    for arr in &engines.arrs {
+        let id = &arr.engine().id;
+        for pass in ["titles", "queue", "history"] {
+            out.push((format!("{id}:{pass}"), id.clone(), pass));
+        }
+    }
+    for client in &engines.download_clients {
+        let id = client.id();
+        out.push((format!("{id}:downloads"), id.to_string(), "downloads"));
+    }
+    out
+}
+
+/// The schedules of this configuration. The movie folders have none without roots. The sync's
+/// passes have one each when `sync` gives the engines. An interval's source is its setting's: the
+/// variable when one is set.
+pub fn schedules(config: &Config, settings: &Settings, sync: Option<&EngineSet>) -> Vec<Schedule> {
     let source = |setting: &str| {
         if settings.env_of(setting).is_some() {
             Source::Environment
@@ -136,6 +203,35 @@ pub fn schedules(config: &Config, settings: &Settings) -> Vec<Schedule> {
         lease: LEASE,
         source: Source::Default,
     });
+    // Each pass of the sync after each start within its jitter, as its loop ran. The floors are
+    // those of their settings.
+    for (key, integration, pass) in sync.map(sync_keys).unwrap_or_default() {
+        let s = &config.sync;
+        let (every, floor) = match pass {
+            "titles" => (s.titles, 60),
+            "queue" => (s.queue, 15),
+            "history" => (s.history, 60),
+            _ => (s.downloads, 10),
+        };
+        let (_, kind, setting) = SYNC_PASSES
+            .iter()
+            .find(|(name, ..)| *name == pass)
+            .copied()
+            .unwrap_or(SYNC_PASSES[3]);
+        out.push(Schedule {
+            key,
+            kind: kind.to_string(),
+            integration: Some(integration),
+            queue: "sync".to_string(),
+            every,
+            floor: Duration::from_secs(floor),
+            first: Duration::ZERO,
+            jitter: s.jitter,
+            on_start: true,
+            lease: LEASE,
+            source: source(setting),
+        });
+    }
     out
 }
 
@@ -154,6 +250,8 @@ pub struct JobsDeps {
     pub metadata: Arc<ProviderSet>,
     pub notify: Notifier,
     pub describe: Arc<dyn Describe>,
+    /// The sync's passes, when the sync runs (`SINGULARR_SYNC_ENABLED`).
+    pub sync: Option<Arc<SyncJobs>>,
 }
 
 /// The jobs of this process: the runtime and the triggers that ask it for runs after events.
@@ -176,7 +274,8 @@ impl Jobs {
 
 /// Write the schedules, then start the runtime with their handlers and workers. The triggers ask
 /// for a pass of the index 30 s after a library event. They ask for a round of the dispatcher
-/// after each commit.
+/// after each commit. With the sync, the claims and markers of an arr the configuration no longer
+/// runs go first.
 pub async fn start(config: &Config, deps: JobsDeps) -> Result<Jobs, sqlx::Error> {
     start_with(config, deps, Timing::default()).await
 }
@@ -190,7 +289,22 @@ pub async fn start_with(
     if config.movie_folders.roots.is_empty() {
         tracing::info!("SINGULARR_MOVIE_ROOTS is empty: the movie folders are not scanned");
     }
-    Runtime::reconcile(&deps.pool, &schedules(config, &deps.settings)).await?;
+    let engines = deps.sync.as_ref().map(|s| s.deps.engines.clone());
+    if let Some(engines) = &engines {
+        let arrs: Vec<String> = engines.arrs.iter().map(|e| e.engine().id.clone()).collect();
+        match claims::keep_managers(&deps.pool, &arrs).await? {
+            0 => {}
+            n => tracing::info!(
+                rows = n,
+                "the claims of managers this process does not run were removed"
+            ),
+        }
+    }
+    Runtime::reconcile(
+        &deps.pool,
+        &schedules(config, &deps.settings, engines.as_deref()),
+    )
+    .await?;
     let mut runtime = Runtime::new(deps.runtime.clone(), timing)
         .handle(
             "scan.movies",
@@ -232,7 +346,14 @@ pub async fn start_with(
                 describe: deps.describe.clone(),
             }),
         );
-    for (queue, n) in WORKERS {
+    if let Some(jobs) = &deps.sync {
+        runtime = runtime
+            .handle(sync::TITLES, Arc::new(sync::TitlesJob(jobs.clone())))
+            .handle(sync::QUEUE, Arc::new(sync::QueueJob(jobs.clone())))
+            .handle(sync::HISTORY, Arc::new(sync::HistoryJob(jobs.clone())))
+            .handle(sync::DOWNLOADS, Arc::new(sync::DownloadsJob(jobs.clone())));
+    }
+    for (queue, n) in workers(engines.as_deref()) {
         runtime = runtime.workers(queue, n);
     }
     let running = runtime.start();
@@ -257,7 +378,7 @@ mod tests {
         ]);
         let config = Config::from(&env).unwrap();
         let settings = Settings::new(&config, &env, None);
-        let all = schedules(&config, &settings);
+        let all = schedules(&config, &settings, None);
         let keys: Vec<(&str, &str, &str, u64)> = all
             .iter()
             .map(|s| {
@@ -290,7 +411,16 @@ mod tests {
             (listed("folder:music"), listed("singularr:index")),
             (Some("music"), None)
         );
-        assert_eq!(connections(), 15);
+        assert_eq!(
+            (
+                listed("radarr-4k:history"),
+                listed("qbittorrent:downloads"),
+                listed("plex:server"),
+                listed("folder:titles")
+            ),
+            (Some("history"), Some("downloads"), None, None)
+        );
+        assert_eq!(connections(None), 15);
 
         let without_roots = Config::from(&BTreeMap::from([(
             "DATABASE_URL",
@@ -299,7 +429,7 @@ mod tests {
         .unwrap();
         let settings = Settings::new(&without_roots, &env, None);
         assert!(
-            schedules(&without_roots, &settings)
+            schedules(&without_roots, &settings, None)
                 .iter()
                 .all(|s| s.key != "folder:movie-folders")
         );

@@ -649,13 +649,13 @@ pub static SECTIONS: &[Section] = &[
                     .restart(),
                     Field::new(
                         "jobs.historyPages",
-                        "Grab history pages at start",
+                        "Grab history pages per read",
                         Kind::Number {
                             min: 1,
                             max: 400,
                             unit: Some("pages"),
                         },
-                        "250 grabs per page",
+                        "At most; 250 grabs per page",
                     )
                     .by_default(Fallback::Int(40))
                     .env(&["SINGULARR_SYNC_HISTORY_MAX_PAGES"])

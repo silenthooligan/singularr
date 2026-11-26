@@ -8,7 +8,8 @@ pub mod model;
 
 #[cfg(feature = "ssr")]
 pub use singularr_platform::{
-    auth, error, http, identity, jobs, journal, media, observe, outbound, runtime, smtp, store,
+    auth, error, http, identity, jobs, journal, markers, media, observe, outbound, runtime, smtp,
+    store,
 };
 
 #[cfg(feature = "ssr")]

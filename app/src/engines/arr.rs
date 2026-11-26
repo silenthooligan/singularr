@@ -27,9 +27,10 @@
 use super::access::Action;
 use super::model::ArrParse;
 use super::{
-    ArrNaming, CalendarEntry, EngineError, EngineInfo, EpisodeRef, FoundRelease, GrabPage,
-    HistoryEntry, ImportFile, ImportMode, LibraryEngine, ManagerAct, ManagerActed, ManagerEpisode,
-    QueueEntry, QueueItem, ReleaseScope, WantedEntry, WantedPage,
+    ArrNaming, CalendarEntry, EngineError, EngineInfo, EpisodeRef, FormatBook, FormatChanges,
+    FoundRelease, GrabPage, HistoryEntry, ImportFile, ImportMode, KnownFormats, LibraryEngine,
+    ManagerAct, ManagerActed, ManagerEpisode, QueueEntry, QueueItem, ReleaseScope, WantedEntry,
+    WantedPage,
 };
 use crate::catalog::ingest::{EngineRef, FileFacts, SeasonFacts, TitleFacts};
 use crate::catalog::model::{TitleAbout, TitleKind};
@@ -45,8 +46,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use singularr_core::naming::parse_library_name;
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Queue items asked for per page, and the most pages read in one pass.
 const QUEUE_PAGE: u32 = 500;
@@ -1574,90 +1574,85 @@ fn queue_entry(raw: RawQueueItem) -> Option<QueueEntry> {
     })
 }
 
-/// What `/moviefile` said about one file, and the facts of the file it was said about.
-struct FileFormats {
-    key: String,
-    formats: Vec<String>,
-    score: Option<i32>,
-}
-
-#[derive(Default)]
-struct FormatCache {
-    by_file: HashMap<i64, FileFormats>,
-    refreshed: Option<Instant>,
-}
-
 pub struct Radarr {
     client: ArrClient,
-    formats: Mutex<FormatCache>,
 }
 
 impl Radarr {
     pub fn new(client: ArrClient) -> Self {
-        Radarr {
-            client,
-            formats: Mutex::new(FormatCache::default()),
-        }
+        Radarr { client }
     }
 
     /// Fill in each file's custom formats and score. `titles` pairs a movie id with its file.
-    async fn fill_formats(&self, titles: &mut [TitleFacts]) -> Result<(), EngineError> {
-        let key =
-            |f: &FileFacts| format!("{}|{}|{:?}", f.relative_path, f.size_bytes, f.date_added);
-        // Which movies to ask about: every one when the cache is old, else those whose file
-        // is not known or has changed.
-        let wanted: Vec<i64> = {
-            let mut cache = self.formats.lock().unwrap();
-            if cache
-                .refreshed
-                .is_none_or(|at| at.elapsed() >= FORMATS_REFRESH)
-            {
-                cache.by_file.clear();
-                cache.refreshed = Some(Instant::now());
-            }
-            titles
-                .iter()
-                .filter(|t| {
-                    t.files.iter().flatten().any(|f| {
-                        cache
-                            .by_file
-                            .get(&f.engine_file_id)
-                            .is_none_or(|known| known.key != key(f))
-                    })
-                })
-                .map(|t| t.engine_title_id)
-                .collect()
+    /// `book` holds what earlier reads were told (`manager_file_formats`). Every movie with a file
+    /// is asked about when the book is older than [`FORMATS_REFRESH`]. Otherwise only the movies
+    /// whose file the book does not know or whose file changed. Returns what changed in the book.
+    async fn fill_formats(
+        &self,
+        titles: &mut [TitleFacts],
+        book: &FormatBook,
+        now: DateTime<Utc>,
+    ) -> Result<FormatChanges, EngineError> {
+        let key = |f: &FileFacts| {
+            let added = f.date_added.map(|at| at.to_rfc3339()).unwrap_or_default();
+            format!("{}|{}|{added}", f.relative_path, f.size_bytes)
         };
+        let stale = book.refreshed_at.is_none_or(|at| {
+            chrono::Duration::from_std(FORMATS_REFRESH).is_ok_and(|refresh| now - at >= refresh)
+        });
+        // What the book knows of a file that is still as it was. A stale book knows nothing.
+        let known = |f: &FileFacts| {
+            book.files
+                .get(&f.engine_file_id)
+                .filter(|k| !stale && k.key == key(f))
+        };
+        let wanted: Vec<i64> = titles
+            .iter()
+            .filter(|t| t.files.iter().flatten().any(|f| known(f).is_none()))
+            .map(|t| t.engine_title_id)
+            .collect();
         let fetched = self.client.movie_files(&wanted).await?;
-        let mut cache = self.formats.lock().unwrap();
+        let mut changes = FormatChanges {
+            refreshed_at: stale.then_some(now),
+            ..FormatChanges::default()
+        };
         for file in titles.iter_mut().flat_map(|t| t.files.iter_mut().flatten()) {
-            if let Some(raw) = fetched.get(&file.engine_file_id) {
-                cache.by_file.insert(
-                    file.engine_file_id,
-                    FileFormats {
-                        key: key(file),
-                        formats: raw
-                            .custom_formats
-                            .iter()
-                            .filter_map(|n| text(n.name.clone()))
-                            .collect(),
-                        score: raw.custom_format_score,
-                    },
-                );
-            }
-            if let Some(known) = cache.by_file.get(&file.engine_file_id) {
-                file.arr_custom_formats = known.formats.clone();
-                file.arr_score = known.score;
+            let told = fetched.get(&file.engine_file_id).map(|raw| KnownFormats {
+                key: key(file),
+                formats: raw
+                    .custom_formats
+                    .iter()
+                    .filter_map(|n| text(n.name.clone()))
+                    .collect(),
+                score: raw.custom_format_score,
+            });
+            let entry = match told {
+                Some(told) => {
+                    if book.files.get(&file.engine_file_id) != Some(&told) {
+                        changes.put.insert(file.engine_file_id, told.clone());
+                    }
+                    Some(told)
+                }
+                None => known(file).cloned(),
+            };
+            if let Some(entry) = entry {
+                file.arr_custom_formats = entry.formats;
+                file.arr_score = entry.score;
             }
         }
-        // Files that are gone need no entry.
+        // The entries of files that are gone go. A stale book keeps what this read was told.
         let listed: std::collections::HashSet<i64> = titles
             .iter()
             .flat_map(|t| t.files.iter().flatten())
             .map(|f| f.engine_file_id)
             .collect();
-        cache.by_file.retain(|id, _| listed.contains(id));
-        Ok(())
+        changes.gone = book
+            .files
+            .keys()
+            .copied()
+            .filter(|id| !listed.contains(id) || (stale && !fetched.contains_key(id)))
+            .collect();
+        Ok(changes)
     }
 }
 
@@ -1672,6 +1667,13 @@ impl LibraryEngine for Radarr {
     }
 
     async fn titles(&self) -> Result<Vec<TitleFacts>, EngineError> {
+        Ok(self.titles_with(&FormatBook::default()).await?.0)
+    }
+
+    async fn titles_with(
+        &self,
+        book: &FormatBook,
+    ) -> Result<(Vec<TitleFacts>, FormatChanges), EngineError> {
         let tags = self.client.tags().await?;
         let profiles = self.client.profiles().await?;
         let movies: Vec<RawMovie> = self.client.get("movies", "/movie").await?;
@@ -1744,8 +1746,8 @@ impl LibraryEngine for Radarr {
                 }
             })
             .collect();
-        self.fill_formats(&mut titles).await?;
-        Ok(titles)
+        let changes = self.fill_formats(&mut titles, book, Utc::now()).await?;
+        Ok((titles, changes))
     }
 
     async fn files(&self, _engine_title_id: i64) -> Result<Vec<FileFacts>, EngineError> {
@@ -2277,17 +2279,43 @@ mod tests {
         assert_eq!(asked.len(), 1);
         assert!(asked[0].ends_with("/api/v3/moviefile?movieId=2877&movieId=3001"));
 
-        // The next pass finds the same files and does not ask about them again.
-        let again = engine.titles().await.unwrap();
-        assert_eq!(again[0].files.as_ref().unwrap()[0].arr_score, Some(1250));
-        assert_eq!(
+        // A read with an empty book asks about both files. It returns their entries and the time
+        // of the refresh.
+        let moviefile_calls = || {
             recorded
                 .urls_seen()
                 .iter()
                 .filter(|u| u.contains("/moviefile"))
-                .count(),
-            1
-        );
+                .count()
+        };
+        let (_, kept) = engine.titles_with(&FormatBook::default()).await.unwrap();
+        assert_eq!((kept.put.len(), kept.gone.len()), (2, 0));
+        assert!(kept.refreshed_at.is_some());
+        assert_eq!(moviefile_calls(), 2);
+        // With that book the next read finds the same files and does not ask about them again.
+        let book = FormatBook {
+            files: kept.put.clone(),
+            refreshed_at: kept.refreshed_at,
+        };
+        let (again, none) = engine.titles_with(&book).await.unwrap();
+        assert_eq!(again[0].files.as_ref().unwrap()[0].arr_score, Some(1250));
+        assert_eq!(none, FormatChanges::default());
+        assert_eq!(moviefile_calls(), 2);
+        // A file the manager no longer lists leaves the book.
+        let mut more = book.clone();
+        more.files
+            .insert(9999, kept.put.values().next().unwrap().clone());
+        let (_, tidied) = engine.titles_with(&more).await.unwrap();
+        assert_eq!((tidied.gone, moviefile_calls()), (vec![9999], 2));
+        // A book older than its refresh asks about every file again. Entries as they were stay.
+        let stale = FormatBook {
+            refreshed_at: Some(Utc::now() - chrono::Duration::hours(7)),
+            ..book
+        };
+        let (_, renewed) = engine.titles_with(&stale).await.unwrap();
+        assert_eq!((renewed.put.len(), renewed.gone.len()), (0, 0));
+        assert!(renewed.refreshed_at.is_some());
+        assert_eq!(moviefile_calls(), 3);
 
         assert!(recorded.methods_seen().iter().all(|m| *m == Method::Get));
         assert!(

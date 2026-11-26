@@ -547,7 +547,7 @@ fn a_schedule_reads_as_its_loop_did() {
         open: None,
         runs: 0,
     };
-    let v = schedule_view(&s, "music");
+    let v = schedule_view(&s, "music", "");
     assert_eq!(
         (
             v.id.as_str(),
@@ -573,7 +573,7 @@ fn a_schedule_reads_as_its_loop_did() {
     s.last_took_ms = Some(12);
     s.open = Some("running".into());
     s.runs = 2;
-    let v = schedule_view(&s, "music");
+    let v = schedule_view(&s, "music", "");
     assert_eq!(
         (
             v.last_result.as_deref(),
@@ -593,5 +593,13 @@ fn a_schedule_reads_as_its_loop_did() {
             false,
             2
         )
+    );
+    // A pass of an integration reads with the integration's name, as its loop's job did.
+    s.key = "radarr:queue".into();
+    s.integration = Some("radarr".into());
+    let v = schedule_view(&s, "queue", "Radarr");
+    assert_eq!(
+        (v.id.as_str(), v.label.as_str(), v.integration.as_deref()),
+        ("radarr:queue", "Radarr download queue", Some("radarr"))
     );
 }

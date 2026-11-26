@@ -22,7 +22,7 @@ use crate::core::config::{
 };
 use crate::core::error::{AppError, AppResult};
 use crate::core::geoip::{self, GeoIp};
-use crate::core::journal::{Journal, event};
+use crate::core::journal::{Journal, JournalTx, event};
 use crate::core::observe;
 use crate::core::outbound::{Allowlist, Calls, Outbound, OutboundError};
 use crate::core::units;
@@ -483,14 +483,30 @@ impl EngineSet {
         pass: &'static str,
         outcome: Result<PassOk, String>,
     ) -> Result<(), sqlx::Error> {
+        let mut tx = journal.begin(pool).await?;
+        let now_ok = self.report_in(&mut tx, engine, pass, &outcome).await?;
+        tx.commit().await?;
+        observe::engine_up(engine, now_ok);
+        Ok(())
+    }
+
+    /// [`EngineSet::report`] in the caller's transaction: a job writes its pass's last data, the
+    /// pass row and its own end in one commit. Returns whether the engine is up after it. The
+    /// caller sets the gauge (`observe::engine_up`) once it committed.
+    pub async fn report_in(
+        &self,
+        tx: &mut JournalTx,
+        engine: &str,
+        pass: &'static str,
+        outcome: &Result<PassOk, String>,
+    ) -> Result<bool, sqlx::Error> {
         let (kind, library) = self
             .slot(engine)
             .map(|s| (s.kind.clone(), s.library.clone()))
             .unwrap_or_else(|| (engine.to_string(), None));
 
-        let mut tx = journal.begin(pool).await?;
         let before = store::was_ok(tx.conn(), engine).await?;
-        match &outcome {
+        match outcome {
             Ok(ok) => {
                 let latency = i32::try_from(ok.took.as_millis()).unwrap_or(i32::MAX);
                 store::record_ok(
@@ -515,7 +531,7 @@ impl EngineSet {
             .unwrap_or(outcome.is_ok());
         // A turn comes from this pass: up only when it succeeded, down only when it failed.
         if before != Some(now_ok) {
-            let (kind_of_event, body) = match &outcome {
+            let (kind_of_event, body) = match outcome {
                 Ok(ok) => (
                     "engine_up",
                     json!({ "engine": engine, "pass": pass, "version": ok.version, "first_contact": before.is_none() }),
@@ -534,9 +550,7 @@ impl EngineSet {
             ))
             .await?;
         }
-        tx.commit().await?;
-        observe::engine_up(engine, now_ok);
-        Ok(())
+        Ok(now_ok)
     }
 }
 

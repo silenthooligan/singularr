@@ -920,6 +920,14 @@ fn job_words(pass: &str, of: &str) -> (String, String) {
     (label, reads.to_string())
 }
 
+/// An integration's name, as a job's label says it: its id when the configuration has none.
+pub fn integration_name(config: &Config, id: &str) -> String {
+    config
+        .integration(id)
+        .map(|i| i.name.clone())
+        .unwrap_or_else(|| id.to_string())
+}
+
 /// One job's view. Pure.
 pub fn job_view(job: &Job, config: &Config) -> JobView {
     let s = job.state();
@@ -927,12 +935,7 @@ pub fn job_view(job: &Job, config: &Config) -> JobView {
         .spec
         .integration
         .as_deref()
-        .map(|id| {
-            config
-                .integration(id)
-                .map(|i| i.name.clone())
-                .unwrap_or_else(|| id.to_string())
-        })
+        .map(|id| integration_name(config, id))
         .unwrap_or_default();
     let (label, description) = job_words(&job.spec.pass, &of);
     JobView {
@@ -955,9 +958,9 @@ pub fn job_view(job: &Job, config: &Config) -> JobView {
 }
 
 /// One schedule of the job runtime in the shape of a loop's job, named by the pass its loop
-/// had. Pure.
-pub fn schedule_view(s: &ScheduleState, pass: &str) -> JobView {
-    let (label, description) = job_words(pass, "");
+/// had and the name of the integration it reads (`of`, empty for a folder scan). Pure.
+pub fn schedule_view(s: &ScheduleState, pass: &str, of: &str) -> JobView {
+    let (label, description) = job_words(pass, of);
     let failed = s.last_error.is_some();
     JobView {
         id: s.key.clone(),

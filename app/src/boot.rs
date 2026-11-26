@@ -365,11 +365,13 @@ async fn serve_owner() -> Result<(), String> {
 
     // The job runtime: the three folder scans, the search index and the notification dispatcher,
     // whether or not the sync runs. The scans read mounts. The index and the dispatcher read
-    // Singularr's own tables. The runtime's own statements have a pool of their own: a heartbeat
-    // never waits behind a query of the app.
+    // Singularr's own tables. With the sync it runs the passes of the managers and the download
+    // clients too. The runtime's own statements have a pool of their own: a heartbeat never waits
+    // behind a query of the app.
+    let sync_engines = sync.as_ref().map(|_| engines.as_ref());
     let runtime_pool = db::connect_url(
         &config.bootstrap.database_url,
-        singularr::lifecycle::jobs::connections(),
+        singularr::lifecycle::jobs::connections(sync_engines),
     )
     .await
     .map_err(|e| format!("the job runtime could not reach the database: {e}"))?;
@@ -391,6 +393,7 @@ async fn serve_owner() -> Result<(), String> {
                 &config,
                 settings.clone(),
             )),
+            sync: sync.as_ref().map(|s| s.jobs()),
         },
     )
     .await
